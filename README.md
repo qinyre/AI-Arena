@@ -14,11 +14,11 @@
 AI Arena 是一个让AI模型进行社交推理和博弈的实验平台。观看不同的LLM（Claude、GPT、Gemini、本地模型）在狼人杀等社交推理游戏中互相对抗，分析它们的策略和推理能力。
 
 **核心特色**:
-- 🤖 **多模型支持**: OpenAI、Ollama等，灵活配置
+- 🤖 **多模型支持**: OpenAI、Anthropic Claude、Ollama等，灵活配置
 - 🎭 **社交推理**: AI需要理解欺骗、信任、联盟等复杂概念
 - 🔒 **确定性内核**: 严格的游戏规则引擎，防止模型幻觉
 - 📊 **完整记录**: 所有对局可复现，记录模型版本、提示词、种子
-- 👀 **实时观战**: WebSocket实时推送游戏事件
+- 👀 **实时观战**: WebSocket实时推送游戏事件（开发中）
 - 🆓 **开源**: MIT协议，欢迎贡献
 
 ---
@@ -30,17 +30,24 @@ AI Arena 是一个让AI模型进行社交推理和博弈的实验平台。观看
 ### 已实现
 - [x] 项目结构搭建
 - [x] 技术文档和研究资料
-- [ ] 游戏引擎核心
-- [ ] AI智能体框架
-- [ ] LLM集成
+- [x] 游戏引擎核心（完整5人狼人杀）
+- [x] AI智能体框架
+- [x] LLM集成（OpenAI + Anthropic + Ollama）
+- [x] 游戏编排器
+- [x] 端到端测试
 - [ ] WebSocket观战系统
 - [ ] Web前端
 
 ### MVP功能
 - 5人局：1狼人 + 1预言家 + 3村民
-- OpenAI兼容接口（支持OpenAI和Ollama）
+- 三大LLM提供商：OpenAI、Anthropic、Ollama
 - 结构化动作协议（防止越权）
-- 朴素Web观战界面
+- 朴素Web观战界面（开发中）
+
+**支持的模型**:
+- **OpenAI**: GPT-4o, GPT-4o-mini, GPT-3.5-turbo
+- **Anthropic**: Claude 3.5 Sonnet, Claude 3.5 Haiku, Claude 3 Opus
+- **Ollama**: Llama 3.2, Llama 3.1, Mistral 7B（本地运行，免费）
 
 ---
 
@@ -74,8 +81,10 @@ npm install
 # 复制配置文件
 cp backend/.env.example backend/.env
 
-# 编辑配置
-# 添加 OPENAI_API_KEY (如果使用OpenAI)
+# 编辑配置，添加API Key
+# OPENAI_API_KEY=sk-... (如果使用OpenAI)
+# ANTHROPIC_API_KEY=sk-ant-... (如果使用Claude)
+# 或使用Ollama本地模型（无需API key）
 ```
 
 ### 运行
@@ -144,9 +153,9 @@ npm run dev
 
 **技术栈**:
 - **后端**: Python 3.11, FastAPI, SQLAlchemy, SQLite
-- **前端**: React 18, TypeScript, Vite, Tailwind CSS
-- **LLM**: OpenAI API, Ollama (本地)
-- **通信**: WebSocket (实时), REST API (配置)
+- **前端**: React 18, TypeScript, Vite, Tailwind CSS（开发中）
+- **LLM**: OpenAI API, Anthropic API, Ollama (本地)
+- **通信**: WebSocket (实时，开发中), REST API
 
 ---
 

@@ -32,23 +32,28 @@
 
 ### 下一步计划
 
-**Week 2: 游戏引擎核心**
-- [ ] WerewolfGame完整实现
-- [ ] 信息过滤机制
-- [ ] 动作验证系统
-- [ ] 单元测试
+**Week 2: 游戏引擎核心** ✅ 已完成
+- [x] WerewolfGame完整实现
+- [x] 信息过滤机制
+- [x] 动作验证系统
+- [x] AIAgent核心类
+- [x] OpenAI客户端
+- [x] Ollama客户端
+- [x] Prompt工程
+- [x] GameOrchestrator编排器
+- [x] 端到端测试脚本
 
-**Week 3: AI智能体和LLM集成**
-- [ ] AIAgent核心类
-- [ ] OpenAI客户端
-- [ ] Ollama客户端
-- [ ] Prompt工程
-
-**Week 4: WebSocket和前端**
+**Week 3: WebSocket和前端** (进行中)
 - [ ] 事件总线
 - [ ] WebSocket服务
-- [ ] React前端
-- [ ] 实时观战
+- [ ] React前端基础
+- [ ] 实时观战界面
+
+**Week 4: 完善和测试**
+- [ ] 数据库持久化
+- [ ] 错误处理优化
+- [ ] 文档完善
+- [ ] MVP验收
 
 ### 关键决策记录
 

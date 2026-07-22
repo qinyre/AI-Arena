@@ -45,11 +45,20 @@ class GameOrchestrator:
             # 创建LLM客户端
             if model_config["provider"] == "openai":
                 import os
+                from app.llm.openai_client import OpenAIClient
                 client = OpenAIClient(
                     api_key=os.getenv("OPENAI_API_KEY"),
                     model=model_config["model"]
                 )
+            elif model_config["provider"] == "anthropic":
+                import os
+                from app.llm.claude_client import ClaudeClient
+                client = ClaudeClient(
+                    api_key=os.getenv("ANTHROPIC_API_KEY"),
+                    model=model_config["model"]
+                )
             elif model_config["provider"] == "ollama":
+                from app.llm.openai_client import OllamaClient
                 client = OllamaClient(
                     model=model_config["model"]
                 )

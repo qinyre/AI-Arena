@@ -23,6 +23,26 @@ providers:
         cost_per_1k_output: 0.0015
         context_window: 16385
 
+  anthropic:
+    models:
+      - id: "claude-3-5-sonnet-20241022"
+        display_name: "Claude 3.5 Sonnet"
+        cost_per_1k_input: 0.003
+        cost_per_1k_output: 0.015
+        context_window: 200000
+
+      - id: "claude-3-5-haiku-20241022"
+        display_name: "Claude 3.5 Haiku"
+        cost_per_1k_input: 0.001
+        cost_per_1k_output: 0.005
+        context_window: 200000
+
+      - id: "claude-3-opus-20240229"
+        display_name: "Claude 3 Opus"
+        cost_per_1k_input: 0.015
+        cost_per_1k_output: 0.075
+        context_window: 200000
+
   ollama:
     api_base: "http://localhost:11434/v1"
     models:

@@ -1,0 +1,50 @@
+# Model Configuration
+# This file defines available LLM providers and models
+
+providers:
+  openai:
+    api_base: "https://api.openai.com/v1"
+    models:
+      - id: "gpt-4o-2024-05-13"
+        display_name: "GPT-4o"
+        cost_per_1k_input: 0.005
+        cost_per_1k_output: 0.015
+        context_window: 128000
+
+      - id: "gpt-4o-mini"
+        display_name: "GPT-4o Mini"
+        cost_per_1k_input: 0.00015
+        cost_per_1k_output: 0.0006
+        context_window: 128000
+
+      - id: "gpt-3.5-turbo"
+        display_name: "GPT-3.5 Turbo"
+        cost_per_1k_input: 0.0005
+        cost_per_1k_output: 0.0015
+        context_window: 16385
+
+  ollama:
+    api_base: "http://localhost:11434/v1"
+    models:
+      - id: "llama3.2"
+        display_name: "Llama 3.2"
+        cost_per_1k_input: 0.0
+        cost_per_1k_output: 0.0
+        context_window: 8192
+
+      - id: "llama3.1"
+        display_name: "Llama 3.1"
+        cost_per_1k_input: 0.0
+        cost_per_1k_output: 0.0
+        context_window: 128000
+
+      - id: "mistral"
+        display_name: "Mistral 7B"
+        cost_per_1k_input: 0.0
+        cost_per_1k_output: 0.0
+        context_window: 32768
+
+# Default model for MVP
+default:
+  provider: "openai"
+  model: "gpt-4o-mini"

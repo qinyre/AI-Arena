@@ -104,6 +104,10 @@ async def list_providers():
 # app.include_router(game.router, prefix="/api/games", tags=["games"])
 # app.include_router(websocket.router, prefix="/ws", tags=["websocket"])
 
+# 游戏管理 API(对应前端 client.ts 的全部调用)
+from app.api.routes import router as games_router
+app.include_router(games_router, prefix="/api/games", tags=["games"])
+
 
 if __name__ == "__main__":
     import uvicorn

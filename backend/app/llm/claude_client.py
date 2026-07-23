@@ -17,7 +17,7 @@ class ClaudeClient(ModelClient):
     def __init__(
         self,
         api_key: str,
-        model: str = "claude-sonnet-4-5",
+        model: str = "claude-sonnet-5",
         cost_per_1m_input: float = 3.0,
         cost_per_1m_output: float = 15.0
     ):

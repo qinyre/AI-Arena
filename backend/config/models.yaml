@@ -12,10 +12,13 @@
 #     cost_in / cost_out: 每 1M token 美元成本（参考价，以各官方定价页为准，2026-07）
 #     context:            上下文窗口大小（token 数）
 #
+# ⚠️ 模型版本迭代极快，本清单为 2026-07 参考值。如需用最新/特定版本，
+#    推荐绕过此文件，在 model_config 里直接填 api_format + base_url + model。
+#    （orchestrator 见到 base_url 字段就完全听用户的，不查此白名单）
+#
 # 注意:
 #   - Gemini 的 base_url 结尾斜杠是硬性要求: /v1beta/openai/
-#   - 5 家（OpenAI/DeepSeek/SiliconFlow/Gemini/Qwen/Ollama）协议都是 openai 兼容，
-#     只有 Anthropic 单独。新增 provider 时先确认其协议，再选 protocol。
+#   - 除 anthropic 外，其余 provider 协议都是 openai 兼容
 # =============================================================================
 
 providers:
@@ -40,68 +43,78 @@ providers:
         context: 1000000
 
   # ---------------------------------------------------------------------------
-  # OpenAI 官方
+  # OpenAI 官方（GPT-5 时代）
   # ---------------------------------------------------------------------------
   openai:
     protocol: openai
     api_base: "https://api.openai.com/v1"
     api_key_env: "OPENAI_API_KEY"
     models:
-      gpt-4.1:
-        cost_in: 2.0
-        cost_out: 8.0
-        context: 128000
-      gpt-4.1-mini:
-        cost_in: 0.4
-        cost_out: 1.6
-        context: 128000
-      gpt-4.1-nano:
-        cost_in: 0.1
-        cost_out: 0.4
-        context: 128000
+      gpt-5:
+        cost_in: 1.25
+        cost_out: 10.0
+        context: 400000
+      gpt-5-mini:
+        cost_in: 0.25
+        cost_out: 2.0
+        context: 400000
+      gpt-5-nano:
+        cost_in: 0.05
+        cost_out: 0.40
+        context: 400000
 
   # ---------------------------------------------------------------------------
-  # Anthropic Claude — 唯一的非 OpenAI 协议 provider
+  # Anthropic Claude — 唯一的非 OpenAI 协议 provider（Claude 5 时代）
+  # 旗舰 fable / 高端 opus-4-8 / 主力 sonnet-5 / 快速 haiku-4-5
   # ---------------------------------------------------------------------------
   anthropic:
     protocol: anthropic
     api_base: "https://api.anthropic.com"
     api_key_env: "ANTHROPIC_API_KEY"
     models:
-      claude-sonnet-4-5:
+      claude-sonnet-5:
         cost_in: 3.0
         cost_out: 15.0
         context: 200000
-      claude-opus-4-5:
+      claude-opus-4-8:
         cost_in: 5.0
         cost_out: 25.0
         context: 200000
+      claude-haiku-4-5:
+        cost_in: 0.8
+        cost_out: 4.0
+        context: 200000
 
   # ---------------------------------------------------------------------------
-  # Google Gemini（通过官方 OpenAI 兼容端点接入）
+  # Google Gemini（通过官方 OpenAI 兼容端点接入，Gemini 3 时代）
+  # 注意 base_url 结尾斜杠是硬性要求
   # ---------------------------------------------------------------------------
   gemini:
     protocol: openai
     api_base: "https://generativelanguage.googleapis.com/v1beta/openai/"
     api_key_env: "GEMINI_API_KEY"
     models:
-      gemini-2.5-flash:
+      gemini-3.6-flash:
         cost_in: 0.3
         cost_out: 2.5
         context: 1000000
-      gemini-2.5-pro:
+      gemini-3-pro:
         cost_in: 1.25
         cost_out: 10.0
         context: 2000000
 
   # ---------------------------------------------------------------------------
-  # 通义千问 Qwen（通过阿里云百炼 DashScope 的 OpenAI 兼容接口）
+  # 通义千问 Qwen（阿里云百炼 DashScope 的 OpenAI 兼容接口，Qwen3 时代）
   # ---------------------------------------------------------------------------
   qwen:
     protocol: openai
     api_base: "https://dashscope.aliyuncs.com/compatible-mode/v1"
     api_key_env: "DASHSCOPE_API_KEY"
     models:
+      qwen3-max:
+        cost_in: 2.8
+        cost_out: 8.4
+        context: 32768
       qwen-plus:
         cost_in: 0.4
         cost_out: 1.2
@@ -110,10 +123,6 @@ providers:
         cost_in: 0.05
         cost_out: 0.2
         context: 1000000
-      qwen-max:
-        cost_in: 2.8
-        cost_out: 8.4
-        context: 32768
 
   # ---------------------------------------------------------------------------
   # 硅基流动 SiliconFlow（聚合平台，一个 key 调多家开源模型）
@@ -123,14 +132,14 @@ providers:
     api_base: "https://api.siliconflow.cn/v1"
     api_key_env: "SILICONFLOW_API_KEY"
     models:
-      Qwen/Qwen2.5-72B-Instruct:
+      deepseek-ai/DeepSeek-V4-Pro:
+        cost_in: 0.55
+        cost_out: 2.19
+        context: 1000000
+      Qwen/Qwen3-235B-A22B:
         cost_in: 0.55
         cost_out: 0.55
         context: 131072
-      deepseek-ai/DeepSeek-V3:
-        cost_in: 0.28
-        cost_out: 0.42
-        context: 64000
 
   # ---------------------------------------------------------------------------
   # Ollama（本地模型，零成本）
@@ -144,10 +153,14 @@ providers:
         cost_in: 0.0
         cost_out: 0.0
         context: 128000
-      qwen2.5:
+      qwen3:
         cost_in: 0.0
         cost_out: 0.0
         context: 32768
+      deepseek-r1:
+        cost_in: 0.0
+        cost_out: 0.0
+        context: 64000
 
 # 默认 provider 与模型（开发期推荐用 DeepSeek v4-flash，便宜且国内直连）
 default:

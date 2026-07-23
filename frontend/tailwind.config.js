@@ -7,7 +7,7 @@ export default {
   theme: {
     extend: {
       colors: {
-        // 面具剧场主题色
+        // 面具剧场主题色（保留供旧组件使用）
         stage: {
           deep: '#0a0a0f',
           spot: '#1a1620',
@@ -19,6 +19,15 @@ export default {
         truth: '#ffd700',
         lie: '#dc143c',
         neutral: '#64748b',
+        // 灰色中间色阶：卡片内嵌套区块用（介于 gray-700 #374151 与 gray-800 #1f2937）
+        // Tailwind 默认无 750，观战组件需要这个层级表现深度。
+        gray: {
+          750: '#2a323c',
+        },
+        // 角色语义色（观战界面统一配色，供将来语义化引用）
+        werewolf: '#dc143c',
+        seer: '#f5c518',
+        villager: '#2dd4bf',
       },
       fontFamily: {
         display: ['Cormorant Garamond', 'serif'],

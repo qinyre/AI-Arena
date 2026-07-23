@@ -1,46 +1,72 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { apiClient } from '../api/client';
-import type { PlayerConfig } from '../types/api';
+import type { PlayerConfig, ProvidersResponse } from '../types/api';
 
 interface Props {
   onGameCreated: (gameId: string) => void;
 }
 
-const PROVIDERS = ['openai', 'anthropic', 'ollama'] as const;
-
-const MODELS = {
-  openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
-  anthropic: [
-    'claude-3-5-sonnet-20241022',
-    'claude-3-5-haiku-20241022',
-    'claude-3-opus-20240229',
-    'claude-3-sonnet-20240229',
-    'claude-3-haiku-20240307'
-  ],
-  ollama: ['llama3.2', 'llama3.1', 'mistral', 'qwen2.5', 'gemma2', 'phi3', 'deepseek-r1']
-};
+// 特殊 provider 值：用户自定义端点（对应后端"用户直填"路径，绕过 yaml 白名单）
+const CUSTOM_PROVIDER = '__custom__';
 
 export default function CreateGame({ onGameCreated }: Props) {
-  const [playerConfigs, setPlayerConfigs] = useState<PlayerConfig[]>([
-    { player_id: 'AI-1', provider: 'openai', model: 'gpt-4o-mini' },
-    { player_id: 'AI-2', provider: 'openai', model: 'gpt-4o-mini' },
-    { player_id: 'AI-3', provider: 'openai', model: 'gpt-4o-mini' },
-    { player_id: 'AI-4', provider: 'openai', model: 'gpt-4o-mini' },
-    { player_id: 'AI-5', provider: 'openai', model: 'gpt-4o-mini' },
-  ]);
+  const [providersData, setProvidersData] = useState<ProvidersResponse | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const [playerConfigs, setPlayerConfigs] = useState<PlayerConfig[]>([]);
   const [seed, setSeed] = useState<number | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // 启动时从后端拉取 provider 列表（单一数据源：后端 config/models.yaml）
+  useEffect(() => {
+    apiClient.getProviders()
+      .then((data) => {
+        setProvidersData(data);
+        // 初始化 5 个玩家，用后端返回的默认 provider/model
+        const defaultProvider = data.default_provider;
+        const defaultModel = data.default_model;
+        setPlayerConfigs(
+          Array.from({ length: 5 }, (_, i) => ({
+            player_id: `AI-${i + 1}`,
+            provider: defaultProvider,
+            model: defaultModel,
+          }))
+        );
+      })
+      .catch((err) => {
+        setLoadError(
+          `无法加载 provider 列表（${err instanceof Error ? err.message : '未知错误'}）。` +
+          `请确认后端已启动。`
+        );
+      });
+  }, []);
+
   const updatePlayer = (index: number, field: keyof PlayerConfig, value: string) => {
     const newConfigs = [...playerConfigs];
     if (field === 'provider') {
-      // Reset model when provider changes
-      newConfigs[index] = {
-        ...newConfigs[index],
-        provider: value as any,
-        model: MODELS[value as keyof typeof MODELS][0]
-      };
+      // 切换 provider 时重置 model，并清空自定义字段
+      if (value === CUSTOM_PROVIDER) {
+        newConfigs[index] = {
+          player_id: newConfigs[index].player_id,
+          provider: CUSTOM_PROVIDER,
+          model: '',
+          api_format: 'openai',
+          base_url: '',
+        };
+      } else {
+        const models = providersData?.providers[value]?.models ?? [];
+        newConfigs[index] = {
+          player_id: newConfigs[index].player_id,
+          provider: value,
+          model: models[0]?.id ?? '',
+          // 清空自定义字段
+          api_format: undefined,
+          base_url: undefined,
+          api_key: undefined,
+          key_env: undefined,
+        };
+      }
     } else {
       newConfigs[index] = { ...newConfigs[index], [field]: value };
     }
@@ -53,8 +79,27 @@ export default function CreateGame({ onGameCreated }: Props) {
     setError(null);
 
     try {
+      // 自定义 provider 转成后端"用户直填"格式（带 base_url），其余保持 provider 名
+      const configsToSend = playerConfigs.map((c) => {
+        if (c.provider === CUSTOM_PROVIDER) {
+          return {
+            player_id: c.player_id,
+            api_format: c.api_format,
+            base_url: c.base_url,
+            model: c.model,
+            ...(c.api_key ? { api_key: c.api_key } : {}),
+            ...(c.key_env ? { key_env: c.key_env } : {}),
+          };
+        }
+        return {
+          player_id: c.player_id,
+          provider: c.provider,
+          model: c.model,
+        };
+      });
+
       const response = await apiClient.createGame({
-        player_configs: playerConfigs,
+        player_configs: configsToSend,
         seed: seed || undefined
       });
 
@@ -66,6 +111,32 @@ export default function CreateGame({ onGameCreated }: Props) {
     }
   };
 
+  // provider 列表加载中
+  if (loadError) {
+    return (
+      <div className="max-w-4xl mx-auto">
+        <div className="card">
+          <h2 className="text-2xl font-bold mb-4">创建新游戏</h2>
+          <div className="bg-red-900/50 border border-red-700 text-red-200 px-4 py-3 rounded-lg">
+            {loadError}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (!providersData) {
+    return (
+      <div className="max-w-4xl mx-auto">
+        <div className="card">
+          <p className="text-gray-400">正在加载 provider 列表...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const providerNames = Object.keys(providersData.providers);
+  const isCustom = (p: string) => p === CUSTOM_PROVIDER;
+
   return (
     <div className="max-w-4xl mx-auto">
       <div className="card">
@@ -76,48 +147,106 @@ export default function CreateGame({ onGameCreated }: Props) {
           <div>
             <h3 className="text-lg font-semibold mb-4">玩家配置</h3>
             <div className="space-y-4">
-              {playerConfigs.map((config, index) => (
-                <div key={index} className="flex gap-4 items-center bg-gray-700 p-4 rounded-lg">
-                  <div className="w-24">
-                    <label className="block text-sm text-gray-400 mb-1">玩家</label>
-                    <input
-                      type="text"
-                      value={config.player_id}
-                      onChange={(e) => updatePlayer(index, 'player_id', e.target.value)}
-                      className="input w-full"
-                      required
-                    />
-                  </div>
+              {playerConfigs.map((config, index) => {
+                const provider = config.provider!;
+                const provInfo = isCustom(provider)
+                  ? null
+                  : providersData.providers[provider];
+                return (
+                  <div key={index} className="bg-gray-700 p-4 rounded-lg space-y-3">
+                    <div className="flex gap-4 items-center">
+                      <div className="w-24">
+                        <label className="block text-sm text-gray-400 mb-1">玩家</label>
+                        <input
+                          type="text"
+                          value={config.player_id}
+                          onChange={(e) => updatePlayer(index, 'player_id', e.target.value)}
+                          className="input w-full"
+                          required
+                        />
+                      </div>
 
-                  <div className="flex-1">
-                    <label className="block text-sm text-gray-400 mb-1">提供商</label>
-                    <select
-                      value={config.provider}
-                      onChange={(e) => updatePlayer(index, 'provider', e.target.value)}
-                      className="select w-full"
-                    >
-                      {PROVIDERS.map(provider => (
-                        <option key={provider} value={provider}>
-                          {provider === 'openai' ? 'OpenAI' : provider === 'anthropic' ? 'Anthropic' : 'Ollama'}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                      <div className="flex-1">
+                        <label className="block text-sm text-gray-400 mb-1">提供商</label>
+                        <select
+                          value={provider}
+                          onChange={(e) => updatePlayer(index, 'provider', e.target.value)}
+                          className="select w-full"
+                        >
+                          {providerNames.map((name) => (
+                            <option key={name} value={name}>{name}</option>
+                          ))}
+                          <option value={CUSTOM_PROVIDER}>自定义端点...</option>
+                        </select>
+                      </div>
 
-                  <div className="flex-1">
-                    <label className="block text-sm text-gray-400 mb-1">模型</label>
-                    <select
-                      value={config.model}
-                      onChange={(e) => updatePlayer(index, 'model', e.target.value)}
-                      className="select w-full"
-                    >
-                      {MODELS[config.provider].map(model => (
-                        <option key={model} value={model}>{model}</option>
-                      ))}
-                    </select>
+                      <div className="flex-1">
+                        <label className="block text-sm text-gray-400 mb-1">模型</label>
+                        {isCustom(provider) ? (
+                          <input
+                            type="text"
+                            value={config.model}
+                            onChange={(e) => updatePlayer(index, 'model', e.target.value)}
+                            placeholder="模型名称"
+                            className="input w-full"
+                            required
+                          />
+                        ) : (
+                          <select
+                            value={config.model}
+                            onChange={(e) => updatePlayer(index, 'model', e.target.value)}
+                            className="select w-full"
+                          >
+                            {provInfo?.models.map((m) => (
+                              <option key={m.id} value={m.id}>{m.id}</option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 自定义端点的额外字段 */}
+                    {isCustom(provider) && (
+                      <div className="flex gap-4 items-center pt-2 border-t border-gray-600">
+                        <div className="w-40">
+                          <label className="block text-sm text-gray-400 mb-1">接口格式</label>
+                          <select
+                            value={config.api_format || 'openai'}
+                            onChange={(e) => updatePlayer(index, 'api_format', e.target.value)}
+                            className="select w-full"
+                          >
+                            <option value="openai">openai</option>
+                            <option value="anthropic">anthropic</option>
+                          </select>
+                        </div>
+                        <div className="flex-1">
+                          <label className="block text-sm text-gray-400 mb-1">Base URL</label>
+                          <input
+                            type="text"
+                            value={config.base_url || ''}
+                            onChange={(e) => updatePlayer(index, 'base_url', e.target.value)}
+                            placeholder="https://your-endpoint/v1"
+                            className="input w-full"
+                            required
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <label className="block text-sm text-gray-400 mb-1">
+                            API Key <span className="text-gray-500">(可选)</span>
+                          </label>
+                          <input
+                            type="password"
+                            value={config.api_key || ''}
+                            onChange={(e) => updatePlayer(index, 'api_key', e.target.value)}
+                            placeholder="留空则用 key_env"
+                            className="input w-full"
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
@@ -155,7 +284,8 @@ export default function CreateGame({ onGameCreated }: Props) {
         {/* Info */}
         <div className="mt-6 p-4 bg-blue-900/20 border border-blue-700 rounded-lg">
           <p className="text-sm text-blue-200">
-            <strong>💡 提示:</strong> 游戏将在后台异步运行，创建后可在"当前游戏"标签查看实时进度。
+            <strong>💡 提示:</strong> provider 列表来自后端 <code>config/models.yaml</code>，
+            后端更新后前端自动同步。选「自定义端点」可填任意 OpenAI/Anthropic 格式的 API。
           </p>
         </div>
       </div>

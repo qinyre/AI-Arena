@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import os
 from dotenv import load_dotenv
+from app.llm.registry import get_registry
 
 # Load environment variables
 load_dotenv()
@@ -61,6 +62,41 @@ async def root():
 async def health():
     """Health check endpoint"""
     return {"status": "healthy"}
+
+
+@app.get("/api/providers")
+async def list_providers():
+    """
+    返回所有可用 provider 及其模型，供前端动态渲染选择器。
+
+    数据来源 config/models.yaml（单一数据源）——后端 yaml 更新后，
+    前端无需重新部署即可看到新的 provider/模型。
+
+    前端始终可以额外提供“自定义端点”选项（用户直填 base_url + model），
+    那条路径不走此白名单，见 orchestrator._create_client。
+    """
+    registry = get_registry()
+    providers = {}
+    for name, prov in registry.providers.items():
+        providers[name] = {
+            "protocol": prov.protocol,
+            "api_base": prov.api_base,
+            "needs_api_key": bool(prov.api_key_env),
+            "models": [
+                {
+                    "id": model_id,
+                    "cost_per_1m_input": m.cost_in,
+                    "cost_per_1m_output": m.cost_out,
+                    "context": m.context,
+                }
+                for model_id, m in prov.models.items()
+            ],
+        }
+    return {
+        "providers": providers,
+        "default_provider": registry.default_provider,
+        "default_model": registry.default_model,
+    }
 
 
 # TODO: Include routers

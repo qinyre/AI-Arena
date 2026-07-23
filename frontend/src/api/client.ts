@@ -7,7 +7,8 @@ import type {
   GameStatusResponse,
   GameResultResponse,
   ListGamesResponse,
-  StatsResponse
+  StatsResponse,
+  ProvidersResponse
 } from '../types/api';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
@@ -81,6 +82,11 @@ class APIClient {
   // Health check
   async healthCheck(): Promise<{ status: string }> {
     return this.request<{ status: string }>('/health');
+  }
+
+  // Get available providers & models (from backend yaml, single source of truth)
+  async getProviders(): Promise<ProvidersResponse> {
+    return this.request<ProvidersResponse>('/api/providers');
   }
 }
 

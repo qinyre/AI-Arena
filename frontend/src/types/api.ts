@@ -4,8 +4,36 @@
 
 export interface PlayerConfig {
   player_id: string;
-  provider: 'openai' | 'anthropic' | 'ollama';
+  // provider 与自定义端点二选一：
+  //   - 用 provider 名时走后端 yaml 白名单
+  //   - 用自定义端点时省略 provider，填 api_format + base_url（见 orchestrator）
+  provider?: string;
   model: string;
+  api_format?: 'openai' | 'anthropic';
+  base_url?: string;
+  api_key?: string;
+  key_env?: string;
+}
+
+// /api/providers 返回的类型
+export interface ModelInfo {
+  id: string;
+  cost_per_1m_input: number;
+  cost_per_1m_output: number;
+  context: number;
+}
+
+export interface ProviderInfo {
+  protocol: 'openai' | 'anthropic';
+  api_base: string;
+  needs_api_key: boolean;
+  models: ModelInfo[];
+}
+
+export interface ProvidersResponse {
+  providers: Record<string, ProviderInfo>;
+  default_provider: string;
+  default_model: string;
 }
 
 export interface CreateGameRequest {

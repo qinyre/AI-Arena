@@ -1,4 +1,5 @@
 import { useGame } from '../hooks/useGame';
+import EventTimeline from './EventTimeline';
 
 interface Props {
   gameId: string;
@@ -180,6 +181,9 @@ export default function GameView({ gameId }: Props) {
           </div>
         </div>
       )}
+
+      {/* Event Timeline - 核心观战功能 */}
+      <EventTimeline gameId={gameId} />
     </div>
   );
 }

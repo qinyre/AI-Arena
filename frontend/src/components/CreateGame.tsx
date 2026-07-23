@@ -9,6 +9,25 @@ interface Props {
 // 特殊 provider 值：用户自定义端点（对应后端"用户直填"路径，绕过 yaml 白名单）
 const CUSTOM_PROVIDER = '__custom__';
 
+// 快速开始预设
+const QUICK_START_PRESETS = [
+  {
+    name: '5个 GPT-4o-mini（推荐）',
+    provider: 'openai',
+    model: 'gpt-4o-mini',
+  },
+  {
+    name: '5个 Claude 3.5 Haiku',
+    provider: 'anthropic',
+    model: 'claude-3-5-haiku-20241022',
+  },
+  {
+    name: '5个 DeepSeek Chat',
+    provider: 'deepseek',
+    model: 'deepseek-chat',
+  },
+];
+
 export default function CreateGame({ onGameCreated }: Props) {
   const [providersData, setProvidersData] = useState<ProvidersResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -17,6 +36,7 @@ export default function CreateGame({ onGameCreated }: Props) {
   const [seed, setSeed] = useState<number | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [validationErrors, setValidationErrors] = useState<Record<number, string>>({});
 
   // 启动时从后端拉取 provider 列表（单一数据源：后端 config/models.yaml）
   useEffect(() => {
@@ -71,10 +91,66 @@ export default function CreateGame({ onGameCreated }: Props) {
       newConfigs[index] = { ...newConfigs[index], [field]: value };
     }
     setPlayerConfigs(newConfigs);
+    // 清除该玩家的验证错误
+    const newErrors = { ...validationErrors };
+    delete newErrors[index];
+    setValidationErrors(newErrors);
+  };
+
+  const applyQuickStart = (preset: typeof QUICK_START_PRESETS[0]) => {
+    const newConfigs = Array.from({ length: 5 }, (_, i) => ({
+      player_id: `AI-${i + 1}`,
+      provider: preset.provider,
+      model: preset.model,
+    }));
+    setPlayerConfigs(newConfigs);
+    setValidationErrors({});
+    setError(null);
+  };
+
+  const validateForm = (): boolean => {
+    const errors: Record<number, string> = {};
+
+    playerConfigs.forEach((config, index) => {
+      if (!config.player_id.trim()) {
+        errors[index] = '玩家 ID 不能为空';
+      } else if (config.provider === CUSTOM_PROVIDER) {
+        if (!config.base_url?.trim()) {
+          errors[index] = 'Base URL 不能为空';
+        } else if (!config.base_url.startsWith('http')) {
+          errors[index] = 'Base URL 必须以 http:// 或 https:// 开头';
+        }
+        if (!config.model?.trim()) {
+          errors[index] = (errors[index] || '') + (errors[index] ? '；' : '') + '模型名称不能为空';
+        }
+      } else if (!config.model) {
+        errors[index] = '请选择模型';
+      }
+    });
+
+    // 检查玩家 ID 重复
+    const playerIds = playerConfigs.map(c => c.player_id);
+    const duplicates = playerIds.filter((id, index) => playerIds.indexOf(id) !== index);
+    if (duplicates.length > 0) {
+      playerConfigs.forEach((config, index) => {
+        if (duplicates.includes(config.player_id)) {
+          errors[index] = (errors[index] || '') + (errors[index] ? '；' : '') + '玩家 ID 重复';
+        }
+      });
+    }
+
+    setValidationErrors(errors);
+    return Object.keys(errors).length === 0;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!validateForm()) {
+      setError('请修正表单中的错误');
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -142,6 +218,23 @@ export default function CreateGame({ onGameCreated }: Props) {
       <div className="card">
         <h2 className="text-2xl font-bold mb-6">创建新游戏</h2>
 
+        {/* 快速开始预设 */}
+        <div className="mb-6 p-4 bg-blue-900/20 border border-blue-700 rounded-lg">
+          <h3 className="text-sm font-medium text-blue-200 mb-3">⚡ 快速开始</h3>
+          <div className="flex flex-wrap gap-2">
+            {QUICK_START_PRESETS.map((preset, index) => (
+              <button
+                key={index}
+                type="button"
+                onClick={() => applyQuickStart(preset)}
+                className="px-4 py-2 bg-blue-700 hover:bg-blue-600 text-white rounded transition-colors text-sm"
+              >
+                {preset.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Player Configurations */}
           <div>
@@ -152,8 +245,19 @@ export default function CreateGame({ onGameCreated }: Props) {
                 const provInfo = isCustom(provider)
                   ? null
                   : providersData.providers[provider];
+                const hasError = validationErrors[index];
                 return (
-                  <div key={index} className="bg-gray-700 p-4 rounded-lg space-y-3">
+                  <div
+                    key={index}
+                    className={`bg-gray-700 p-4 rounded-lg space-y-3 ${
+                      hasError ? 'border-2 border-red-500' : ''
+                    }`}
+                  >
+                    {hasError && (
+                      <div className="text-sm text-red-400 bg-red-900/30 px-3 py-2 rounded">
+                        ⚠️ {hasError}
+                      </div>
+                    )}
                     <div className="flex gap-4 items-center">
                       <div className="w-24">
                         <label className="block text-sm text-gray-400 mb-1">玩家</label>
@@ -284,7 +388,8 @@ export default function CreateGame({ onGameCreated }: Props) {
         {/* Info */}
         <div className="mt-6 p-4 bg-blue-900/20 border border-blue-700 rounded-lg">
           <p className="text-sm text-blue-200">
-            <strong>💡 提示:</strong> provider 列表来自后端 <code>config/models.yaml</code>，
+            <strong>💡 提示:</strong> 使用快速开始可一键创建预设配置。
+            provider 列表来自后端 <code>config/models.yaml</code>，
             后端更新后前端自动同步。选「自定义端点」可填任意 OpenAI/Anthropic 格式的 API。
           </p>
         </div>

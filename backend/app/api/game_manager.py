@@ -123,6 +123,9 @@ class GameManager:
             player_costs = self._collect_costs(orch)
             total_cost = sum(player_costs.values())
 
+            # 持久化完整事件流（包含 AI 推理）
+            await self._save_events(game_id, orch)
+
             # 更新持久化记录
             update = {
                 "status": "completed",
@@ -237,13 +240,53 @@ class GameManager:
     # 删除
     # ------------------------------------------------------------------
     async def delete_game(self, game_id: str) -> bool:
-        """删除游戏:取消运行中 task + 删除持久化记录。返回是否找到。"""
+        """删除游戏:取消运行中 task + 删除持久化记录 + 事件文件。返回是否找到。"""
         task = self._tasks.get(game_id)
         if task and not task.done():
             task.cancel()
         self._orchestrators.pop(game_id, None)
         self._tasks.pop(game_id, None)
+
+        # 删除事件文件
+        events_file = _STORAGE_PATH.parent / f"{game_id}_events.json"
+        if events_file.exists():
+            try:
+                events_file.unlink()
+            except Exception as e:
+                print(f"⚠️ 删除事件文件失败: {e}")
+
         return await self._delete_record(game_id)
+
+    # ------------------------------------------------------------------
+    # 事件流持久化
+    # ------------------------------------------------------------------
+    async def _save_events(self, game_id: str, orch: GameOrchestrator):
+        """将游戏的完整事件流保存到独立文件。"""
+        events_file = _STORAGE_PATH.parent / f"{game_id}_events.json"
+        if orch.game.state and orch.game.state.events:
+            events_data = [e.to_dict() for e in orch.game.state.events]
+            try:
+                with open(events_file, "w", encoding="utf-8") as f:
+                    json.dump(events_data, f, ensure_ascii=False, indent=2)
+            except Exception as e:
+                print(f"⚠️ 保存事件流失败 {game_id}: {e}")
+
+    def get_events(self, game_id: str) -> Optional[List[Dict]]:
+        """读取游戏的事件流（支持实时和历史）。"""
+        # 优先从内存读取（游戏运行中）
+        orch = self._orchestrators.get(game_id)
+        if orch and orch.game.state:
+            return [e.to_dict() for e in orch.game.state.events]
+
+        # 从文件读取（游戏已完成）
+        events_file = _STORAGE_PATH.parent / f"{game_id}_events.json"
+        if events_file.exists():
+            try:
+                with open(events_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                return None
+        return None
 
     # ------------------------------------------------------------------
     # 成本合成

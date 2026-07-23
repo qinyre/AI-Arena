@@ -91,3 +91,10 @@ class StatsResponse(BaseModel):
 
 class DeleteResponse(BaseModel):
     message: str
+
+
+class GameEventResponse(BaseModel):
+    """GET /api/games/{id}/events 响应 - 事件流数据。"""
+    game_id: str
+    events: List[Dict[str, Any]]
+    total: int

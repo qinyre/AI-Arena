@@ -16,6 +16,7 @@ from app.api.schemas import (
     ListGamesResponse,
     StatsResponse,
     DeleteResponse,
+    GameEventResponse,
 )
 from app.api.game_manager import game_manager
 
@@ -66,6 +67,19 @@ async def get_game_result(game_id: str):
     if result is None:
         raise HTTPException(status_code=404, detail=f"游戏 {game_id} 不存在")
     return result
+
+
+@router.get("/{game_id}/events", response_model=GameEventResponse)
+async def get_game_events(game_id: str):
+    """获取游戏的完整事件流（包含 AI 推理过程）。"""
+    events = game_manager.get_events(game_id)
+    if events is None:
+        raise HTTPException(status_code=404, detail=f"游戏 {game_id} 的事件流不存在")
+    return {
+        "game_id": game_id,
+        "events": events,
+        "total": len(events)
+    }
 
 
 @router.delete("/{game_id}", response_model=DeleteResponse)

@@ -90,3 +90,17 @@ export interface StatsResponse {
   error: number;
   total_cost: number;
 }
+
+export interface GameEvent {
+  event_type: string;
+  data: Record<string, any>;
+  visibility: string;
+  visible_to: string[];
+  timestamp: string;
+}
+
+export interface GameEventResponse {
+  game_id: string;
+  events: GameEvent[];
+  total: number;
+}

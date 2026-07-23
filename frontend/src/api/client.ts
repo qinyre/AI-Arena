@@ -8,7 +8,8 @@ import type {
   GameResultResponse,
   ListGamesResponse,
   StatsResponse,
-  ProvidersResponse
+  ProvidersResponse,
+  GameEventResponse
 } from '../types/api';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
@@ -87,6 +88,11 @@ class APIClient {
   // Get available providers & models (from backend yaml, single source of truth)
   async getProviders(): Promise<ProvidersResponse> {
     return this.request<ProvidersResponse>('/api/providers');
+  }
+
+  // Get game events (full event stream with AI reasoning)
+  async getGameEvents(gameId: string): Promise<GameEventResponse> {
+    return this.request<GameEventResponse>(`/api/games/${gameId}/events`);
   }
 }
 

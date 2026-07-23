@@ -57,6 +57,7 @@ export interface GameStatusResponse {
   dead_players: string[];
   winner?: string;
   total_cost?: number;
+  role_assignment: Record<string, string>;  // 玩家角色分配
 }
 
 export interface GameResultResponse {

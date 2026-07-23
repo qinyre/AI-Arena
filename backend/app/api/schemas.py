@@ -54,6 +54,7 @@ class GameStatusResponse(BaseModel):
     dead_players: List[str] = Field(default_factory=list)
     winner: Optional[str] = None
     total_cost: Optional[float] = None
+    role_assignment: Dict[str, str] = Field(default_factory=dict)  # 玩家角色分配
 
 
 class GameResultResponse(BaseModel):

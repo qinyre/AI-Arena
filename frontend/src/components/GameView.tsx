@@ -97,11 +97,29 @@ export default function GameView({ gameId }: Props) {
             <div>
               <h4 className="text-sm font-medium text-gray-400 mb-2">存活玩家 ({status.alive_players.length})</h4>
               <div className="flex flex-wrap gap-2">
-                {status.alive_players.map(player => (
-                  <span key={player} className="bg-green-900/50 text-green-200 px-3 py-1 rounded-full text-sm">
-                    ✅ {player}
-                  </span>
-                ))}
+                {status.alive_players.map(player => {
+                  const role = status.role_assignment?.[player];
+                  const roleIcon = role === 'werewolf' ? '🐺' : role === 'seer' ? '🔮' : '👤';
+                  const roleColor = role === 'werewolf' ? 'text-lie' : role === 'seer' ? 'text-truth' : 'text-neutral';
+                  const roleName = role === 'werewolf' ? '狼人' : role === 'seer' ? '预言家' : '村民';
+
+                  return (
+                    <div
+                      key={player}
+                      className="px-4 py-2 bg-stage-spot border border-mask-shadow/50 rounded-lg flex items-center gap-2"
+                    >
+                      <span className="text-2xl">{roleIcon}</span>
+                      <div className="flex flex-col">
+                        <span className="text-sm font-medium text-mask-white">{player}</span>
+                        {role && (
+                          <span className={`text-xs font-label ${roleColor}`}>
+                            {roleName}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -111,11 +129,29 @@ export default function GameView({ gameId }: Props) {
             <div>
               <h4 className="text-sm font-medium text-gray-400 mb-2">已淘汰玩家 ({status.dead_players.length})</h4>
               <div className="flex flex-wrap gap-2">
-                {status.dead_players.map(player => (
-                  <span key={player} className="bg-red-900/50 text-red-200 px-3 py-1 rounded-full text-sm">
-                    ❌ {player}
-                  </span>
-                ))}
+                {status.dead_players.map(player => {
+                  const role = status.role_assignment?.[player];
+                  const roleIcon = role === 'werewolf' ? '🐺' : role === 'seer' ? '🔮' : '👤';
+                  const roleColor = 'text-gray-500';
+                  const roleName = role === 'werewolf' ? '狼人' : role === 'seer' ? '预言家' : '村民';
+
+                  return (
+                    <div
+                      key={player}
+                      className="px-4 py-2 bg-gray-900/50 border border-gray-700/50 rounded-lg flex items-center gap-2 opacity-60"
+                    >
+                      <span className="text-2xl grayscale">{roleIcon}</span>
+                      <div className="flex flex-col">
+                        <span className="text-sm font-medium text-gray-400 line-through">{player}</span>
+                        {role && (
+                          <span className={`text-xs font-label ${roleColor}`}>
+                            {roleName}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

@@ -171,6 +171,7 @@ class GameManager:
             "dead_players": [],
             "winner": record.get("winner"),
             "total_cost": record.get("total_cost", 0.0),
+            "role_assignment": {},  # 角色分配信息
         }
 
         # 运行中且有内存 orchestrator: 实时读 state
@@ -185,6 +186,13 @@ class GameManager:
             status_data["dead_players"] = list(state.dead_players)
             # 运行中实时成本
             status_data["total_cost"] = sum(self._collect_costs(orch).values())
+
+            # 获取角色分配信息（从 game.state.players）
+            if state.players:
+                status_data["role_assignment"] = {
+                    player_id: player.role.value
+                    for player_id, player in state.players.items()
+                }
 
         return status_data
 

@@ -68,7 +68,7 @@ class GameOrchestrator:
            任何 OpenAI/Anthropic 格式的端点（官方、中转、自建、聚合、本地）都能跑。
 
         2. provider 名兜底（方便快捷）：
-           {"provider": "deepseek", "model": "deepseek-chat"}
+           {"provider": "deepseek", "model": "deepseek-v4-flash"}
            从 config/models.yaml 查 base_url/协议/定价/key_env。
            适合用 yaml 里预定义好的常见 provider。
         """

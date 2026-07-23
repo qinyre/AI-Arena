@@ -37,7 +37,7 @@ class TestRegistryLoading:
     def test_default_is_deepseek(self, registry):
         """默认 provider 应为 deepseek（开发期推荐）"""
         assert registry.default_provider == "deepseek"
-        assert registry.default_model == "deepseek-chat"
+        assert registry.default_model == "deepseek-v4-flash"
 
     def test_protocol_routing(self, registry):
         """只有 anthropic 是 anthropic 协议，其余都是 openai 兼容"""
@@ -58,9 +58,9 @@ class TestModelInfo:
 
     def test_get_model_info_returns_correct_costs(self, registry):
         """成本字段正确（每 1M token）"""
-        info = get_model_info("deepseek", "deepseek-chat")
-        assert info.cost_in == 0.27
-        assert info.cost_out == 1.10
+        info = get_model_info("deepseek", "deepseek-v4-flash")
+        assert info.cost_in == 0.28
+        assert info.cost_out == 0.42
         assert info.context == 64000
 
     def test_get_model_info_nonexistent_returns_none(self, registry):
@@ -130,7 +130,7 @@ class TestClientFactory:
     def test_all_openai_compatible_providers_route_correctly(self, orchestrator, registry):
         """6 个 openai 协议 provider 都路由到 OpenAICompatibleClient"""
         cases = [
-            ("deepseek", "deepseek-chat"),
+            ("deepseek", "deepseek-v4-flash"),
             ("openai", "gpt-4.1-mini"),
             ("gemini", "gemini-2.5-flash"),
             ("qwen", "qwen-plus"),
@@ -154,16 +154,16 @@ class TestClientFactory:
     def test_base_url_propagates_from_registry(self, orchestrator, registry):
         """provider 的 base_url 从 registry 正确传给 client"""
         client = orchestrator._create_client(
-            {"provider": "deepseek", "model": "deepseek-chat"}, registry
+            {"provider": "deepseek", "model": "deepseek-v4-flash"}, registry
         )
         assert "api.deepseek.com" in str(client.client.base_url)
 
     def test_cost_propagates_from_registry(self, orchestrator, registry):
         """模型成本从 registry 正确传给 client"""
         client = orchestrator._create_client(
-            {"provider": "deepseek", "model": "deepseek-chat"}, registry
+            {"provider": "deepseek", "model": "deepseek-v4-flash"}, registry
         )
-        info = get_model_info("deepseek", "deepseek-chat")
+        info = get_model_info("deepseek", "deepseek-v4-flash")
         assert client.cost_per_1m_input == info.cost_in
         assert client.cost_per_1m_output == info.cost_out
 
@@ -186,7 +186,7 @@ class TestClientFactory:
         monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
         with pytest.raises(ValueError, match="环境变量"):
             orchestrator._create_client(
-                {"provider": "deepseek", "model": "deepseek-chat"}, registry
+                {"provider": "deepseek", "model": "deepseek-v4-flash"}, registry
             )
 
     def test_ollama_works_without_key(self, orchestrator, registry):

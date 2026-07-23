@@ -21,20 +21,23 @@
 providers:
   # ---------------------------------------------------------------------------
   # DeepSeek — 默认 provider（国内直连、价格极低、适合开发）
+  # 当前模型：deepseek-v4-flash（通用，非思考模式）/ deepseek-v4-pro（复杂推理，思考模式）
+  # 注意：旧名 deepseek-chat / deepseek-reasoner 已于 2026-07-24 弃用，
+  #       分别对应 v4-flash 的非思考/思考模式。
   # ---------------------------------------------------------------------------
   deepseek:
     protocol: openai
     api_base: "https://api.deepseek.com/v1"
     api_key_env: "DEEPSEEK_API_KEY"
     models:
-      deepseek-chat:
-        cost_in: 0.27
-        cost_out: 1.10
+      deepseek-v4-flash:
+        cost_in: 0.28
+        cost_out: 0.42
         context: 64000
-      deepseek-reasoner:
+      deepseek-v4-pro:
         cost_in: 0.55
         cost_out: 2.19
-        context: 64000
+        context: 1000000
 
   # ---------------------------------------------------------------------------
   # OpenAI 官方
@@ -146,7 +149,7 @@ providers:
         cost_out: 0.0
         context: 32768
 
-# 默认 provider 与模型（开发期推荐用 DeepSeek，便宜且国内直连）
+# 默认 provider 与模型（开发期推荐用 DeepSeek v4-flash，便宜且国内直连）
 default:
   provider: deepseek
-  model: deepseek-chat
+  model: deepseek-v4-flash

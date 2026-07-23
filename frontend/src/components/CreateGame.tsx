@@ -9,22 +9,37 @@ interface Props {
 // 特殊 provider 值：用户自定义端点（对应后端"用户直填"路径，绕过 yaml 白名单）
 const CUSTOM_PROVIDER = '__custom__';
 
-// 快速开始预设
+// 快速开始预设（基于 2026-07 最新模型）
 const QUICK_START_PRESETS = [
   {
-    name: '5个 GPT-4o-mini（推荐）',
-    provider: 'openai',
-    model: 'gpt-4o-mini',
-  },
-  {
-    name: '5个 Claude 3.5 Haiku',
-    provider: 'anthropic',
-    model: 'claude-3-5-haiku-20241022',
-  },
-  {
-    name: '5个 DeepSeek Chat',
+    name: '5个 DeepSeek V4 Flash（推荐 💰）',
     provider: 'deepseek',
-    model: 'deepseek-chat',
+    model: 'deepseek-v4-flash',
+    description: '极低成本 $0.28/1M，国内直连',
+  },
+  {
+    name: '5个 GPT-5 Nano（快速 ⚡）',
+    provider: 'openai',
+    model: 'gpt-5-nano',
+    description: 'OpenAI 最快模型 $0.05/1M',
+  },
+  {
+    name: '5个 Claude Haiku 4.5（智能 🧠）',
+    provider: 'anthropic',
+    model: 'claude-haiku-4-5',
+    description: 'Anthropic 快速模型 $0.8/1M',
+  },
+  {
+    name: '5个 Gemini 3.6 Flash（长文本 📄）',
+    provider: 'gemini',
+    model: 'gemini-3.6-flash',
+    description: '1M 上下文 $0.3/1M',
+  },
+  {
+    name: '5个 Ollama DeepSeek-R1（本地 🏠）',
+    provider: 'ollama',
+    model: 'deepseek-r1',
+    description: '完全免费，需本地运行 Ollama',
   },
 ];
 

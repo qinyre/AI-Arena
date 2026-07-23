@@ -136,6 +136,7 @@ class GameManager:
                 "duration_seconds": result.get("duration_seconds"),
                 "total_cost": total_cost,
                 "player_costs": player_costs,
+                "summary": result.get("summary"),  # 原本漏存，导致 get_result() 永远返回 null
             }
             await self._update_status(game_id, **update)
 

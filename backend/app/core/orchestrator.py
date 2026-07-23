@@ -185,6 +185,10 @@ class GameOrchestrator:
                 result.duration_seconds = self.end_time - self.start_time
                 result.summary = self.game.get_game_summary()
 
+                # 追加 game_end 事件，标记对局终结（供前端观战界面识别结束态）
+                end_event = self.game.record_game_end(result)
+                self._broadcast_events([end_event])
+
             return result.to_dict() if result else {}
 
         except Exception as e:

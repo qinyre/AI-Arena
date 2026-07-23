@@ -264,6 +264,7 @@ class WerewolfGame(BaseGame):
                 "speaker": action.actor_id,
                 "content": action.parameters.get("content", ""),
                 "claim_role": action.parameters.get("claim_role", "none"),
+                "reasoning": action.parameters.get("reasoning", ""),
                 "round": self.state.round
             }
             self.state.speeches.append(speech)
@@ -315,20 +316,22 @@ class WerewolfGame(BaseGame):
                 })
                 self.last_night_kill = None
 
+            from_phase = self.state.phase.value
             self.state.phase = GamePhase.DAY
             events.append({
                 "event_type": "phase_change",
-                "data": {"phase": "day", "round": self.state.round},
+                "data": {"from": from_phase, "to": "day", "phase": "day", "round": self.state.round},
                 "visibility": "public"
             })
 
         elif self.state.phase == GamePhase.DAY:
             # 白天发言结束，进入投票
+            from_phase = self.state.phase.value
             self.state.phase = GamePhase.VOTING
             self.current_votes = {}
             events.append({
                 "event_type": "phase_change",
-                "data": {"phase": "voting", "round": self.state.round},
+                "data": {"from": from_phase, "to": "voting", "phase": "voting", "round": self.state.round},
                 "visibility": "public"
             })
 
@@ -336,15 +339,34 @@ class WerewolfGame(BaseGame):
             # 投票结束，处理投票结果
             vote_result = self._process_votes()
             events.append(vote_result)
+            # 投票放逐补发死亡事件（原 vote_result 只声明结果，无独立 player_death）
+            if vote_result["data"].get("result") == "eliminated":
+                eliminated = vote_result["data"]["eliminated"]
+                events.append({
+                    "event_type": "player_death",
+                    "data": {
+                        "player": eliminated,
+                        "cause": "voted_out",
+                        "round": self.state.round
+                    },
+                    "visibility": "public"
+                })
 
             # 进入下一轮夜晚
+            from_phase = self.state.phase.value
             self.state.round += 1
             self.state.phase = GamePhase.NIGHT
             events.append({
                 "event_type": "phase_change",
-                "data": {"phase": "night", "round": self.state.round},
+                "data": {"from": from_phase, "to": "night", "phase": "night", "round": self.state.round},
                 "visibility": "public"
             })
+
+        # 将阶段推进产生的事件追加到游戏状态事件流
+        # (apply_action 内部已有 append，但 advance_phase 此前遗漏，导致
+        #  phase_change / 夜晚 player_death / vote_result 全部丢失)
+        for event_data in events:
+            self.state.events.append(GameEvent(**event_data))
 
         return events
 
@@ -402,6 +424,24 @@ class WerewolfGame(BaseGame):
     def is_ended(self) -> bool:
         """检查游戏是否结束"""
         return self.check_win_condition() is not None
+
+    def record_game_end(self, result) -> Dict:
+        """
+        对局终结时追加 game_end 事件（含胜负/轮次/时长），并写入事件流。
+        返回事件字典，供 orchestrator 广播给所有智能体记忆。
+        """
+        end_event = {
+            "event_type": "game_end",
+            "data": {
+                "winner": result.winner,
+                "reason": result.reason,
+                "final_round": result.final_round,
+                "duration_seconds": result.duration_seconds,
+            },
+            "visibility": "public",
+        }
+        self.state.events.append(GameEvent(**end_event))
+        return end_event
 
     def _kill_player(self, player_id: str):
         """杀死玩家"""

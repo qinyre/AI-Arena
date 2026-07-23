@@ -41,9 +41,16 @@ npm run dev
 
 #### ✨ 新功能 1：快速开始
 1. 点击"创建游戏"标签
-2. 看到 3 个蓝色预设按钮
-3. 点击"5个 GPT-4o-mini（推荐）"
+2. 看到 5 个蓝色预设按钮（基于 2026 最新模型）
+3. 点击推荐的预设（例如"5个 DeepSeek V4 Flash"）
 4. 点击"🎮 创建游戏"
+
+**预设选项：**
+- 💰 **DeepSeek V4 Flash** - 极低成本，国内直连（推荐新手）
+- ⚡ **GPT-5 Nano** - OpenAI 最快模型
+- 🧠 **Claude Haiku 4.5** - Anthropic 智能快速
+- 📄 **Gemini 3.6 Flash** - 1M 超长上下文
+- 🏠 **Ollama DeepSeek-R1** - 完全免费本地
 
 #### ✨ 新功能 2：表单验证
 1. 手动清空某个玩家的 ID

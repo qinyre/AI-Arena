@@ -9,114 +9,154 @@ interface Props {
 export default function ReasoningPanel({ reasoning, isExpanded, playerName }: Props) {
   const [displayedText, setDisplayedText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [showMaskSplit, setShowMaskSplit] = useState(false);
 
-  // 打字机效果（仅在首次展开时）
+  // 面具分裂 + 打字机效果
   useEffect(() => {
     if (isExpanded && displayedText === '') {
-      setIsTyping(true);
-      let currentIndex = 0;
-      const typingSpeed = 15; // ms per character
+      // 先触发面具分裂动画
+      setShowMaskSplit(true);
 
-      const interval = setInterval(() => {
-        if (currentIndex <= reasoning.length) {
-          setDisplayedText(reasoning.slice(0, currentIndex));
-          currentIndex++;
-        } else {
-          setIsTyping(false);
-          clearInterval(interval);
-        }
-      }, typingSpeed);
+      // 600ms 后开始打字机效果
+      setTimeout(() => {
+        setIsTyping(true);
+        let currentIndex = 0;
+        const typingSpeed = 20;
 
-      return () => clearInterval(interval);
+        const interval = setInterval(() => {
+          if (currentIndex <= reasoning.length) {
+            setDisplayedText(reasoning.slice(0, currentIndex));
+            currentIndex++;
+          } else {
+            setIsTyping(false);
+            clearInterval(interval);
+          }
+        }, typingSpeed);
+      }, 600);
     } else if (!isExpanded) {
       setDisplayedText('');
+      setShowMaskSplit(false);
     }
   }, [isExpanded, reasoning]);
 
   if (!isExpanded) return null;
 
   return (
-    <div className="mt-3 animate-fade-in-up">
-      {/* 主容器 - 渐变背景 + 模糊效果 */}
-      <div className="relative group">
-        {/* 背景层 */}
-        <div className="absolute inset-0 bg-gradient-to-br from-purple-900/20 via-blue-900/10 to-purple-900/20 rounded-lg blur-sm"></div>
+    <div className="mt-4 animate-curtain-rise">
+      {/* 面具分裂容器 */}
+      <div className="relative">
+        {/* 背景舞台效果 */}
+        <div className="absolute inset-0 bg-gradient-to-br from-mask-shadow/20 to-stage-spot rounded-lg blur-sm"></div>
 
-        {/* 内容层 */}
-        <div className="relative bg-gray-900/80 backdrop-blur-sm rounded-lg border border-purple-500/30 overflow-hidden">
-          {/* 发光边框效果 */}
-          <div className="absolute inset-0 rounded-lg border border-purple-500/0 group-hover:border-purple-500/50 transition-all duration-300"></div>
+        {/* 主内容容器 */}
+        <div className="relative bg-stage-spot/90 backdrop-blur-sm rounded-lg border border-mask-shadow/50 overflow-hidden">
+          {/* 顶部装饰线 - 金色聚光 */}
+          <div className="h-px bg-gradient-to-r from-transparent via-truth/40 to-transparent"></div>
 
-          {/* 左侧装饰条 */}
-          <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-purple-500 via-blue-500 to-purple-500 opacity-50"></div>
-
-          <div className="p-4 pl-5">
-            {/* 头部 - 图标 + 标题 */}
-            <div className="flex items-center gap-2 mb-3">
+          <div className="p-5">
+            {/* 头部 - 面具图标 + 标题 */}
+            <div className="flex items-center gap-3 mb-4">
+              {/* 面具图标区域 */}
               <div className="relative">
-                {/* 思考图标 - 带脉冲动画 */}
-                <svg
-                  className="w-5 h-5 text-purple-400"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
-                  />
-                </svg>
+                {/* 左半面具 */}
+                <div className={`
+                  relative w-10 h-10 flex items-center justify-center
+                  ${showMaskSplit ? 'animate-mask-split' : ''}
+                `}>
+                  <div className="text-2xl">🎭</div>
+                </div>
 
-                {/* 脉冲动画环 */}
-                {isTyping && (
-                  <span className="absolute inset-0 rounded-full border-2 border-purple-400 animate-ping opacity-75"></span>
+                {/* 分裂效果的金色光芒 */}
+                {showMaskSplit && (
+                  <div className="absolute inset-0 -z-10">
+                    <div className="w-full h-full bg-truth/20 blur-md rounded-full animate-pulse"></div>
+                  </div>
                 )}
               </div>
 
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-purple-400">
-                  {playerName ? `${playerName} 的推理` : 'AI 推理过程'}
-                </span>
-                {isTyping && (
-                  <span className="text-xs text-purple-400/60 animate-pulse">
-                    思考中...
+              {/* 标题区域 */}
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-label text-xs text-truth tracking-wider">
+                    AI 推理过程
                   </span>
+                  {isTyping && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-truth/10 border border-truth/30 rounded text-xs text-truth/80">
+                      <span className="w-1.5 h-1.5 bg-truth rounded-full animate-pulse"></span>
+                      思考中
+                    </span>
+                  )}
+                </div>
+                {playerName && (
+                  <p className="text-sm text-mask-white/60 mt-0.5">
+                    {playerName} 的内心独白
+                  </p>
                 )}
               </div>
             </div>
 
-            {/* 分割线 */}
-            <div className="h-px bg-gradient-to-r from-transparent via-purple-500/30 to-transparent mb-3"></div>
-
-            {/* 推理内容 */}
-            <div className="reasoning-content space-y-2">
-              <p className="text-gray-300 text-sm leading-relaxed font-light">
-                {displayedText || reasoning}
-                {isTyping && (
-                  <span className="inline-block w-1 h-4 ml-1 bg-purple-400 animate-pulse"></span>
-                )}
-              </p>
+            {/* 分割线 - 戏剧性 */}
+            <div className="relative h-px mb-4">
+              <div className="absolute inset-0 bg-gradient-to-r from-mask-shadow/30 via-mask-shadow/60 to-mask-shadow/30"></div>
+              {/* 中心装饰点 */}
+              <div className="absolute left-1/2 -translate-x-1/2 -translate-y-1/2">
+                <div className="w-1.5 h-1.5 bg-truth rounded-full shadow-truth"></div>
+              </div>
             </div>
 
-            {/* 底部装饰 */}
-            <div className="mt-3 flex items-center justify-between text-xs text-gray-500">
-              <span className="flex items-center gap-1">
-                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+            {/* 推理内容 - 舞台台词风格 */}
+            <div className="reasoning-content space-y-3">
+              <div className="relative">
+                {/* 左侧引号装饰 */}
+                <div className="absolute -left-3 top-0 text-3xl text-mask-shadow/40 font-display leading-none">
+                  "
+                </div>
+
+                <p className="text-mask-white/90 text-sm leading-relaxed pl-2">
+                  {displayedText || reasoning}
+                  {isTyping && (
+                    <span className="inline-block w-0.5 h-4 ml-1 bg-truth animate-pulse"></span>
+                  )}
+                </p>
+
+                {/* 右侧引号装饰 */}
+                {!isTyping && (
+                  <div className="absolute -right-3 bottom-0 text-3xl text-mask-shadow/40 font-display leading-none">
+                    "
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 底部元信息 */}
+            <div className="mt-4 flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2 text-neutral">
+                <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
                 </svg>
-                AI 内部思考，不对其他玩家可见
-              </span>
-              <span className="text-purple-400/60">
-                {reasoning.length} 字
-              </span>
+                <span>私密思考，其他玩家不可见</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-mask-white/40">
+                  {reasoning.length} 字
+                </span>
+                <div className="w-px h-3 bg-mask-shadow/50"></div>
+                <span className="text-truth/60 font-label">
+                  真实想法
+                </span>
+              </div>
             </div>
           </div>
 
-          {/* 微妙的光效 */}
-          <div className="absolute inset-0 bg-gradient-to-tr from-purple-500/5 to-transparent pointer-events-none"></div>
+          {/* 底部装饰线 */}
+          <div className="h-px bg-gradient-to-r from-transparent via-mask-shadow/40 to-transparent"></div>
+
+          {/* 舞台聚光效果（微妙） */}
+          <div className="absolute inset-0 bg-gradient-to-t from-truth/5 via-transparent to-transparent pointer-events-none"></div>
         </div>
+
+        {/* 外发光效果 */}
+        <div className="absolute inset-0 -z-10 bg-truth/5 blur-xl rounded-lg opacity-50"></div>
       </div>
     </div>
   );

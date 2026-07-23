@@ -24,62 +24,77 @@ export default function EventCard({ event, index, isNew = false }: Props) {
     });
   };
 
-  // 获取事件图标和颜色
+  // 获取事件样式 - 面具剧场主题
   const getEventStyle = (type: string) => {
-    const styles: Record<string, { icon: string; color: string; bgColor: string; borderColor: string }> = {
+    const styles: Record<string, {
+      icon: string;
+      maskIcon: string;
+      color: string;
+      bgColor: string;
+      borderColor: string;
+    }> = {
       werewolf_kill: {
         icon: '🗡️',
-        color: 'text-red-400',
-        bgColor: 'bg-red-900/20',
-        borderColor: 'border-red-500/50',
+        maskIcon: '😈',
+        color: 'text-lie',
+        bgColor: 'bg-lie/10',
+        borderColor: 'border-lie/40',
       },
       seer_investigate: {
         icon: '🔮',
-        color: 'text-purple-400',
-        bgColor: 'bg-purple-900/20',
-        borderColor: 'border-purple-500/50',
+        maskIcon: '👁️',
+        color: 'text-truth',
+        bgColor: 'bg-truth/10',
+        borderColor: 'border-truth/40',
       },
       player_speech: {
         icon: '💬',
-        color: 'text-blue-400',
-        bgColor: 'bg-blue-900/20',
-        borderColor: 'border-blue-500/50',
+        maskIcon: '🎭',
+        color: 'text-mask-white',
+        bgColor: 'bg-mask-shadow/10',
+        borderColor: 'border-mask-shadow/40',
       },
       player_vote: {
         icon: '🗳️',
-        color: 'text-yellow-400',
-        bgColor: 'bg-yellow-900/20',
-        borderColor: 'border-yellow-500/50',
+        maskIcon: '⚖️',
+        color: 'text-truth',
+        bgColor: 'bg-truth/10',
+        borderColor: 'border-truth/30',
       },
       vote_result: {
         icon: '📊',
-        color: 'text-green-400',
-        bgColor: 'bg-green-900/20',
-        borderColor: 'border-green-500/50',
+        maskIcon: '⚡',
+        color: 'text-truth',
+        bgColor: 'bg-truth/10',
+        borderColor: 'border-truth/40',
       },
       player_death: {
         icon: '💀',
-        color: 'text-red-500',
-        bgColor: 'bg-red-900/30',
-        borderColor: 'border-red-600/60',
+        maskIcon: '🎭',
+        color: 'text-lie',
+        bgColor: 'bg-lie/20',
+        borderColor: 'border-lie/60',
       },
       phase_change: {
         icon: '⏰',
-        color: 'text-gray-400',
-        bgColor: 'bg-gray-800/30',
-        borderColor: 'border-gray-600/50',
+        maskIcon: '🌓',
+        color: 'text-neutral',
+        bgColor: 'bg-neutral/10',
+        borderColor: 'border-neutral/30',
       },
       game_start: {
-        icon: '🎮',
-        color: 'text-green-400',
-        bgColor: 'bg-green-900/20',
-        borderColor: 'border-green-500/50',
+        icon: '🎬',
+        maskIcon: '🎭',
+        color: 'text-truth',
+        bgColor: 'bg-truth/10',
+        borderColor: 'border-truth/40',
       },
       game_end: {
         icon: '🏁',
-        color: 'text-purple-400',
-        bgColor: 'bg-purple-900/20',
-        borderColor: 'border-purple-500/50',
+        maskIcon: '🎭',
+        color: 'text-truth',
+        bgColor: 'bg-truth/10',
+        borderColor: 'border-truth/40',
       },
     };
     return styles[type] || styles.phase_change;

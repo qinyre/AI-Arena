@@ -20,17 +20,17 @@ async def main():
     print("🎮 AI Arena - Claude模型测试")
     print("=" * 50)
 
-    # 游戏配置 - 混合使用不同模型
+    # 游戏配置 - 混合使用不同模型（展示多 provider 能力）
     config = {
         "game_id": "test_claude_001",
         "players": ["Claude-1", "Claude-2", "GPT-1", "GPT-2", "Llama-1"],
         "seed": 42,
         "model_configs": {
-            "Claude-1": {"provider": "anthropic", "model": "claude-3-5-sonnet-20241022"},
-            "Claude-2": {"provider": "anthropic", "model": "claude-3-5-haiku-20241022"},
-            "GPT-1": {"provider": "openai", "model": "gpt-4o-mini"},
-            "GPT-2": {"provider": "openai", "model": "gpt-4o-mini"},
-            "Llama-1": {"provider": "ollama", "model": "llama3.2"},
+            "Claude-1": {"provider": "anthropic", "model": "claude-sonnet-4-5"},
+            "Claude-2": {"provider": "anthropic", "model": "claude-sonnet-4-5"},
+            "GPT-1": {"provider": "openai", "model": "gpt-4.1-mini"},
+            "GPT-2": {"provider": "openai", "model": "gpt-4.1-mini"},
+            "Llama-1": {"provider": "ollama", "model": "llama3.3"},
         }
     }
 

@@ -26,11 +26,11 @@ async def main():
         "players": ["AI-1", "AI-2", "AI-3", "AI-4", "AI-5"],
         "seed": 42,  # 固定种子，可复现
         "model_configs": {
-            "AI-1": {"provider": "openai", "model": "gpt-4o-mini"},
-            "AI-2": {"provider": "openai", "model": "gpt-4o-mini"},
-            "AI-3": {"provider": "openai", "model": "gpt-4o-mini"},
-            "AI-4": {"provider": "openai", "model": "gpt-4o-mini"},
-            "AI-5": {"provider": "openai", "model": "gpt-4o-mini"},
+            "AI-1": {"provider": "deepseek", "model": "deepseek-chat"},
+            "AI-2": {"provider": "deepseek", "model": "deepseek-chat"},
+            "AI-3": {"provider": "deepseek", "model": "deepseek-chat"},
+            "AI-4": {"provider": "deepseek", "model": "deepseek-chat"},
+            "AI-5": {"provider": "deepseek", "model": "deepseek-chat"},
         }
     }
 

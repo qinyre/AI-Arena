@@ -17,11 +17,39 @@
 
 ## 快速测试
 
-### 1. 安装依赖
+### 1. 激活虚拟环境
 
+项目已配置Python虚拟环境，所有依赖已安装。
+
+**Windows (Git Bash)**:
 ```bash
 cd backend
-pip install -r requirements.txt
+source venv/Scripts/activate
+```
+
+**Windows (命令提示符)**:
+```cmd
+cd backend
+venv\Scripts\activate.bat
+```
+
+**Windows (PowerShell)**:
+```powershell
+cd backend
+venv\Scripts\Activate.ps1
+```
+
+**Linux/Mac**:
+```bash
+cd backend
+source venv/bin/activate
+```
+
+激活成功后，命令提示符前会显示 `(venv)`。
+
+**退出虚拟环境**:
+```bash
+deactivate
 ```
 
 ### 2. 配置环境变量
@@ -37,9 +65,11 @@ cp .env.example .env
 ### 3. 运行测试游戏
 
 ```bash
-# 确保在backend目录
+# 确保虚拟环境已激活（命令提示符前显示(venv)）
 python tests/test_game.py
 ```
+
+**注意**: 如果虚拟环境未激活，请先执行步骤1。
 
 ### 预期输出
 

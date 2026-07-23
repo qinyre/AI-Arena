@@ -3,11 +3,14 @@ Game Orchestrator
 Manages game lifecycle and coordinates AI agents
 """
 import asyncio
+import os
 from typing import Dict, List
 from app.core.werewolf import WerewolfGame
 from app.core.agent import AIAgent
 from app.core.models import GamePhase, ActionType
-from app.llm.openai_client import OpenAIClient, OllamaClient
+from app.llm.registry import get_registry
+from app.llm.openai_client import OpenAICompatibleClient, OllamaClient
+from app.llm.claude_client import ClaudeClient
 import time
 
 
@@ -36,37 +39,73 @@ class GameOrchestrator:
         self.game.initialize(players, self.config)
 
         # 创建AI智能体
+        registry = get_registry()
+        default_provider = registry.default_provider
+        default_model = registry.default_model
+
         for player_id in players:
             model_config = self.config.get("model_configs", {}).get(
                 player_id,
-                {"provider": "openai", "model": "gpt-4o-mini"}
+                {"provider": default_provider, "model": default_model}
+            )
+            client = self._create_client(model_config, registry)
+            self.agents[player_id] = AIAgent(player_id, client)
+
+    def _create_client(self, model_config: Dict, registry):
+        """
+        根据 model_config 和 registry 创建 LLM 客户端。
+
+        新增 provider 只需在 config/models.yaml 添加配置，无需改此方法——
+        只要 provider 的 protocol 是 "openai"（OpenAI 兼容）或 "anthropic"，
+        就会被自动路由到对应 client。
+        """
+        provider_name = model_config["provider"]
+        model_name = model_config["model"]
+
+        if provider_name not in registry:
+            raise ValueError(
+                f"未知的 provider: {provider_name}。"
+                f"请在 config/models.yaml 中配置。已注册: {list(registry.providers.keys())}"
             )
 
-            # 创建LLM客户端
-            if model_config["provider"] == "openai":
-                import os
-                from app.llm.openai_client import OpenAIClient
-                client = OpenAIClient(
-                    api_key=os.getenv("OPENAI_API_KEY"),
-                    model=model_config["model"]
-                )
-            elif model_config["provider"] == "anthropic":
-                import os
-                from app.llm.claude_client import ClaudeClient
-                client = ClaudeClient(
-                    api_key=os.getenv("ANTHROPIC_API_KEY"),
-                    model=model_config["model"]
-                )
-            elif model_config["provider"] == "ollama":
-                from app.llm.openai_client import OllamaClient
-                client = OllamaClient(
-                    model=model_config["model"]
-                )
-            else:
-                raise ValueError(f"Unsupported provider: {model_config['provider']}")
+        prov = registry[provider_name]
+        model_info = registry.get_model_info(provider_name, model_name)
+        if model_info is None:
+            raise ValueError(
+                f"provider {provider_name} 下未配置模型 {model_name}。"
+                f"请在 config/models.yaml 中添加。"
+            )
 
-            # 创建智能体
-            self.agents[player_id] = AIAgent(player_id, client)
+        # 读取 API key（无 key_env 的 provider 如 Ollama 用占位符）
+        api_key = "dummy"
+        if prov.api_key_env:
+            api_key = os.getenv(prov.api_key_env)
+            if not api_key:
+                raise ValueError(
+                    f"provider {provider_name} 需要环境变量 {prov.api_key_env}，但未设置。"
+                )
+
+        # 按 protocol 路由到对应 client
+        if prov.protocol == "openai":
+            return OpenAICompatibleClient(
+                api_key=api_key,
+                model=model_name,
+                base_url=prov.api_base,
+                cost_per_1m_input=model_info.cost_in,
+                cost_per_1m_output=model_info.cost_out,
+            )
+        elif prov.protocol == "anthropic":
+            return ClaudeClient(
+                api_key=api_key,
+                model=model_name,
+                cost_per_1m_input=model_info.cost_in,
+                cost_per_1m_output=model_info.cost_out,
+            )
+        else:
+            raise ValueError(
+                f"provider {provider_name} 的 protocol {prov.protocol!r} 不支持。"
+                f"仅支持 'openai' 或 'anthropic'。"
+            )
 
     async def run_game(self) -> Dict:
         """运行完整游戏"""

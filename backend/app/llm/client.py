@@ -1,12 +1,20 @@
 """
 LLM Model Client Interface
+
+所有 provider 客户端的抽象基类。具体实现：
+  - OpenAICompatibleClient: OpenAI/DeepSeek/Gemini/Qwen/SiliconFlow/Ollama 等
+    所有 OpenAI 兼容协议的 provider
+  - ClaudeClient: Anthropic Claude（唯一非 OpenAI 协议）
+
+成本单位约定：所有 cost / estimate_cost 统一按「每 1M token 美元」计算，
+与 config/models.yaml 及业界报价口径一致。
 """
 from abc import ABC, abstractmethod
 from typing import Dict, Optional
 
 
 class ModelClient(ABC):
-    """LLM客户端抽象基类"""
+    """LLM 客户端抽象基类"""
 
     @abstractmethod
     async def generate(

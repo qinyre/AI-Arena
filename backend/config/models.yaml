@@ -1,70 +1,152 @@
-# Model Configuration
-# This file defines available LLM providers and models
+# =============================================================================
+# Model Configuration — 单一数据源 (Single Source of Truth)
+# =============================================================================
+# 被 app/llm/registry.py 读取。新增 provider 只需在此添加，无需改代码。
+#
+# 字段说明:
+#   protocol:    "openai" = OpenAI 兼容协议，用 OpenAICompatibleClient
+#                "anthropic" = Anthropic 专属协议，用 ClaudeClient
+#   api_base:    API 基础 URL
+#   api_key_env: 读取 API key 的环境变量名；空字符串表示无需 key（如本地 Ollama）
+#   models:      该 provider 下的模型字典
+#     cost_in / cost_out: 每 1M token 美元成本（参考价，以各官方定价页为准，2026-07）
+#     context:            上下文窗口大小（token 数）
+#
+# 注意:
+#   - Gemini 的 base_url 结尾斜杠是硬性要求: /v1beta/openai/
+#   - 5 家（OpenAI/DeepSeek/SiliconFlow/Gemini/Qwen/Ollama）协议都是 openai 兼容，
+#     只有 Anthropic 单独。新增 provider 时先确认其协议，再选 protocol。
+# =============================================================================
 
 providers:
+  # ---------------------------------------------------------------------------
+  # DeepSeek — 默认 provider（国内直连、价格极低、适合开发）
+  # ---------------------------------------------------------------------------
+  deepseek:
+    protocol: openai
+    api_base: "https://api.deepseek.com/v1"
+    api_key_env: "DEEPSEEK_API_KEY"
+    models:
+      deepseek-chat:
+        cost_in: 0.27
+        cost_out: 1.10
+        context: 64000
+      deepseek-reasoner:
+        cost_in: 0.55
+        cost_out: 2.19
+        context: 64000
+
+  # ---------------------------------------------------------------------------
+  # OpenAI 官方
+  # ---------------------------------------------------------------------------
   openai:
+    protocol: openai
     api_base: "https://api.openai.com/v1"
+    api_key_env: "OPENAI_API_KEY"
     models:
-      - id: "gpt-4o-2024-05-13"
-        display_name: "GPT-4o"
-        cost_per_1k_input: 0.005
-        cost_per_1k_output: 0.015
-        context_window: 128000
+      gpt-4.1:
+        cost_in: 2.0
+        cost_out: 8.0
+        context: 128000
+      gpt-4.1-mini:
+        cost_in: 0.4
+        cost_out: 1.6
+        context: 128000
+      gpt-4.1-nano:
+        cost_in: 0.1
+        cost_out: 0.4
+        context: 128000
 
-      - id: "gpt-4o-mini"
-        display_name: "GPT-4o Mini"
-        cost_per_1k_input: 0.00015
-        cost_per_1k_output: 0.0006
-        context_window: 128000
-
-      - id: "gpt-3.5-turbo"
-        display_name: "GPT-3.5 Turbo"
-        cost_per_1k_input: 0.0005
-        cost_per_1k_output: 0.0015
-        context_window: 16385
-
+  # ---------------------------------------------------------------------------
+  # Anthropic Claude — 唯一的非 OpenAI 协议 provider
+  # ---------------------------------------------------------------------------
   anthropic:
+    protocol: anthropic
+    api_base: "https://api.anthropic.com"
+    api_key_env: "ANTHROPIC_API_KEY"
     models:
-      - id: "claude-3-5-sonnet-20241022"
-        display_name: "Claude 3.5 Sonnet"
-        cost_per_1k_input: 0.003
-        cost_per_1k_output: 0.015
-        context_window: 200000
+      claude-sonnet-4-5:
+        cost_in: 3.0
+        cost_out: 15.0
+        context: 200000
+      claude-opus-4-5:
+        cost_in: 5.0
+        cost_out: 25.0
+        context: 200000
 
-      - id: "claude-3-5-haiku-20241022"
-        display_name: "Claude 3.5 Haiku"
-        cost_per_1k_input: 0.001
-        cost_per_1k_output: 0.005
-        context_window: 200000
+  # ---------------------------------------------------------------------------
+  # Google Gemini（通过官方 OpenAI 兼容端点接入）
+  # ---------------------------------------------------------------------------
+  gemini:
+    protocol: openai
+    api_base: "https://generativelanguage.googleapis.com/v1beta/openai/"
+    api_key_env: "GEMINI_API_KEY"
+    models:
+      gemini-2.5-flash:
+        cost_in: 0.3
+        cost_out: 2.5
+        context: 1000000
+      gemini-2.5-pro:
+        cost_in: 1.25
+        cost_out: 10.0
+        context: 2000000
 
-      - id: "claude-3-opus-20240229"
-        display_name: "Claude 3 Opus"
-        cost_per_1k_input: 0.015
-        cost_per_1k_output: 0.075
-        context_window: 200000
+  # ---------------------------------------------------------------------------
+  # 通义千问 Qwen（通过阿里云百炼 DashScope 的 OpenAI 兼容接口）
+  # ---------------------------------------------------------------------------
+  qwen:
+    protocol: openai
+    api_base: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    api_key_env: "DASHSCOPE_API_KEY"
+    models:
+      qwen-plus:
+        cost_in: 0.4
+        cost_out: 1.2
+        context: 131072
+      qwen-turbo:
+        cost_in: 0.05
+        cost_out: 0.2
+        context: 1000000
+      qwen-max:
+        cost_in: 2.8
+        cost_out: 8.4
+        context: 32768
 
+  # ---------------------------------------------------------------------------
+  # 硅基流动 SiliconFlow（聚合平台，一个 key 调多家开源模型）
+  # ---------------------------------------------------------------------------
+  siliconflow:
+    protocol: openai
+    api_base: "https://api.siliconflow.cn/v1"
+    api_key_env: "SILICONFLOW_API_KEY"
+    models:
+      Qwen/Qwen2.5-72B-Instruct:
+        cost_in: 0.55
+        cost_out: 0.55
+        context: 131072
+      deepseek-ai/DeepSeek-V3:
+        cost_in: 0.28
+        cost_out: 0.42
+        context: 64000
+
+  # ---------------------------------------------------------------------------
+  # Ollama（本地模型，零成本）
+  # ---------------------------------------------------------------------------
   ollama:
+    protocol: openai
     api_base: "http://localhost:11434/v1"
+    api_key_env: ""
     models:
-      - id: "llama3.2"
-        display_name: "Llama 3.2"
-        cost_per_1k_input: 0.0
-        cost_per_1k_output: 0.0
-        context_window: 8192
+      llama3.3:
+        cost_in: 0.0
+        cost_out: 0.0
+        context: 128000
+      qwen2.5:
+        cost_in: 0.0
+        cost_out: 0.0
+        context: 32768
 
-      - id: "llama3.1"
-        display_name: "Llama 3.1"
-        cost_per_1k_input: 0.0
-        cost_per_1k_output: 0.0
-        context_window: 128000
-
-      - id: "mistral"
-        display_name: "Mistral 7B"
-        cost_per_1k_input: 0.0
-        cost_per_1k_output: 0.0
-        context_window: 32768
-
-# Default model for MVP
+# 默认 provider 与模型（开发期推荐用 DeepSeek，便宜且国内直连）
 default:
-  provider: "openai"
-  model: "gpt-4o-mini"
+  provider: deepseek
+  model: deepseek-chat

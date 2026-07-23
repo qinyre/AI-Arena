@@ -197,6 +197,115 @@ class TestClientFactory:
         assert isinstance(client, OpenAICompatibleClient)
 
 
+class TestExplicitConfig:
+    """用户直填路径：api_format + base_url + model（不走 yaml 白名单）"""
+
+    @pytest.fixture
+    def orchestrator(self):
+        from app.core.orchestrator import GameOrchestrator
+        return GameOrchestrator.__new__(GameOrchestrator)
+
+    def test_explicit_openai_format_arbitrary_endpoint(self, orchestrator, registry):
+        """用户直填任意 OpenAI 格式端点（yaml 里没有的也能用）"""
+        client = orchestrator._create_client({
+            "api_format": "openai",
+            "base_url": "https://my-private-relay.example.com/v1",
+            "model": "some-custom-model",
+            "api_key": "sk-custom",
+        }, registry)
+        assert isinstance(client, OpenAICompatibleClient)
+        assert client.model == "some-custom-model"
+        assert "my-private-relay.example.com" in str(client.client.base_url)
+
+    def test_explicit_anthropic_format(self, orchestrator, registry):
+        """用户直填 Anthropic 格式"""
+        client = orchestrator._create_client({
+            "api_format": "anthropic",
+            "base_url": "https://api.anthropic.com",
+            "model": "claude-sonnet-4-5",
+            "api_key": "sk-ant",
+        }, registry)
+        assert isinstance(client, ClaudeClient)
+
+    def test_explicit_takes_priority_over_provider(self, orchestrator, registry):
+        """base_url 存在时走直填路径，忽略 provider 字段"""
+        # 这个 base_url 不在任何 provider 名下，但直填就能用
+        client = orchestrator._create_client({
+            "provider": "deepseek",  # 故意写 provider
+            "base_url": "https://totally-custom.example.com/v1",  # 但给了 base_url
+            "model": "whatever",
+            "api_key": "sk-x",
+        }, registry)
+        assert isinstance(client, OpenAICompatibleClient)
+        assert "totally-custom.example.com" in str(client.client.base_url)
+
+    def test_explicit_key_env_reads_env(self, orchestrator, registry, monkeypatch):
+        """直填路径用 key_env 从环境变量取 key"""
+        monkeypatch.setenv("MY_CUSTOM_KEY", "sk-from-env")
+        client = orchestrator._create_client({
+            "api_format": "openai",
+            "base_url": "https://x.example.com/v1",
+            "model": "m",
+            "key_env": "MY_CUSTOM_KEY",
+        }, registry)
+        # client 内部存的 api_key 无法直接读，但没抛错即说明 key_env 生效
+        assert isinstance(client, OpenAICompatibleClient)
+
+    def test_explicit_key_env_missing_raises(self, orchestrator, registry, monkeypatch):
+        """直填路径下 key_env 指向的环境变量不存在时报错"""
+        monkeypatch.delenv("NO_SUCH_KEY", raising=False)
+        with pytest.raises(ValueError, match="环境变量"):
+            orchestrator._create_client({
+                "api_format": "openai",
+                "base_url": "https://x.example.com/v1",
+                "model": "m",
+                "key_env": "NO_SUCH_KEY",
+            }, registry)
+
+    def test_explicit_without_key_uses_dummy(self, orchestrator, registry):
+        """直填路径下不填 key 且无 key_env（如本地端点）用占位符，不报错"""
+        client = orchestrator._create_client({
+            "api_format": "openai",
+            "base_url": "http://localhost:1234/v1",
+            "model": "local-model",
+        }, registry)
+        assert isinstance(client, OpenAICompatibleClient)
+
+    def test_explicit_cost_optional(self, orchestrator, registry):
+        """直填路径下 cost 可选，不填默认 0"""
+        client = orchestrator._create_client({
+            "api_format": "openai",
+            "base_url": "https://x.example.com/v1",
+            "model": "m",
+            "api_key": "sk",
+        }, registry)
+        assert client.cost_per_1m_input == 0.0
+        assert client.cost_per_1m_output == 0.0
+
+    def test_explicit_user_cost_overrides_default(self, orchestrator, registry):
+        """直填路径下用户填的 cost 生效"""
+        client = orchestrator._create_client({
+            "api_format": "openai",
+            "base_url": "https://x.example.com/v1",
+            "model": "m",
+            "api_key": "sk",
+            "cost_per_1m_input": 1.5,
+            "cost_per_1m_output": 6.0,
+        }, registry)
+        assert client.cost_per_1m_input == 1.5
+        assert client.cost_per_1m_output == 6.0
+
+    def test_explicit_invalid_api_format_raises(self, orchestrator, registry):
+        """直填路径下非法 api_format 报错"""
+        with pytest.raises(ValueError, match="api_format"):
+            orchestrator._create_client({
+                "api_format": "gemini-native",  # 不支持
+                "base_url": "https://x.example.com/v1",
+                "model": "m",
+                "api_key": "sk",
+            }, registry)
+
+
 class TestBackwardCompatibility:
     """向后兼容"""
 

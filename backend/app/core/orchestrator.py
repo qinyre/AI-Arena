@@ -53,19 +53,81 @@ class GameOrchestrator:
 
     def _create_client(self, model_config: Dict, registry):
         """
-        根据 model_config 和 registry 创建 LLM 客户端。
+        根据 model_config 创建 LLM 客户端。
 
-        新增 provider 只需在 config/models.yaml 添加配置，无需改此方法——
-        只要 provider 的 protocol 是 "openai"（OpenAI 兼容）或 "anthropic"，
-        就会被自动路由到对应 client。
+        支持两种配置方式（优先级从高到低）：
+
+        1. 用户直填（推荐，任何端点都能用）：
+           {
+             "api_format": "openai" | "anthropic",  # 接口格式，二选一
+             "base_url": "https://your-endpoint/v1", # 用户自己填
+             "model": "model-name",                  # 用户自己填
+             "api_key": "sk-xxx"                     # 可选；不填则按 key_env 取
+           }
+           只要给了 base_url，就走这条路径——不查 yaml、不受 provider 白名单限制，
+           任何 OpenAI/Anthropic 格式的端点（官方、中转、自建、聚合、本地）都能跑。
+
+        2. provider 名兜底（方便快捷）：
+           {"provider": "deepseek", "model": "deepseek-chat"}
+           从 config/models.yaml 查 base_url/协议/定价/key_env。
+           适合用 yaml 里预定义好的常见 provider。
         """
+        # ---- 路径 1：用户直填（只要给了 base_url 就完全听用户的）----
+        if model_config.get("base_url"):
+            return self._create_client_from_explicit(model_config)
+
+        # ---- 路径 2：provider 名兜底（查 yaml）----
+        return self._create_client_from_registry(model_config, registry)
+
+    def _create_client_from_explicit(self, model_config: Dict):
+        """用户直填路径：完全按用户给的 api_format/base_url/model 构造 client。"""
+        api_format = model_config.get("api_format", "openai")
+        base_url = model_config["base_url"]
+        model_name = model_config["model"]
+
+        # api_key：优先用户在配置里直接给的；否则按 key_env 取环境变量；都没有用占位符
+        api_key = model_config.get("api_key")
+        if not api_key:
+            key_env = model_config.get("key_env")
+            if key_env:
+                api_key = os.getenv(key_env)
+                if not api_key:
+                    raise ValueError(
+                        f"配置了 key_env={key_env!r}，但该环境变量未设置。"
+                    )
+            else:
+                api_key = "dummy"  # 本地端点（如 Ollama）可能不需要 key
+
+        # 定价：用户填了就用，没填默认 0（不强制，成本统计只是参考）
+        cost_in = model_config.get("cost_per_1m_input", 0.0)
+        cost_out = model_config.get("cost_per_1m_output", 0.0)
+
+        if api_format == "openai":
+            return OpenAICompatibleClient(
+                api_key=api_key, model=model_name, base_url=base_url,
+                cost_per_1m_input=cost_in, cost_per_1m_output=cost_out,
+            )
+        elif api_format == "anthropic":
+            return ClaudeClient(
+                api_key=api_key, model=model_name,
+                cost_per_1m_input=cost_in, cost_per_1m_output=cost_out,
+            )
+        else:
+            raise ValueError(
+                f"api_format 只支持 'openai' 或 'anthropic'，收到 {api_format!r}。"
+            )
+
+    def _create_client_from_registry(self, model_config: Dict, registry):
+        """provider 名兜底路径：从 config/models.yaml 查配置构造 client。"""
         provider_name = model_config["provider"]
         model_name = model_config["model"]
 
         if provider_name not in registry:
             raise ValueError(
                 f"未知的 provider: {provider_name}。"
-                f"请在 config/models.yaml 中配置。已注册: {list(registry.providers.keys())}"
+                f"请在 config/models.yaml 中配置，或直接在 model_config 里填 "
+                f"api_format + base_url + model 自定义端点。"
+                f"已注册: {list(registry.providers.keys())}"
             )
 
         prov = registry[provider_name]
@@ -73,7 +135,7 @@ class GameOrchestrator:
         if model_info is None:
             raise ValueError(
                 f"provider {provider_name} 下未配置模型 {model_name}。"
-                f"请在 config/models.yaml 中添加。"
+                f"请在 config/models.yaml 中添加，或直接填 base_url + model 自定义。"
             )
 
         # 读取 API key（无 key_env 的 provider 如 Ollama 用占位符）

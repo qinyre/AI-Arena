@@ -86,18 +86,18 @@ class TestCostCalculation:
     def test_openai_compatible_cost(self):
         """OpenAICompatibleClient 成本按 1M token 计算"""
         client = OpenAICompatibleClient(
-            api_key="fake", model="gpt-4.1-mini",
-            cost_per_1m_input=0.4, cost_per_1m_output=1.6
+            api_key="fake", model="gpt-5-mini",
+            cost_per_1m_input=0.25, cost_per_1m_output=2.0
         )
         # 1000 input + 500 output tokens
-        # = 0.4 * 1000/1e6 + 1.6 * 500/1e6 = 0.0004 + 0.0008 = 0.0012
+        # = 0.25 * 1000/1e6 + 2.0 * 500/1e6 = 0.00025 + 0.001 = 0.00125
         cost = client.estimate_cost(1000, 500)
-        assert abs(cost - 0.0012) < 1e-9
+        assert abs(cost - 0.00125) < 1e-9
 
     def test_claude_cost(self):
         """ClaudeClient 成本按 1M token 计算"""
         client = ClaudeClient(
-            api_key="fake", model="claude-sonnet-4-5",
+            api_key="fake", model="claude-sonnet-5",
             cost_per_1m_input=3.0, cost_per_1m_output=15.0
         )
         # 1M input + 1M output = 3.0 + 15.0 = 18.0
@@ -131,10 +131,10 @@ class TestClientFactory:
         """6 个 openai 协议 provider 都路由到 OpenAICompatibleClient"""
         cases = [
             ("deepseek", "deepseek-v4-flash"),
-            ("openai", "gpt-4.1-mini"),
-            ("gemini", "gemini-2.5-flash"),
+            ("openai", "gpt-5-mini"),
+            ("gemini", "gemini-3.6-flash"),
             ("qwen", "qwen-plus"),
-            ("siliconflow", "Qwen/Qwen2.5-72B-Instruct"),
+            ("siliconflow", "Qwen/Qwen3-235B-A22B"),
             ("ollama", "llama3.3"),
         ]
         for prov, model in cases:
@@ -146,10 +146,10 @@ class TestClientFactory:
     def test_anthropic_routes_to_claude_client(self, orchestrator, registry):
         """anthropic 协议路由到 ClaudeClient"""
         client = orchestrator._create_client(
-            {"provider": "anthropic", "model": "claude-sonnet-4-5"}, registry
+            {"provider": "anthropic", "model": "claude-sonnet-5"}, registry
         )
         assert isinstance(client, ClaudeClient)
-        assert client.model == "claude-sonnet-4-5"
+        assert client.model == "claude-sonnet-5"
 
     def test_base_url_propagates_from_registry(self, orchestrator, registry):
         """provider 的 base_url 从 registry 正确传给 client"""
@@ -222,7 +222,7 @@ class TestExplicitConfig:
         client = orchestrator._create_client({
             "api_format": "anthropic",
             "base_url": "https://api.anthropic.com",
-            "model": "claude-sonnet-4-5",
+            "model": "claude-sonnet-5",
             "api_key": "sk-ant",
         }, registry)
         assert isinstance(client, ClaudeClient)
@@ -312,7 +312,7 @@ class TestBackwardCompatibility:
     def test_openai_client_alias_still_works(self):
         """旧代码 import OpenAIClient 仍可用（别名指向 OpenAICompatibleClient）"""
         assert OpenAIClient is OpenAICompatibleClient
-        client = OpenAIClient(api_key="fake", model="gpt-4.1-mini")
+        client = OpenAIClient(api_key="fake", model="gpt-5-mini")
         assert isinstance(client, OpenAICompatibleClient)
 
 

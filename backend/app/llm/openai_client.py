@@ -23,7 +23,7 @@ class OpenAICompatibleClient(ModelClient):
     def __init__(
         self,
         api_key: str,
-        model: str = "gpt-4.1-mini",
+        model: str = "gpt-5-mini",
         base_url: Optional[str] = None,
         cost_per_1m_input: float = 0.4,
         cost_per_1m_output: float = 1.6

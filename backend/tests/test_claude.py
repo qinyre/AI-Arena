@@ -26,10 +26,10 @@ async def main():
         "players": ["Claude-1", "Claude-2", "GPT-1", "GPT-2", "Llama-1"],
         "seed": 42,
         "model_configs": {
-            "Claude-1": {"provider": "anthropic", "model": "claude-sonnet-4-5"},
-            "Claude-2": {"provider": "anthropic", "model": "claude-sonnet-4-5"},
-            "GPT-1": {"provider": "openai", "model": "gpt-4.1-mini"},
-            "GPT-2": {"provider": "openai", "model": "gpt-4.1-mini"},
+            "Claude-1": {"provider": "anthropic", "model": "claude-sonnet-5"},
+            "Claude-2": {"provider": "anthropic", "model": "claude-sonnet-5"},
+            "GPT-1": {"provider": "openai", "model": "gpt-5-mini"},
+            "GPT-2": {"provider": "openai", "model": "gpt-5-mini"},
             "Llama-1": {"provider": "ollama", "model": "llama3.3"},
         }
     }

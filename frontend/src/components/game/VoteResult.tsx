@@ -1,8 +1,9 @@
 /**
- * 投票结果展示：票数条形 + "谁投谁"明细 + 放逐/平票结果。
+ * 投票结果展示:票数条形 + "谁投谁"明细 + 放逐/平票结果。
+ * Nocturne Stage 风格:金/绯红条形 + 玻璃 chip。
  */
 import { cn } from '../../utils/cn';
-import { avatarColor } from './roleConfig';
+import { avatarColor, playerInitial } from './roleConfig';
 import type { PlayerVoteEvent, VoteResultEvent } from '../../types/api';
 
 interface Props {
@@ -21,29 +22,35 @@ export default function VoteResult({ votes, result }: Props) {
   const tieCandidates = result?.data.result === 'tie' ? result.data.candidates : undefined;
 
   return (
-    <div className="space-y-3 animate-fade-in-up">
+    <div className="flex flex-col gap-3">
       {/* 票数条形 */}
       {Object.keys(counts).length > 0 && (
-        <div className="space-y-1.5">
+        <div className="flex flex-col gap-1.5">
           {Object.entries(counts)
             .sort((a, b) => b[1] - a[1])
             .map(([target, n]) => {
               const isOut = target === eliminated;
               return (
                 <div key={target} className="flex items-center gap-2">
-                  <span className="text-xs text-gray-300 w-16 truncate">{target}</span>
-                  <div className="flex-1 h-5 bg-gray-700/50 rounded overflow-hidden">
+                  <span className="font-body text-body-md text-[#d3e4fe] w-20 truncate">{target}</span>
+                  <div className="flex-1 h-5 bg-[#0b1c30]/60 rounded overflow-hidden border border-[#47464b]/20">
                     <div
                       className={cn(
                         'h-full rounded transition-all flex items-center justify-end pr-2',
-                        isOut ? 'bg-red-500/70' : 'bg-gray-500/60',
+                        isOut
+                          ? 'bg-gradient-to-r from-[#eb2445]/60 to-[#eb2445]/80'
+                          : 'bg-gradient-to-r from-[#64748b]/50 to-[#64748b]/70',
                       )}
                       style={{ width: `${(n / maxVotes) * 100}%` }}
                     >
-                      <span className="text-[11px] font-bold text-white">{n}</span>
+                      <span className="font-label text-label-sm text-white font-bold">{n}</span>
                     </div>
                   </div>
-                  {isOut && <span className="text-xs text-red-300 w-8">出局</span>}
+                  {isOut && (
+                    <span className="font-label text-label-sm text-[#ffb3b3] w-10 uppercase tracking-wider">
+                      出局
+                    </span>
+                  )}
                 </div>
               );
             })}
@@ -55,7 +62,7 @@ export default function VoteResult({ votes, result }: Props) {
         {votes.map((v, i) => (
           <span
             key={i}
-            className="inline-flex items-center gap-1 text-[11px] bg-gray-700/40 px-1.5 py-0.5 rounded"
+            className="inline-flex items-center gap-1 text-[11px] bg-[#1b2b3f]/60 border border-[#47464b]/30 px-1.5 py-0.5 rounded font-label"
           >
             <span
               className={cn(
@@ -63,23 +70,23 @@ export default function VoteResult({ votes, result }: Props) {
                 avatarColor(v.data.voter),
               )}
             >
-              {v.data.voter.slice(-1)}
+              {playerInitial(v.data.voter).slice(-1)}
             </span>
-            <span className="text-gray-300">{v.data.voter}</span>
-            <span className="text-gray-500">→</span>
-            <span className="text-gray-300">{v.data.target}</span>
+            <span className="text-[#d3e4fe]">{v.data.voter}</span>
+            <span className="material-symbols-outlined text-[12px] text-[#e9c400]/70">arrow_forward</span>
+            <span className="text-[#d3e4fe]">{v.data.target}</span>
           </span>
         ))}
       </div>
 
       {/* 结果文字 */}
       {result?.data.result === 'tie' && tieCandidates && (
-        <div className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded px-2 py-1">
+        <div className="font-body text-body-md text-[#ffe16d] bg-[#e9c400]/10 border border-[#e9c400]/30 rounded-md px-3 py-1.5">
           ⚖ 平票({tieCandidates.join(' vs ')}),无人出局
         </div>
       )}
       {result?.data.result === 'no_votes' && (
-        <div className="text-xs text-gray-400 bg-gray-700/30 rounded px-2 py-1">
+        <div className="font-body text-body-md text-[#c8c5cb] bg-[#1b2b3f]/60 rounded-md px-3 py-1.5">
           无人投票
         </div>
       )}

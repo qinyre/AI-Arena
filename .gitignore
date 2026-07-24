@@ -1,0 +1,32 @@
+# ===== 环境与密钥 =====
+.env
+.env.*
+*.local
+**/.env
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# ===== Node / 前端 =====
+node_modules/
+dist/
+.vite/
+*.log
+
+# ===== 运行时数据（对局记录、事件流） =====
+backend/data/*.json
+backend/data/events/
+
+# ===== 编辑器 / 系统 =====
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ===== 临时设计参考（AI 生成的原型稿，不纳入版本管理） =====
+借鉴/

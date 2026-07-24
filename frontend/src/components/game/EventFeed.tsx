@@ -1,22 +1,16 @@
 /**
- * 中栏主视觉：按阶段分组的叙事事件流。
- * 不是平铺长列表，而是用阶段分隔条组织成"第N轮·夜晚 → 白天 → 投票"的故事线。
- * 夜晚行动(刀/查)在上帝视角下可见，标注【私密】。
+ * 中央时间线(主舞台)。借鉴稿剧场风格:
+ * 顶部标题区 + 垂直渐变竖线 + 彩色圆点事件流。
+ * phase_change 渲染为竖线上的阶段分隔条;其余事件交给 TimelineEvent。
+ * 上帝视角:夜晚行动(刀/查)可见,标【私密】。
+ *
+ * 自动滚到底(用户上滚查看时暂停)—— 用 scrollTop 直赋,不用 scrollIntoView
+ * (scrollIntoView 会触发窗口滚动导致跳顶 bug,历史教训)。
  */
 import { useEffect, useRef } from 'react';
-import { cn } from '../../utils/cn';
-import SpeechBubble from './SpeechBubble';
-import VoteResult from './VoteResult';
+import TimelineEvent from './TimelineEvent';
+import { isPhaseChange } from '../../types/api';
 import type { GameEvent, GameStatusResponse, RoundData } from '../../types/api';
-import {
-  isPhaseChange,
-  isWerewolfKill,
-  isSeerInvestigate,
-  isPlayerSpeech,
-  isPlayerDeath,
-  isVoteResult,
-  isGameEnd,
-} from '../../types/api';
 
 interface Props {
   events: GameEvent[];
@@ -24,20 +18,18 @@ interface Props {
   status: GameStatusResponse | null;
 }
 
-function phaseMeta(phase: string): { label: string; icon: string } {
-  if (phase === 'night') return { label: '夜晚', icon: '🌙' };
-  if (phase === 'day') return { label: '白天', icon: '☀️' };
-  if (phase === 'vote' || phase === 'voting') return { label: '投票', icon: '🗳️' };
-  return { label: phase, icon: '•' };
+function phaseMeta(phase: string): { label: string; symbol: string } {
+  if (phase === 'night') return { label: '夜晚', symbol: 'dark_mode' };
+  if (phase === 'day') return { label: '白天', symbol: 'light_mode' };
+  if (phase === 'vote' || phase === 'voting') return { label: '投票', symbol: 'how_to_vote' };
+  return { label: phase, symbol: 'circle' };
 }
 
 export default function EventFeed({ events, rounds, status }: Props) {
-  const roleAssignment = status?.role_assignment;
-  const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const userScrolledUp = useRef(false);
 
-  // 自动滚到底(用户上滚查看时暂停)
+  // 监听用户上滚(查看历史时暂停自动滚)
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -49,152 +41,100 @@ export default function EventFeed({ events, rounds, status }: Props) {
     return () => el.removeEventListener('scroll', onScroll);
   }, []);
 
+  // 新事件来了,自动滚到底(仅当用户没在上滚查看)
   useEffect(() => {
-    if (!userScrolledUp.current && bottomRef.current) {
-      bottomRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    }
+    const el = containerRef.current;
+    if (!el || userScrolledUp.current) return;
+    el.scrollTop = el.scrollHeight;
   }, [events.length]);
 
+  const roleAssignment = status?.role_assignment;
+
   return (
-    <div ref={containerRef} className="h-full overflow-y-auto custom-scrollbar space-y-1 pr-1">
-      {events.length > 0 && (
-        <div className="text-center py-3">
-          <span className="text-xs text-gray-400 bg-gray-700/40 px-3 py-1 rounded-full">
-            🎭 对局开始 · 上帝视角
-          </span>
-        </div>
-      )}
+    <div className="h-full flex flex-col">
+      {/* 标题区 */}
+      <div className="text-center mb-4 shrink-0">
+        <h2 className="font-display text-display-lg text-transparent bg-clip-text bg-gradient-to-r from-[#d3e4fe] to-[#c8c5cd] m-0 leading-none text-[32px]">
+          事件时间线
+        </h2>
+        <p className="font-body text-body-md text-[#c8c5cb]/80 mt-1">
+          观看 AI 思考、决策和博弈的全过程
+        </p>
+      </div>
 
-      {events.length === 0 && (
-        <div className="text-center text-gray-500 py-12 text-sm">
-          <div className="text-3xl mb-3 opacity-30">🌙</div>
-          夜幕降临，对局即将开始...
-        </div>
-      )}
+      {/* 时间线滚动区 */}
+      <div
+        ref={containerRef}
+        className="flex-1 overflow-y-auto custom-scrollbar relative pr-3"
+      >
+        {events.length === 0 && (
+          <div className="text-center text-[#c8c5cb]/60 py-16 font-body">
+            <span className="material-symbols-outlined text-[48px] opacity-30 block mb-3">
+              dark_mode
+            </span>
+            夜幕降临,对局即将开始...
+          </div>
+        )}
 
-      {events.map((e, idx) => {
-        // 阶段分隔条
-        if (isPhaseChange(e)) {
-          const meta = phaseMeta(e.data.to);
-          const isNight = e.data.to === 'night';
-          return (
-            <div
-              key={idx}
-              className={cn(
-                'flex items-center gap-2 my-4 px-2',
-                isNight ? 'text-indigo-300' : e.data.to === 'day' ? 'text-amber-300' : 'text-sky-300',
-              )}
-            >
-              <div className="flex-1 h-px bg-current opacity-20" />
-              <span className="text-xs font-medium whitespace-nowrap">
-                {meta.icon} 第{e.data.round}轮 · {meta.label}
-              </span>
-              <div className="flex-1 h-px bg-current opacity-20" />
-            </div>
-          );
-        }
-
-        // 夜晚行动——私密事件，上帝视角可见
-        if (isWerewolfKill(e)) {
-          return (
-            <div key={idx} className="flex items-center gap-2 px-2 py-1.5 animate-fade-in-up">
-              <span className="text-xs px-1.5 py-0.5 rounded bg-red-500/15 text-red-300 border border-red-500/20">
-                【私密】
-              </span>
-              <span className="text-xs text-gray-300">
-                🐺 <b>{e.data.killer}</b> 选择杀害 <b>{e.data.target}</b>
+        {events.length > 0 && (
+          <>
+            {/* 对局开始标记 */}
+            <div className="text-center py-3 relative z-10">
+              <span className="inline-flex items-center gap-1.5 text-[11px] text-[#c8c5cb]/70 bg-[#1b2b3f]/60 px-3 py-1 rounded-full font-label uppercase tracking-wider border border-[#47464b]/40">
+                <span className="material-symbols-outlined text-[14px]">theater_comedy</span>
+                对局开始 · 上帝视角
               </span>
             </div>
-          );
-        }
-        if (isSeerInvestigate(e)) {
-          const isWolf = e.data.result === '狼人';
-          return (
-            <div key={idx} className="flex items-center gap-2 px-2 py-1.5 animate-fade-in-up">
-              <span className="text-xs px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/20">
-                【私密】
-              </span>
-              <span className="text-xs text-gray-300">
-                🔮 <b>{e.data.seer}</b> 查验 <b>{e.data.target}</b>：
-                <span className={isWolf ? 'text-red-300 font-medium' : 'text-emerald-300 font-medium'}>
-                  {' '}{e.data.result}
-                </span>
-              </span>
-            </div>
-          );
-        }
 
-        // 发言
-        if (isPlayerSpeech(e)) {
-          return (
-            <div key={idx} className="py-1.5">
-              <SpeechBubble speech={e} roleAssignment={roleAssignment} />
-            </div>
-          );
-        }
+            {/* 竖线(渐变) */}
+            <div className="timeline-line" />
 
-        // 死亡公告：夜晚死亡醒目展示；投票死亡由 vote_result 区块显示，这里跳过
-        if (isPlayerDeath(e)) {
-          if (e.data.cause === 'voted_out') return null;
-          return (
-            <div
-              key={idx}
-              className="my-2 bg-red-900/20 border border-red-700/40 rounded-lg px-3 py-2 text-center animate-fade-in-up"
-            >
-              <span className="text-sm text-red-200">
-                💀 <b>{e.data.player}</b> 在夜晚遇害(第{e.data.round}轮)
-              </span>
-            </div>
-          );
-        }
+            {/* 事件流 */}
+            {events.map((e, idx) => {
+              // phase_change → 阶段分隔条
+              if (isPhaseChange(e)) {
+                const meta = phaseMeta(e.data.to);
+                const isNight = e.data.to === 'night';
+                return (
+                  <div
+                    key={idx}
+                    className="relative z-10 flex items-center gap-2 my-4 px-2"
+                  >
+                    <span
+                      className={`material-symbols-outlined text-[16px] ${
+                        isNight ? 'text-[#c8c5cb]/60' : 'text-[#ffe16d]/70'
+                      }`}
+                    >
+                      {meta.symbol}
+                    </span>
+                    <span
+                      className={`font-label text-label-md uppercase tracking-wider whitespace-nowrap ${
+                        isNight ? 'text-[#c8c5cb]/70' : 'text-[#ffe16d]/80'
+                      }`}
+                    >
+                      第 {e.data.round} 轮 · {meta.label}
+                    </span>
+                    <div className="flex-1 h-px bg-[#47464b]/30" />
+                  </div>
+                );
+              }
 
-        // vote_result：找到该轮的 votes 一起渲染
-        if (isVoteResult(e)) {
-          const round = e.data.round;
-          const roundData = rounds.find((r) => r.round === round);
-          return (
-            <div key={idx} className="my-2 bg-gray-750/40 rounded-lg p-3 animate-fade-in-up">
-              <div className="text-xs text-gray-400 mb-2 flex items-center gap-1">
-                <span>🗳️</span> 投票结果
-              </div>
-              <VoteResult votes={roundData?.votes || []} result={e} />
-              {e.data.result === 'eliminated' && e.data.eliminated && (
-                <div className="mt-2 text-center text-sm text-red-200 bg-red-900/20 border border-red-700/40 rounded px-2 py-1.5">
-                  💀 <b>{e.data.eliminated}</b> 被投票放逐(第{round}轮)
-                </div>
-              )}
-            </div>
-          );
-        }
+              // 其余事件 → 时间线条目
+              return (
+                <TimelineEvent
+                  key={idx}
+                  event={e}
+                  rounds={rounds}
+                  roleAssignment={roleAssignment}
+                  index={idx}
+                />
+              );
+            })}
 
-        // game_end
-        if (isGameEnd(e)) {
-          const winner = e.data.winner;
-          return (
-            <div
-              key={idx}
-              className={cn(
-                'my-4 rounded-lg px-4 py-3 text-center border animate-fade-in-up',
-                winner === 'good'
-                  ? 'bg-emerald-900/30 border-emerald-600/50'
-                  : 'bg-red-900/30 border-red-600/50',
-              )}
-            >
-              <div className="text-lg font-bold text-gray-100">
-                {winner === 'good' ? '👥 好人阵营胜利' : '🐺 狼人阵营胜利'}
-              </div>
-              <div className="text-xs text-gray-400 mt-1">
-                历经 {e.data.final_round} 轮 · {e.data.duration_seconds.toFixed(1)}s
-              </div>
-            </div>
-          );
-        }
-
-        // 其它未知事件：不渲染
-        return null;
-      })}
-
-      <div ref={bottomRef} />
+            <div className="h-8" />
+          </>
+        )}
+      </div>
     </div>
   );
 }

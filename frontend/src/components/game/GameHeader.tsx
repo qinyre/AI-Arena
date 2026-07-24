@@ -1,5 +1,6 @@
 /**
- * 顶栏：轮次、阶段大徽章、状态、实时成本。
+ * 顶栏:轮次、阶段大徽章、状态、实时成本。
+ * Nocturne Stage 风格:玻璃拟态 + Material Symbols + 金/绯红阶段色。
  */
 import { cn } from '../../utils/cn';
 import type { GameStatusResponse } from '../../types/api';
@@ -9,65 +10,75 @@ interface Props {
   status: GameStatusResponse | null;
 }
 
-const PHASE_META: Record<string, { label: string; icon: string; cls: string }> = {
-  night: { label: '夜晚', icon: '🌙', cls: 'bg-indigo-500/20 text-indigo-200 border-indigo-400/40' },
-  day: { label: '白天', icon: '☀️', cls: 'bg-amber-500/20 text-amber-200 border-amber-400/40' },
-  vote: { label: '投票', icon: '🗳️', cls: 'bg-sky-500/20 text-sky-200 border-sky-400/40' },
-  voting: { label: '投票', icon: '🗳️', cls: 'bg-sky-500/20 text-sky-200 border-sky-400/40' },
+const PHASE_META: Record<string, { label: string; symbol: string; cls: string }> = {
+  night: { label: '夜晚', symbol: 'dark_mode', cls: 'bg-[#c8c5cb]/10 text-[#c8c5cb] border-[#c8c5cb]/40' },
+  day: { label: '白天', symbol: 'light_mode', cls: 'bg-[#e9c400]/15 text-[#ffe16d] border-[#e9c400]/40' },
+  vote: { label: '投票', symbol: 'how_to_vote', cls: 'bg-[#64748b]/20 text-[#d3e4fe] border-[#64748b]/40' },
+  voting: { label: '投票', symbol: 'how_to_vote', cls: 'bg-[#64748b]/20 text-[#d3e4fe] border-[#64748b]/40' },
 };
 
 const STATUS_META: Record<string, { label: string; cls: string }> = {
-  pending: { label: '等待', cls: 'bg-gray-600 text-gray-200' },
-  initialized: { label: '已就绪', cls: 'bg-blue-600 text-blue-100' },
-  running: { label: '运行中', cls: 'bg-yellow-600 text-yellow-100 animate-pulse' },
-  completed: { label: '已结束', cls: 'bg-green-600 text-green-100' },
-  error: { label: '错误', cls: 'bg-red-600 text-red-100' },
+  pending: { label: '等待', cls: 'bg-[#1b2b3f] text-[#c8c5cb]' },
+  initialized: { label: '已就绪', cls: 'bg-[#0b1c30] text-[#d3e4fe]' },
+  running: { label: '运行中', cls: 'bg-[#e9c400]/20 text-[#ffe16d] animate-pulse' },
+  completed: { label: '已结束', cls: 'bg-[#e9c400]/15 text-[#ffe16d]' },
+  error: { label: '错误', cls: 'bg-[#eb2445]/20 text-[#ffb3b3]' },
 };
 
 export default function GameHeader({ gameId, status }: Props) {
   if (!status) {
     return (
-      <div className="flex items-center justify-between px-4 py-3 bg-gray-800/60 rounded-lg">
-        <span className="text-sm text-gray-400">加载中...</span>
+      <div className="glass-panel rounded-md px-4 py-3 flex items-center justify-between">
+        <span className="font-body text-body-md text-[#c8c5cb]">加载中...</span>
       </div>
     );
   }
 
   const phase = status.current_phase;
-  const pm = phase ? PHASE_META[phase] || PHASE_META.pending : null;
+  const pm = phase ? PHASE_META[phase] : null;
   const sm = STATUS_META[status.status] || STATUS_META.pending;
 
   return (
-    <div className="flex items-center justify-between gap-3 px-4 py-3 bg-gray-800/60 rounded-lg backdrop-blur">
+    <div className="glass-panel rounded-md px-4 py-2.5 flex items-center justify-between gap-3">
+      {/* 左:阶段徽章 + 轮次 */}
       <div className="flex items-center gap-3 min-w-0">
         {pm && (
           <span
             className={cn(
-              'shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-sm font-medium border',
+              'shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-md font-label text-label-md uppercase tracking-wider border',
               pm.cls,
             )}
           >
-            {pm.icon} {pm.label}
+            <span className="material-symbols-outlined text-[16px]">{pm.symbol}</span>
+            {pm.label}
           </span>
         )}
         <div className="min-w-0">
-          <div className="text-sm font-medium text-gray-100">
+          <div className="font-display text-[18px] leading-tight text-[#d3e4fe]">
             第 {status.current_round ?? '-'} 轮
           </div>
-          <div className="text-[11px] text-gray-500 truncate">{gameId}</div>
+          <div className="font-label text-label-sm text-[#c8c5cb]/50 truncate uppercase tracking-wider">
+            {gameId}
+          </div>
         </div>
       </div>
 
+      {/* 右:成本 + 状态 */}
       <div className="flex items-center gap-3 shrink-0">
         {status.total_cost != null && (
           <div className="text-right">
-            <div className="text-[10px] text-gray-500">成本</div>
-            <div className="text-sm font-mono text-emerald-300">
+            <div className="font-label text-label-sm text-[#c8c5cb]/50 uppercase tracking-wider">成本</div>
+            <div className="font-label text-body-md text-[#ffe16d]">
               ${status.total_cost.toFixed(4)}
             </div>
           </div>
         )}
-        <span className={cn('px-2.5 py-1 rounded-md text-xs font-medium', sm.cls)}>
+        <span
+          className={cn(
+            'px-2.5 py-1 rounded-md font-label text-label-sm uppercase tracking-wider',
+            sm.cls,
+          )}
+        >
           {sm.label}
         </span>
       </div>

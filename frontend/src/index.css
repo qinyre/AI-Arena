@@ -1,28 +1,34 @@
-/* 面具剧场主题 - 字体导入 */
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Source+Sans+Pro:wght@400;600&family=DM+Sans:wght@400;500;700&display=swap');
+/* Nocturne Stage / 面具剧场 主题 —— 借鉴稿还原 */
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;500;600;700&family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Source+Sans+3:ital,wght@0,400;0,500;0,600;1,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  /* 面具剧场色彩系统 */
-  --stage-deep: #0a0a0f;
-  --stage-spot: #1a1620;
-  --mask-white: #f8f6f4;
-  --mask-shadow: #3d2f4a;
-  --truth-gold: #ffd700;
-  --lie-crimson: #dc143c;
+  /* Nocturne Stage 色彩系统(借鉴稿) */
+  --stage: #031427;
+  --stage-bright: #2a3a4f;
+  --container-low: #0b1c30;
+  --container: #102034;
+  --container-high: #1b2b3f;
+  --container-highest: #26364a;
+  --on-surface: #d3e4fe;
+  --on-surface-variant: #c8c5cb;
+  --outline-variant: #47464b;
+  --mask-shadow: #3d2f4a; /* 借鉴稿卡边色 */
+  --truth-gold: #e9c400;
+  --lie-crimson: #eb2445;
   --neutral: #64748b;
 
-  /* 字体系统 */
-  font-family: 'Source Sans Pro', system-ui, sans-serif;
+  font-family: 'Source Sans 3', system-ui, sans-serif;
   line-height: 1.6;
   font-weight: 400;
 
   color-scheme: dark;
-  color: var(--mask-white);
-  background-color: var(--stage-deep);
+  color: var(--on-surface);
+  background-color: var(--stage);
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -30,95 +36,267 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Display 字体 - 用于标题 */
+/* Display 字体 - 用于标题(EB Garamond 衬线) */
 h1, h2, h3 {
-  font-family: 'Cormorant Garamond', serif;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-/* 标签和小字 */
-.label, .caption {
-  font-family: 'DM Sans', sans-serif;
+  font-family: 'EB Garamond', Georgia, serif;
   font-weight: 500;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  font-size: 0.75rem;
+  letter-spacing: 0.01em;
 }
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
   min-width: 320px;
   min-height: 100vh;
-  background: var(--stage-deep);
+  background: var(--stage);
+  color: var(--on-surface);
+  position: relative;
+  overflow-x: hidden;
+}
+
+/* ── 借鉴稿:顶部聚光灯径向渐变 ── */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 800px;
+  height: 100vh;
+  background: radial-gradient(ellipse at top, rgba(146, 144, 149, 0.08) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
 }
 
 #root {
   width: 100%;
   min-height: 100vh;
+  position: relative;
+  z-index: 1;
 }
 
+/* ── 借鉴稿核心氛围 class ── */
+
+/* 玻璃拟态面板:blur + 半透明深色 + 描边 */
+.glass-panel {
+  background: rgba(3, 20, 39, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(71, 70, 75, 0.4);
+}
+
+/* 玩家卡:tarot 牌样式 + 🎭面具水印 + 角色 glow */
+.player-card {
+  background: var(--container);
+  border: 1px solid var(--mask-shadow);
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+.player-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+.player-card::after {
+  content: '🎭';
+  position: absolute;
+  bottom: -10px;
+  right: -10px;
+  font-size: 60px;
+  opacity: 0.05;
+  transform: rotate(-15deg);
+  pointer-events: none;
+}
+/* 狼人:绯红 glow 边框 */
+.player-card.active-wolf {
+  border-color: rgba(235, 36, 69, 0.6);
+  box-shadow: inset 0 0 20px rgba(235, 36, 69, 0.1), 0 0 15px rgba(235, 36, 69, 0.2);
+}
+/* 预言家:金色 glow 边框 */
+.player-card.active-seer {
+  border-color: rgba(233, 196, 0, 0.6);
+  box-shadow: inset 0 0 20px rgba(233, 196, 0, 0.1), 0 0 15px rgba(233, 196, 0, 0.2);
+}
+/* 当前发言者:金色聚光灯 */
+.player-card.is-speaking {
+  border-color: rgba(233, 196, 0, 0.7);
+  box-shadow: inset 0 0 25px rgba(233, 196, 0, 0.12), 0 0 25px rgba(233, 196, 0, 0.3);
+}
+/* 死亡:灰度 + 半透明 */
+.player-card.dead {
+  filter: grayscale(100%);
+  opacity: 0.6;
+  border-color: rgba(71, 70, 75, 0.2);
+}
+.player-card.dead::after {
+  opacity: 0.03;
+}
+/* 选中 */
+.player-card.is-selected {
+  border-color: rgba(211, 228, 254, 0.5);
+  box-shadow: inset 0 0 20px rgba(211, 228, 254, 0.06);
+}
+
+/* 时间线竖线(渐变:中性→金→绯红→中性) */
+.timeline-line {
+  position: absolute;
+  left: 24px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(to bottom,
+    rgba(200, 197, 205, 0.1),
+    rgba(233, 196, 0, 0.5),
+    rgba(235, 36, 69, 0.5),
+    rgba(200, 197, 205, 0.1));
+  z-index: 0;
+}
+
+/* 事件卡 */
+.event-card {
+  background: var(--container);
+  border: 1px solid var(--mask-shadow);
+  position: relative;
+  z-index: 1;
+}
+.event-card.wolf-action {
+  border-color: rgba(235, 36, 69, 0.5);
+}
+.event-card.seer-action {
+  border-color: rgba(233, 196, 0, 0.5);
+}
+.event-card.speech-action {
+  border-color: rgba(100, 116, 139, 0.5);
+}
+.event-card.death-action {
+  border-color: rgba(235, 36, 69, 0.4);
+  background: rgba(60, 10, 20, 0.4);
+}
+.event-card.end-action.good {
+  border-color: rgba(233, 196, 0, 0.6);
+  background: rgba(45, 40, 10, 0.4);
+}
+.event-card.end-action.evil {
+  border-color: rgba(235, 36, 69, 0.6);
+  background: rgba(50, 10, 20, 0.4);
+}
+
+/* AI 推理面板:玻璃拟态深紫蓝渐变 + 左金边 + 扫描线 */
+.ai-reasoning-panel {
+  background: linear-gradient(180deg, rgba(38, 54, 74, 0.4) 0%, rgba(11, 28, 48, 0.8) 100%);
+  border-left: 2px solid var(--truth-gold);
+  position: relative;
+  overflow: hidden;
+}
+.ai-reasoning-panel::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(233, 196, 0, 0.8), transparent);
+  animation: scanline 3s linear infinite;
+}
+@keyframes scanline {
+  0% { transform: translateY(-100%); opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { transform: translateY(100px); opacity: 0; }
+}
+
+/* Material Symbols 图标默认配置 */
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  user-select: none;
+}
+
+/* ── 组件层 ── */
 @layer components {
   .btn-primary {
-    @apply bg-[#ffd700] hover:bg-[#ffed4e] text-[#0a0a0f] font-medium py-2 px-4 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply font-medium py-2 px-4 rounded-md transition-all disabled:opacity-50 disabled:cursor-not-allowed;
     font-family: 'DM Sans', sans-serif;
     font-weight: 600;
-    box-shadow: 0 4px 16px rgba(255, 215, 0, 0.2);
+    background: var(--truth-gold);
+    color: #0a0a0f;
+    box-shadow: 0 4px 16px rgba(233, 196, 0, 0.2);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: #ffe16d;
   }
 
   .btn-secondary {
-    @apply bg-[#3d2f4a] hover:bg-[#4d3f5a] text-[#f8f6f4] font-medium py-2 px-4 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply font-medium py-2 px-4 rounded-md transition-all disabled:opacity-50 disabled:cursor-not-allowed;
     font-family: 'DM Sans', sans-serif;
+    color: var(--on-surface);
+    background: var(--container-high);
+    border: 1px solid var(--outline-variant);
+  }
+  .btn-secondary:hover:not(:disabled) {
+    background: var(--container-highest);
   }
 
   .btn-danger {
-    @apply bg-[#dc143c] hover:bg-[#ff1744] text-white font-medium py-2 px-4 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply font-medium py-2 px-4 rounded-md transition-all disabled:opacity-50 disabled:cursor-not-allowed;
     font-family: 'DM Sans', sans-serif;
+    color: white;
+    background: var(--lie-crimson);
+  }
+  .btn-danger:hover:not(:disabled) {
+    background: #ff3354;
   }
 
   .card {
-    @apply bg-[#1a1620] rounded-lg shadow-2xl p-6;
-    border: 1px solid rgba(61, 47, 74, 0.3);
+    @apply rounded-lg p-6;
+    background: var(--container);
+    border: 1px solid var(--outline-variant);
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
   }
 
   .input {
-    @apply bg-[#1a1620] text-[#f8f6f4] border border-[#3d2f4a] rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-[#ffd700];
+    @apply rounded-md px-4 py-2 focus:outline-none transition-colors;
+    font-family: 'DM Sans', sans-serif;
+    background: var(--container);
+    color: var(--on-surface);
+    border: 1px solid var(--outline-variant);
+  }
+  .input:focus {
+    border-color: var(--truth-gold);
   }
 
   .select {
-    @apply bg-[#1a1620] text-[#f8f6f4] border border-[#3d2f4a] rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-[#ffd700];
+    @apply rounded-md px-4 py-2 focus:outline-none transition-colors;
+    font-family: 'DM Sans', sans-serif;
+    background: var(--container);
+    color: var(--on-surface);
+    border: 1px solid var(--outline-variant);
+  }
+  .select:focus {
+    border-color: var(--truth-gold);
   }
 
   /* 自定义滚动条 - 戏剧化风格 */
   .custom-scrollbar {
     scrollbar-width: thin;
-    scrollbar-color: rgba(61, 47, 74, 0.6) transparent;
+    scrollbar-color: rgba(71, 70, 75, 0.5) transparent;
   }
-
   .custom-scrollbar::-webkit-scrollbar {
     width: 6px;
   }
-
   .custom-scrollbar::-webkit-scrollbar-track {
-    background: transparent;
+    background: rgba(3, 20, 39, 0.5);
   }
-
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: rgba(61, 47, 74, 0.6);
-    border-radius: 3px;
+    background: rgba(71, 70, 75, 0.5);
+    border-radius: 4px;
   }
-
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: rgba(61, 47, 74, 0.8);
+    background: rgba(200, 197, 205, 0.5);
   }
 }
 
-/* 推理面板增强样式 - 面具主题 */
+/* 推理面板正文 */
 .reasoning-content {
-  font-family: 'Source Sans Pro', sans-serif;
+  font-family: 'Source Sans 3', sans-serif;
   font-feature-settings: 'liga' 1, 'calt' 1;
   letter-spacing: 0.01em;
   line-height: 1.7;
@@ -129,163 +307,16 @@ body {
   width: 6px;
   height: 6px;
 }
-
 .scrollbar-thin::-webkit-scrollbar-track {
   background: transparent;
 }
-
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background: rgba(61, 47, 74, 0.5);
+  background: rgba(71, 70, 75, 0.5);
   border-radius: 3px;
   transition: background 0.2s;
 }
-
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background: rgba(61, 47, 74, 0.8);
-}
-
-.scrollbar-track-transparent::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-/* 平滑滚动 */
-* {
-  scroll-behavior: smooth;
-}
-
-/* 面具分裂动画 */
-@keyframes mask-split {
-  0% {
-    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
-  }
-  100% {
-    clip-path: polygon(0 0, 48% 0, 48% 100%, 0 100%);
-  }
-}
-
-.mask-left {
-  animation: mask-split 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-/* 舞台幕布效果 */
-@keyframes curtain-rise {
-  0% {
-    transform: scaleY(0);
-    transform-origin: top;
-  }
-  100% {
-    transform: scaleY(1);
-    transform-origin: top;
-  }
-}
-
-.curtain {
-  animation: curtain-rise 0.4s ease-out;
-}
-
-/* 打字机光标动画 */
-@keyframes cursor-blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
-
-.cursor-blink {
-  animation: cursor-blink 1s step-end infinite;
-}
-
-/* 舞台聚光灯效果 */
-@keyframes spotlight-pulse {
-  0%, 100% {
-    box-shadow: 0 0 40px rgba(255, 215, 0, 0.15);
-  }
-  50% {
-    box-shadow: 0 0 60px rgba(255, 215, 0, 0.25);
-  }
-}
-
-.spotlight {
-  animation: spotlight-pulse 3s ease-in-out infinite;
-}
-
-
-@layer components {
-  .btn-primary {
-    @apply bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
-  }
-
-  .btn-secondary {
-    @apply bg-gray-600 hover:bg-gray-700 text-white font-medium py-2 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
-  }
-
-  .btn-danger {
-    @apply bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
-  }
-
-  .card {
-    @apply bg-gray-800 rounded-lg shadow-lg p-6;
-  }
-
-  .input {
-    @apply bg-gray-700 text-white border border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500;
-  }
-
-  .select {
-    @apply bg-gray-700 text-white border border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500;
-  }
-
-  /* 自定义滚动条 - 现代化风格 */
-  .custom-scrollbar {
-    scrollbar-width: thin;
-    scrollbar-color: rgba(75, 85, 99, 0.5) transparent;
-  }
-
-  .custom-scrollbar::-webkit-scrollbar {
-    width: 6px;
-  }
-
-  .custom-scrollbar::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: rgba(75, 85, 99, 0.5);
-    border-radius: 3px;
-  }
-
-  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: rgba(75, 85, 99, 0.7);
-  }
-}
-
-/* 推理面板增强样式 */
-.reasoning-content {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-feature-settings: 'liga' 1, 'calt' 1;
-  letter-spacing: 0.01em;
-}
-
-/* 滚动条美化 - 用于事件时间线 */
-.scrollbar-thin::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-.scrollbar-thin::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.scrollbar-thin::-webkit-scrollbar-thumb {
-  background: rgba(107, 114, 128, 0.5);
-  border-radius: 3px;
-  transition: background 0.2s;
-}
-
-.scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background: rgba(107, 114, 128, 0.8);
-}
-
-.scrollbar-track-transparent::-webkit-scrollbar-track {
-  background: transparent;
+  background: rgba(71, 70, 75, 0.8);
 }
 
 /* 平滑滚动 */
@@ -298,7 +329,6 @@ body {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
 }
-
 .cursor-blink {
   animation: cursor-blink 1s step-end infinite;
 }

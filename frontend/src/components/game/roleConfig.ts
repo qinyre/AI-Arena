@@ -1,38 +1,55 @@
 /**
- * 角色配置：统一狼人/预言家/村民的图标、配色、标签。
- * 所有三栏组件共用，避免散落各处。
+ * 角色配置:统一狼人/预言家/村民的图标、配色、标签。
+ * Nocturne Stage 主题:金 = 预言家 / 绯红 = 狼人 / 蓝灰 = 村民。
+ * 所有三栏/时间线组件共用,避免散落各处。
  */
 import type { Role } from '../../types/api';
 
 export interface RoleConfig {
   icon: string;
+  /** Material Symbols 图标名(配合 .material-symbols-outlined) */
+  symbol: string;
   label: string;
-  /** 角色主题色 class 前缀用法：text-{key} / bg-{key} 等，配合 tailwind.config 的语义色 */
-  color: string; // tailwind 色名，如 'red' / 'amber' / 'emerald'
-  badgeClass: string; // 已组合好的徽章 class
+  /** 角色主题色 hex(金/绯红/蓝灰) */
+  color: string;
+  /** 已组合好的徽章 class */
+  badgeClass: string;
+  /** player-card 上的主题 class(active-wolf / active-seer / 空) */
+  cardClass: string;
+  /** 圆点/头像 ring 色 class */
+  ringClass: string;
   team: 'werewolf' | 'good';
 }
 
 const ROLE_MAP: Record<string, RoleConfig> = {
   werewolf: {
     icon: '🐺',
+    symbol: 'swords',
     label: '狼人',
-    color: 'red',
-    badgeClass: 'bg-red-500/15 text-red-300 border border-red-500/30',
+    color: '#eb2445',
+    badgeClass: 'bg-[#eb2445]/15 text-[#ffb3b3] border border-[#eb2445]/30',
+    cardClass: 'active-wolf',
+    ringClass: 'ring-[#eb2445]/60',
     team: 'werewolf',
   },
   seer: {
     icon: '🔮',
+    symbol: 'visibility',
     label: '预言家',
-    color: 'amber',
-    badgeClass: 'bg-amber-500/15 text-amber-300 border border-amber-500/30',
+    color: '#e9c400',
+    badgeClass: 'bg-[#e9c400]/15 text-[#ffe16d] border border-[#e9c400]/30',
+    cardClass: 'active-seer',
+    ringClass: 'ring-[#e9c400]/60',
     team: 'good',
   },
   villager: {
     icon: '👤',
+    symbol: 'person',
     label: '村民',
-    color: 'emerald',
-    badgeClass: 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30',
+    color: '#64748b',
+    badgeClass: 'bg-[#64748b]/15 text-[#c8c5cb] border border-[#64748b]/30',
+    cardClass: '',
+    ringClass: 'ring-[#64748b]/50',
     team: 'good',
   },
 };
@@ -55,7 +72,7 @@ export function claimRoleLabel(claim: string): string | null {
   return null;
 }
 
-/** 玩家头像色块：基于 id 生成稳定的颜色 */
+/** 玩家头像色块:基于 id 生成稳定的颜色(用于无图头像底色) */
 export function avatarColor(id: string): string {
   const colors = [
     'bg-sky-500', 'bg-violet-500', 'bg-rose-500', 'bg-teal-500',
@@ -64,4 +81,9 @@ export function avatarColor(id: string): string {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
   return colors[h % colors.length];
+}
+
+/** 玩家名缩写(取最后 2 个字母数字字符) */
+export function playerInitial(id: string): string {
+  return id.replace(/[^a-zA-Z0-9]/g, '').slice(-2) || id.slice(0, 2);
 }

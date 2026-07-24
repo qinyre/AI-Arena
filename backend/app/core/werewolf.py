@@ -75,28 +75,61 @@ class WerewolfGame(BaseGame):
         if not player:
             return {}
 
+        alive = list(self.state.alive_players)
+
         # 所有人可见的公开信息
         visible = {
             "game_id": self.state.game_id,
             "phase": self.state.phase.value,
             "round": self.state.round,
-            "alive_players": self.state.alive_players,
-            "dead_players": self.state.dead_players,
+            "total_players": len(self.state.players),
+            # 明确告诉 AI 它是几号玩家（之前缺失，导致自我指代混乱）
+            "your_player_id": player_id,
             "your_role": player.role.value,
             "your_status": "alive" if player.is_alive else "dead",
+            "alive_players": alive,
+            "dead_players": list(self.state.dead_players),
             "public_events": self._filter_public_events()
         }
 
         # 角色特定信息
         if player.role == Role.WEREWOLF:
-            # 狼人在多狼局能看到队友，但5人局只有1个狼人
-            visible["team"] = [player_id]
+            # 狼人能看到同阵营队友；5人局只有 1 个狼人 → team 仅含自己
+            team = [player_id]
+            visible["werewolf_team"] = team
+            visible["werewolf_count"] = len(team)
+            visible["werewolf_teammates"] = [p for p in team if p != player_id]
 
         elif player.role == Role.SEER:
             # 预言家看到查验历史
-            visible["investigation_results"] = player.investigation_results
+            visible["investigation_results"] = list(player.investigation_results)
 
         # 村民没有额外信息
+
+        # 白天发言阶段：明确告诉 AI 发言顺序与自己的位置
+        # （之前缺失，导致末位玩家误说"看后面玩家发言"）
+        if self.state.phase == GamePhase.DAY:
+            # orchestrator 按 alive_players 顺序依次发言
+            order = list(alive)
+            speeches_this_round = {
+                e.data.get("speaker")
+                for e in self.state.events
+                if e.event_type == "player_speech"
+                and e.visibility == "public"
+                and isinstance(e.data, dict)
+                and e.data.get("round") == self.state.round
+            }
+            already = [p for p in order if p in speeches_this_round]
+            remaining = [p for p in order if p not in speeches_this_round]
+            visible["speak_order"] = order
+            visible["speakers_already_spoke"] = already
+            visible["speakers_remaining"] = remaining
+            if player_id in order:
+                pos = order.index(player_id) + 1
+                visible["your_speak_position"] = pos
+                visible["total_speakers"] = len(order)
+                visible["is_first_speaker"] = (pos == 1)
+                visible["is_last_speaker"] = (pos == len(order))
 
         return visible
 
@@ -503,8 +536,24 @@ class WerewolfGame(BaseGame):
         }
 
     def _filter_public_events(self) -> List[Dict]:
-        """过滤出公开事件"""
-        return [
-            e.to_dict() for e in self.state.events
-            if e.visibility == "public"
-        ]
+        """过滤出公开事件(喂给玩家 LLM 的可见状态)。
+
+        关键:player_vote / player_speech 的 reasoning 是玩家内心独白,
+        绝不能泄露给其他玩家(否则狼人的"我作为狼人"等自爆思维链会被
+        好人看到,游戏直接破坏)。这里剥离 reasoning,只保留公开行为:
+        发言保留 content/claim_role,投票保留 voter→target。
+        完整 reasoning 仍存在 state.events 里供上帝视角观战。
+        """
+        result = []
+        for e in self.state.events:
+            if e.visibility != "public":
+                continue
+            d = e.to_dict()
+            et = d.get("event_type")
+            if et in ("player_vote", "player_speech") and isinstance(d.get("data"), dict):
+                # 深拷贝 data 再删 reasoning,避免污染 state 里的事件原文
+                data = dict(d["data"])
+                data.pop("reasoning", None)
+                d["data"] = data
+            result.append(d)
+        return result

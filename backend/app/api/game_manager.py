@@ -126,6 +126,18 @@ class GameManager:
             # 持久化完整事件流（包含 AI 推理）
             await self._save_events(game_id, orch)
 
+            # 终局玩家状态:游戏完成后内存 orchestrator 会被清理,
+            # get_status 不再能从内存读,所以这里必须持久化下来,
+            # 否则前端复盘时玩家列表会变空(触发"等待玩家入场")。
+            state = orch.game.state
+            final_role_assignment = (
+                {pid: p.role.value for pid, p in state.players.items()}
+                if state and state.players else {}
+            )
+            final_alive = list(state.alive_players) if state else []
+            final_dead = list(state.dead_players) if state else []
+            final_phase = _PHASE_MAP.get(state.phase.value, state.phase.value) if state else None
+
             # 更新持久化记录
             update = {
                 "status": "completed",
@@ -137,6 +149,12 @@ class GameManager:
                 "total_cost": total_cost,
                 "player_costs": player_costs,
                 "summary": result.get("summary"),  # 原本漏存，导致 get_result() 永远返回 null
+                # 终局玩家状态(复盘用)
+                "role_assignment": final_role_assignment,
+                "alive_players": final_alive,
+                "dead_players": final_dead,
+                "current_phase": final_phase,
+                "current_round": state.round if state else result.get("final_round"),
             }
             await self._update_status(game_id, **update)
 
@@ -162,20 +180,20 @@ class GameManager:
         if record is None:
             return None
 
-        # 默认从持久化记录取
+        # 默认从持久化记录取(完成/出错的游戏靠这些字段复盘,不再依赖内存 orchestrator)
         status_data = {
             "game_id": game_id,
             "status": record["status"],
-            "current_phase": None,
-            "current_round": None,
-            "alive_players": [],
-            "dead_players": [],
+            "current_phase": record.get("current_phase"),
+            "current_round": record.get("current_round"),
+            "alive_players": record.get("alive_players", []),
+            "dead_players": record.get("dead_players", []),
             "winner": record.get("winner"),
             "total_cost": record.get("total_cost", 0.0),
-            "role_assignment": {},  # 角色分配信息
+            "role_assignment": record.get("role_assignment", {}),
         }
 
-        # 运行中且有内存 orchestrator: 实时读 state
+        # 运行中且有内存 orchestrator: 实时读 state(覆盖持久化的初始值)
         orch = self._orchestrators.get(game_id)
         if record["status"] in ("initialized", "running") and orch and orch.game.state:
             state = orch.game.state

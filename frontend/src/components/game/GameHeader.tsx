@@ -15,6 +15,8 @@ const PHASE_META: Record<string, { label: string; symbol: string; cls: string }>
   day: { label: '白天', symbol: 'light_mode', cls: 'bg-[#e9c400]/15 text-[#ffe16d] border-[#e9c400]/40' },
   vote: { label: '投票', symbol: 'how_to_vote', cls: 'bg-[#64748b]/20 text-[#d3e4fe] border-[#64748b]/40' },
   voting: { label: '投票', symbol: 'how_to_vote', cls: 'bg-[#64748b]/20 text-[#d3e4fe] border-[#64748b]/40' },
+  tiebreak_speech: { label: '平票辩护', symbol: 'record_voice_over', cls: 'bg-[#7c3aed]/15 text-[#c4b5fd] border-[#7c3aed]/40' },
+  tiebreak_voting: { label: '加赛投票', symbol: 'how_to_vote', cls: 'bg-[#64748b]/20 text-[#d3e4fe] border-[#64748b]/40' },
 };
 
 const STATUS_META: Record<string, { label: string; cls: string }> = {

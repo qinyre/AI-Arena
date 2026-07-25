@@ -22,6 +22,8 @@ function phaseMeta(phase: string): { label: string; symbol: string } {
   if (phase === 'night') return { label: '夜晚', symbol: 'dark_mode' };
   if (phase === 'day') return { label: '白天', symbol: 'light_mode' };
   if (phase === 'vote' || phase === 'voting') return { label: '投票', symbol: 'how_to_vote' };
+  if (phase === 'tiebreak_speech') return { label: '平票辩护', symbol: 'record_voice_over' };
+  if (phase === 'tiebreak_voting') return { label: '加赛投票', symbol: 'how_to_vote' };
   return { label: phase, symbol: 'circle' };
 }
 
@@ -95,26 +97,39 @@ export default function EventFeed({ events, rounds, status }: Props) {
               if (isPhaseChange(e)) {
                 const meta = phaseMeta(e.data.to);
                 const isNight = e.data.to === 'night';
+                const isTiebreak = String(e.data.to).startsWith('tiebreak');
+                const accent = isNight ? '#c8c5cb' : (isTiebreak ? '#c4b5fd' : '#ffe16d');
+                const candidates: string[] = e.data.candidates || [];
                 return (
                   <div
                     key={idx}
-                    className="relative z-10 flex items-center gap-2 my-4 px-2"
+                    className="relative z-10 flex items-center gap-2 my-4 px-2 flex-wrap"
                   >
                     <span
-                      className={`material-symbols-outlined text-[16px] ${
-                        isNight ? 'text-[#c8c5cb]/60' : 'text-[#ffe16d]/70'
-                      }`}
+                      className="material-symbols-outlined text-[16px]"
+                      style={{ color: `${accent}99` }}
                     >
                       {meta.symbol}
                     </span>
                     <span
-                      className={`font-label text-label-md uppercase tracking-wider whitespace-nowrap ${
-                        isNight ? 'text-[#c8c5cb]/70' : 'text-[#ffe16d]/80'
-                      }`}
+                      className="font-label text-label-md uppercase tracking-wider whitespace-nowrap"
+                      style={{ color: `${accent}cc` }}
                     >
                       第 {e.data.round} 轮 · {meta.label}
                     </span>
-                    <div className="flex-1 h-px bg-[#47464b]/30" />
+                    {candidates.length > 0 && (
+                      <span
+                        className="font-label text-label-sm px-2 py-0.5 rounded border whitespace-nowrap"
+                        style={{
+                          color: accent,
+                          borderColor: `${accent}55`,
+                          background: `${accent}14`,
+                        }}
+                      >
+                        平票: {candidates.join(' / ')}
+                      </span>
+                    )}
+                    <div className="flex-1 h-px bg-[#47464b]/30 min-w-[20px]" />
                   </div>
                 );
               }

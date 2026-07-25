@@ -7,7 +7,7 @@ import os
 from typing import Dict, List
 from app.core.werewolf import WerewolfGame
 from app.core.agent import AIAgent
-from app.core.models import GamePhase, ActionType
+from app.core.models import GamePhase, GameResult
 from app.llm.registry import get_registry
 from app.llm.openai_client import OpenAICompatibleClient, OllamaClient
 from app.llm.claude_client import ClaudeClient
@@ -174,16 +174,23 @@ class GameOrchestrator:
         self.start_time = time.time()
 
         try:
+            result = None
+            max_rounds = int(self.config.get("max_rounds", 20))
             while not self.game.is_ended():
+                if self.game.state.round > max_rounds:
+                    result = GameResult(self.game_id, "draw", self.game.state.round - 1,
+                                        "max_rounds_reached", 0.0)
+                    break
                 await self.execute_round()
 
             self.end_time = time.time()
 
             # 获取游戏结果
-            result = self.game.check_win_condition()
+            result = result or self.game.check_win_condition()
             if result:
                 result.duration_seconds = self.end_time - self.start_time
                 result.summary = self.game.get_game_summary()
+                self.game.state.phase = GamePhase.ENDED
 
                 # 追加 game_end 事件，标记对局终结（供前端观战界面识别结束态）
                 end_event = self.game.record_game_end(result)
@@ -211,6 +218,14 @@ class GameOrchestrator:
             await self.execute_voting_phase()
             events = self.game.advance_phase()
             self._broadcast_events(events)
+
+        elif self.game.state.phase == GamePhase.TIEBREAK_SPEECH:
+            await self.execute_day_phase()
+            self._broadcast_events(self.game.advance_phase())
+
+        elif self.game.state.phase == GamePhase.TIEBREAK_VOTING:
+            await self.execute_voting_phase()
+            self._broadcast_events(self.game.advance_phase())
 
     async def execute_night_phase(self):
         """执行夜晚阶段"""

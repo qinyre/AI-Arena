@@ -58,19 +58,18 @@ class AIAgent:
         )
 
         # 调用LLM
-        response = await self.model_client.generate(
-            prompt=action_prompt,
-            system_prompt=system_prompt,
-            json_mode=True,
-            temperature=0.7
-        )
+        response = await self._generate_with_retry(action_prompt, system_prompt)
 
         # 解析响应
         parsed = response.get("parsed")
         if not parsed:
             # 降级：随机选择一个动作
-            import random
-            chosen = random.choice(available_actions)
+            chosen = next((a for a in available_actions if a["action_type"] != "abstain"), available_actions[0])
+            if chosen["action_type"] == "speak":
+                return GameAction(
+                    action_type=ActionType.SPEAK, actor_id=self.agent_id,
+                    parameters={"content": "我暂时没有新的信息。", "claim_role": "none", "reasoning": "模型不可用，使用默认动作"}
+                )
             return GameAction(
                 action_type=ActionType(chosen["action_type"]),
                 actor_id=self.agent_id,
@@ -80,10 +79,29 @@ class AIAgent:
 
         # 构建GameAction
         chosen_action = parsed.get("chosen_action", {})
-        action_type = ActionType(chosen_action.get("action_type"))
+        if not isinstance(chosen_action, dict):
+            return self._fallback_action(available_actions)
+        try:
+            action_type = ActionType(chosen_action.get("action_type"))
+        except ValueError:
+            return self._fallback_action(available_actions)
         target_id = chosen_action.get("target")
         parameters = chosen_action.get("parameters", {})
+        spec = next((a for a in available_actions if a["action_type"] == action_type.value), None)
+        if not spec or not isinstance(parameters, dict):
+            return self._fallback_action(available_actions)
+        if spec.get("target_required") and target_id not in spec.get("valid_targets", []):
+            return self._fallback_action(available_actions)
+        if not spec.get("target_required") and target_id is not None:
+            return self._fallback_action(available_actions)
         parameters["reasoning"] = parsed.get("reasoning", "")
+        if not isinstance(parameters["reasoning"], str) or len(parameters["reasoning"]) > 500:
+            return self._fallback_action(available_actions)
+        if action_type == ActionType.SPEAK:
+            if not isinstance(parameters.get("content"), str) or not parameters["content"].strip() or len(parameters["content"]) > 500:
+                return self._fallback_action(available_actions)
+            if parameters.get("claim_role", "none") not in ("none", "seer", "villager"):
+                return self._fallback_action(available_actions)
 
         return GameAction(
             action_type=action_type,
@@ -91,6 +109,27 @@ class AIAgent:
             target_id=target_id,
             parameters=parameters
         )
+
+    async def _generate_with_retry(self, prompt: str, system_prompt: str) -> Dict:
+        for _ in range(2):
+            try:
+                response = await self.model_client.generate(
+                    prompt=prompt, system_prompt=system_prompt,
+                    json_mode=True, temperature=0.7
+                )
+                if response.get("parsed"):
+                    return response
+            except Exception:
+                pass
+        return {"parsed": None}
+
+    def _fallback_action(self, available_actions: List[Dict]) -> GameAction:
+        chosen = next((a for a in available_actions if a["action_type"] != "abstain"), available_actions[0])
+        parameters = {"reasoning": "模型不可用，使用默认动作"}
+        if chosen["action_type"] == "speak":
+            parameters.update(content="我暂时没有新的信息。", claim_role="none")
+        return GameAction(ActionType(chosen["action_type"]), self.agent_id,
+                          (chosen.get("valid_targets") or [None])[0], parameters)
 
     def _build_system_prompt(self, visible_state: Dict) -> str:
         """构建系统提示词"""
@@ -187,8 +226,6 @@ class AIAgent:
 {order_hint}
 
 # 你的记忆
-{self.get_recent_memory()}
-
 # 行为准则
 1. 你是 {your_id}。发言/推理中提到"我"指的就是 {your_id}，不要用第三人称称呼自己。
 2. 严格按照你的角色行事，不要泄露隐藏信息（如狼人身份）。
@@ -204,10 +241,45 @@ class AIAgent:
         available_actions: List[Dict]
     ) -> str:
         """构建动作选择提示词"""
-        return f"""
-请分析当前局势并选择一个动作：
+        phase = visible_state.get("phase", "unknown")
 
-# 可选动作
+        # 把阶段翻译成 LLM 能理解的"现在能做什么/不能做什么"
+        phase_guide = {
+            "night": (
+                "现在是【夜晚】阶段。你只能执行夜间行动（狼人杀人 / 预言家查验），"
+                "不能发言、不能投票、不能跳身份。所有决策都是暗中进行的。"
+            ),
+            "day": (
+                "现在是【白天发言】阶段。你只能【发言】一次（speak 动作），"
+                "在 parameters.content 里写出你的公开发言内容。"
+                "白天发言阶段不能投票、不能杀人、不能查验。"
+                "你的查验/身份声明等必须通过公开发言（content）来表达，"
+                "不要把 action_type 写成 vote / kill / investigate。"
+            ),
+            "voting": (
+                "现在是【投票】阶段。你只能【投票】放逐一名玩家（vote 动作），"
+                "不能再发言、不能跳身份、不能杀人、不能查验。"
+                "即便局势危急也只能选择投票目标——已没有发言机会。"
+                "如果参数里有 content 字段会被忽略；chosen_action 只能是 vote。"
+            ),
+        }
+        guide = phase_guide.get(phase, f"当前阶段: {phase}。只能从可选动作中选择。")
+
+        # 列出本阶段允许的 action_type（来自 available_actions）
+        allowed_types = sorted({
+            a.get("action_type", "") for a in available_actions if a.get("action_type")
+        })
+
+        return f"""
+请分析当前局势并选择一个动作。
+
+# 当前阶段约束（必读）
+{guide}
+本轮你能执行的动作类型仅限: {', '.join(allowed_types) if allowed_types else '（无）'}。
+禁止在 reasoning 中幻想当前阶段做不到的事（例如投票阶段不能"反跳预言家/发言/拉票"、
+白天阶段不能"杀人/查验"）。reasoning 只应围绕"在当前可用动作中如何抉择"展开。
+
+# 可选动作（你只能从中选择，不得自创）
 {json.dumps(available_actions, ensure_ascii=False, indent=2)}
 
 # 当前游戏状态
@@ -215,15 +287,17 @@ class AIAgent:
 
 请返回JSON格式：
 {{
-    "reasoning": "你的推理过程（2-3句话，内部思考）",
+    "reasoning": "你的内部推理（2-3句话，只针对当前可用动作的抉择，不得幻想阶段外的行动）",
     "chosen_action": {{
-        "action_type": "...",
-        "target": "...",
+        "action_type": "...（必须从上面可选动作里选）",
+        "target": "...（该动作要求 target 时填玩家ID，否则留空）",
         "parameters": {{}}
     }}
 }}
 
-注意：reasoning是你的内部推理，不会被其他玩家看到。如果是speak动作，在parameters.content中写你的公开发言。
+注意：reasoning 是你的内部思考，不会被其他玩家看到。chosen_action 必须严格匹配上面的可选动作；
+若是 speak 动作，把公开发言写在 parameters.content；若是 vote/kill/investigate 动作，
+parameters 里通常只需 reasoning（如需），不要硬塞 content。
 """
 
     def _format_event(self, event: Dict) -> str:

@@ -13,6 +13,8 @@ class GamePhase(Enum):
     NIGHT = "night"
     DAY = "day"
     VOTING = "voting"
+    TIEBREAK_SPEECH = "tiebreak_speech"
+    TIEBREAK_VOTING = "tiebreak_voting"
     ENDED = "ended"
 
 
@@ -29,6 +31,7 @@ class ActionType(Enum):
     INVESTIGATE = "investigate"
     SPEAK = "speak"
     VOTE = "vote"
+    ABSTAIN = "abstain"
 
 
 @dataclass

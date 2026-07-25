@@ -19,7 +19,10 @@ class WerewolfGame(BaseGame):
         self.state: Optional[GameState] = None
         self.config: Dict = {}
         self.last_night_kill: Optional[str] = None
-        self.current_votes: Dict[str, str] = {}  # voter_id -> target_id
+        self.current_votes: Dict[str, Optional[str]] = {}
+        self.tie_candidates: List[str] = []
+        self.acted_players = set()
+        self.rng = random.Random()
 
     def initialize(self, players: List[str], config: Dict) -> None:
         """初始化游戏"""
@@ -31,12 +34,11 @@ class WerewolfGame(BaseGame):
 
         # 设置随机种子（可复现性）
         seed = config.get("seed")
-        if seed is not None:
-            random.seed(seed)
+        self.rng = random.Random(seed)
 
         # 分配角色：1狼人 + 1预言家 + 3村民
         roles = [Role.WEREWOLF, Role.SEER] + [Role.VILLAGER] * 3
-        random.shuffle(roles)
+        self.rng.shuffle(roles)
 
         # 创建玩家对象
         player_objs = {}
@@ -89,7 +91,7 @@ class WerewolfGame(BaseGame):
             "your_status": "alive" if player.is_alive else "dead",
             "alive_players": alive,
             "dead_players": list(self.state.dead_players),
-            "public_events": self._filter_public_events()
+            "public_events": self._filter_public_events(limit=20)
         }
 
         # 角色特定信息
@@ -108,9 +110,9 @@ class WerewolfGame(BaseGame):
 
         # 白天发言阶段：明确告诉 AI 发言顺序与自己的位置
         # （之前缺失，导致末位玩家误说"看后面玩家发言"）
-        if self.state.phase == GamePhase.DAY:
+        if self.state.phase in (GamePhase.DAY, GamePhase.TIEBREAK_SPEECH):
             # orchestrator 按 alive_players 顺序依次发言
-            order = list(alive)
+            order = list(alive) if self.state.phase == GamePhase.DAY else list(self.tie_candidates)
             speeches_this_round = {
                 e.data.get("speaker")
                 for e in self.state.events
@@ -118,6 +120,7 @@ class WerewolfGame(BaseGame):
                 and e.visibility == "public"
                 and isinstance(e.data, dict)
                 and e.data.get("round") == self.state.round
+                and e.data.get("phase") == self.state.phase.value
             }
             already = [p for p in order if p in speeches_this_round]
             remaining = [p for p in order if p not in speeches_this_round]
@@ -139,7 +142,7 @@ class WerewolfGame(BaseGame):
             return []
 
         player = self.state.players.get(player_id)
-        if not player or not player.is_alive:
+        if not player or not player.is_alive or player_id in self.acted_players:
             return []
 
         actions = []
@@ -212,6 +215,24 @@ class WerewolfGame(BaseGame):
                     }
                 }
             })
+            actions.append({"action_type": "abstain", "description": "弃票", "target_required": False, "parameters": {}})
+
+        elif self.state.phase == GamePhase.TIEBREAK_SPEECH:
+            if player_id in self.tie_candidates:
+                actions.append({
+                    "action_type": "speak", "description": "同票候选人发言",
+                    "target_required": False,
+                    "parameters": {"content": {"type": "string", "description": "公开发言"}}
+                })
+
+        elif self.state.phase == GamePhase.TIEBREAK_VOTING:
+            if player_id not in self.tie_candidates:
+                actions.append({
+                    "action_type": "vote", "description": "在同票候选人中投票",
+                    "target_required": True, "valid_targets": list(self.tie_candidates),
+                    "parameters": {"reasoning": {"type": "string", "description": "投票理由"}}
+                })
+                actions.append({"action_type": "abstain", "description": "弃票", "target_required": False, "parameters": {}})
 
         return actions
 
@@ -234,13 +255,24 @@ class WerewolfGame(BaseGame):
             return False
 
         # 检查目标是否合法
-        if action.target_id:
-            for avail_action in available:
-                if avail_action["action_type"] == action_type_str:
-                    if avail_action.get("target_required"):
-                        valid_targets = avail_action.get("valid_targets", [])
-                        if action.target_id not in valid_targets:
-                            return False
+        spec = next(a for a in available if a["action_type"] == action_type_str)
+        if spec.get("target_required"):
+            if action.target_id not in spec.get("valid_targets", []):
+                return False
+        elif action.target_id is not None:
+            return False
+
+        if not isinstance(action.parameters, dict):
+            return False
+        if action.action_type == ActionType.SPEAK:
+            content = action.parameters.get("content")
+            if not isinstance(content, str) or not content.strip() or len(content) > 500:
+                return False
+            if action.parameters.get("claim_role", "none") not in ("none", "seer", "villager"):
+                return False
+        reasoning = action.parameters.get("reasoning", "")
+        if not isinstance(reasoning, str) or len(reasoning) > 500:
+            return False
 
         return True
 
@@ -273,7 +305,8 @@ class WerewolfGame(BaseGame):
             result = {
                 "target": action.target_id,
                 "is_werewolf": is_werewolf,
-                "round": self.state.round
+                "round": self.state.round,
+                "phase": self.state.phase.value
             }
 
             # 记录到预言家的查验历史
@@ -298,7 +331,8 @@ class WerewolfGame(BaseGame):
                 "content": action.parameters.get("content", ""),
                 "claim_role": action.parameters.get("claim_role", "none"),
                 "reasoning": action.parameters.get("reasoning", ""),
-                "round": self.state.round
+                "round": self.state.round,
+                "phase": self.state.phase.value
             }
             self.state.speeches.append(speech)
 
@@ -323,9 +357,18 @@ class WerewolfGame(BaseGame):
                 "visibility": "public"
             })
 
+        elif action.action_type == ActionType.ABSTAIN:
+            self.current_votes[action.actor_id] = None
+            events.append({
+                "event_type": "player_abstain",
+                "data": {"voter": action.actor_id, "round": self.state.round},
+                "visibility": "public"
+            })
+
         # 将事件添加到游戏状态
         for event_data in events:
             self.state.events.append(GameEvent(**event_data))
+        self.acted_players.add(action.actor_id)
 
         return events
 
@@ -333,7 +376,19 @@ class WerewolfGame(BaseGame):
         """推进游戏阶段"""
         events = []
 
-        if self.state.phase == GamePhase.NIGHT:
+        if self.state.phase == GamePhase.TIEBREAK_SPEECH:
+            from_phase = self.state.phase.value
+            self.state.phase = GamePhase.TIEBREAK_VOTING
+            self.current_votes = {}
+            self.acted_players = set()
+            events.append({"event_type": "phase_change", "data": {"from": from_phase, "to": "tiebreak_voting", "phase": "tiebreak_voting", "round": self.state.round, "candidates": self.tie_candidates}, "visibility": "public"})
+
+        elif self.state.phase == GamePhase.TIEBREAK_VOTING:
+            vote_result = self._process_votes(tiebreak=True)
+            events.append(vote_result)
+            self._finish_voting(events, vote_result)
+
+        elif self.state.phase == GamePhase.NIGHT:
             # 夜晚结束，进入白天
             # 处理狼人杀人
             if self.last_night_kill:
@@ -351,6 +406,7 @@ class WerewolfGame(BaseGame):
 
             from_phase = self.state.phase.value
             self.state.phase = GamePhase.DAY
+            self.acted_players = set()
             events.append({
                 "event_type": "phase_change",
                 "data": {"from": from_phase, "to": "day", "phase": "day", "round": self.state.round},
@@ -362,6 +418,7 @@ class WerewolfGame(BaseGame):
             from_phase = self.state.phase.value
             self.state.phase = GamePhase.VOTING
             self.current_votes = {}
+            self.acted_players = set()
             events.append({
                 "event_type": "phase_change",
                 "data": {"from": from_phase, "to": "voting", "phase": "voting", "round": self.state.round},
@@ -372,6 +429,15 @@ class WerewolfGame(BaseGame):
             # 投票结束，处理投票结果
             vote_result = self._process_votes()
             events.append(vote_result)
+            if vote_result["data"].get("result") == "tie":
+                from_phase = self.state.phase.value
+                self.tie_candidates = vote_result["data"]["candidates"]
+                self.state.phase = GamePhase.TIEBREAK_SPEECH
+                self.acted_players = set()
+                events.append({"event_type": "phase_change", "data": {"from": from_phase, "to": "tiebreak_speech", "phase": "tiebreak_speech", "round": self.state.round, "candidates": self.tie_candidates}, "visibility": "public"})
+                for event_data in events:
+                    self.state.events.append(GameEvent(**event_data))
+                return events
             # 投票放逐补发死亡事件（原 vote_result 只声明结果，无独立 player_death）
             if vote_result["data"].get("result") == "eliminated":
                 eliminated = vote_result["data"]["eliminated"]
@@ -402,6 +468,18 @@ class WerewolfGame(BaseGame):
             self.state.events.append(GameEvent(**event_data))
 
         return events
+
+    def _finish_voting(self, events: List[Dict], vote_result: Dict) -> None:
+        if vote_result["data"].get("result") == "eliminated":
+            eliminated = vote_result["data"]["eliminated"]
+            events.append({"event_type": "player_death", "data": {"player": eliminated, "cause": "voted_out", "round": self.state.round}, "visibility": "public"})
+        from_phase = self.state.phase.value
+        self.state.round += 1
+        self.state.phase = GamePhase.NIGHT
+        self.tie_candidates = []
+        self.current_votes = {}
+        self.acted_players = set()
+        events.append({"event_type": "phase_change", "data": {"from": from_phase, "to": "night", "phase": "night", "round": self.state.round}, "visibility": "public"})
 
     def check_win_condition(self) -> Optional[GameResult]:
         """检查胜利条件"""
@@ -483,9 +561,10 @@ class WerewolfGame(BaseGame):
             self.state.dead_players.append(player_id)
             self.state.players[player_id].is_alive = False
 
-    def _process_votes(self) -> Dict:
+    def _process_votes(self, tiebreak: bool = False) -> Dict:
         """处理投票结果"""
-        if not self.current_votes:
+        cast_votes = [target for target in self.current_votes.values() if target is not None]
+        if not cast_votes:
             return {
                 "event_type": "vote_result",
                 "data": {"result": "no_votes", "round": self.state.round},
@@ -494,19 +573,19 @@ class WerewolfGame(BaseGame):
 
         # 统计票数
         vote_counts = {}
-        for target in self.current_votes.values():
+        for target in cast_votes:
             vote_counts[target] = vote_counts.get(target, 0) + 1
 
         # 找到最高票数
         max_votes = max(vote_counts.values())
-        candidates = [p for p, v in vote_counts.items() if v == max_votes]
+        candidates = [p for p in self.state.alive_players if vote_counts.get(p) == max_votes]
 
         # 平票处理：无人出局
         if len(candidates) > 1:
             return {
                 "event_type": "vote_result",
                 "data": {
-                    "result": "tie",
+                    "result": "no_elimination" if tiebreak else "tie",
                     "candidates": candidates,
                     "votes": vote_counts,
                     "round": self.state.round
@@ -535,7 +614,7 @@ class WerewolfGame(BaseGame):
             "visibility": "public"
         }
 
-    def _filter_public_events(self) -> List[Dict]:
+    def _filter_public_events(self, limit: int = 20) -> List[Dict]:
         """过滤出公开事件(喂给玩家 LLM 的可见状态)。
 
         关键:player_vote / player_speech 的 reasoning 是玩家内心独白,
@@ -556,4 +635,4 @@ class WerewolfGame(BaseGame):
                 data.pop("reasoning", None)
                 d["data"] = data
             result.append(d)
-        return result
+        return result[-limit:]

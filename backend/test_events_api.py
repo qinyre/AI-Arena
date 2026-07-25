@@ -8,7 +8,7 @@ from app.core.orchestrator import GameOrchestrator
 from app.api.game_manager import game_manager
 
 
-async def test_events_flow():
+async def demo_events_flow():
     """测试完整的事件流功能"""
     print("🧪 开始测试事件流 API...")
 

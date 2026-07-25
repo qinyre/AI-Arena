@@ -27,7 +27,7 @@ _STORAGE_PATH = Path(__file__).resolve().parents[2] / "data" / "games.json"
 
 # 引擎 phase → 前端期望 phase 的映射
 # 引擎用 GamePhase.VOTING="voting",前端 GameView 期望 "vote"
-_PHASE_MAP = {"voting": "vote"}
+_PHASE_MAP = {"voting": "vote", "tiebreak_speech": "day", "tiebreak_voting": "vote"}
 
 
 class GameManager:

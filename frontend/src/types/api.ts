@@ -115,7 +115,7 @@ export interface GameStartEvent extends GameEventBase {
 
 export interface PhaseChangeEvent extends GameEventBase {
   event_type: 'phase_change';
-  data: { from: string; to: string; phase: string; round: number };
+  data: { from: string; to: string; phase: string; round: number; candidates?: string[] };
 }
 
 export interface WerewolfKillEvent extends GameEventBase {

@@ -112,6 +112,15 @@ export default function PlayerTable({
                   >
                     {rc.label}
                   </span>
+                  {p.isSheriff && (
+                    <span
+                      title="警长：放逐投票计 1.5 票"
+                      className="inline-flex items-center gap-0.5 rounded border border-[#e9c400]/40 bg-[#e9c400]/10 px-1.5 py-0.5 font-label text-[10px] text-[#ffe16d]"
+                    >
+                      <span className="material-symbols-outlined text-[12px]">military_tech</span>
+                      警长
+                    </span>
+                  )}
                   {isSpeaking && (
                     <span className="inline-flex items-center gap-0.5 text-[10px] text-[#ffe16d] font-label uppercase tracking-wider animate-pulse">
                       <span className="material-symbols-outlined text-[12px]">graphic_eq</span>

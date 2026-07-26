@@ -48,7 +48,11 @@ class GameManager:
     # 创建游戏
     # ------------------------------------------------------------------
     async def create_game(
-        self, player_configs: List[Dict], seed: Optional[int], board_id: str = "5p"
+        self,
+        player_configs: List[Dict],
+        seed: Optional[int],
+        board_id: str = "5p",
+        enable_sheriff: bool = False,
     ) -> Dict:
         """
         创建并启动一局游戏。
@@ -87,6 +91,7 @@ class GameManager:
             "model_configs": model_configs,
             "board_id": board_id,
             "seed": seed,
+            "enable_sheriff": enable_sheriff,
         }
 
         orchestrator = GameOrchestrator(game_id, config)
@@ -106,6 +111,8 @@ class GameManager:
             "duration_seconds": None,
             "total_cost": 0.0,
             "player_costs": {},
+            "sheriff_enabled": enable_sheriff,
+            "sheriff_id": None,
             "personality_assignment": {
                 config["player_id"]: config["personality"]
                 for config in player_configs
@@ -171,6 +178,8 @@ class GameManager:
                 "dead_players": final_dead,
                 "current_phase": final_phase,
                 "current_round": state.round if state else result.get("final_round"),
+                "sheriff_enabled": orch.game.sheriff_enabled,
+                "sheriff_id": orch.game.sheriff_id,
             }
             await self._update_status(game_id, **update)
 
@@ -208,6 +217,8 @@ class GameManager:
             "total_cost": record.get("total_cost", 0.0),
             "role_assignment": record.get("role_assignment", {}),
             "personality_assignment": record.get("personality_assignment", {}),
+            "sheriff_enabled": record.get("sheriff_enabled", False),
+            "sheriff_id": record.get("sheriff_id"),
         }
 
         # 运行中且有内存 orchestrator: 实时读 state(覆盖持久化的初始值)
@@ -220,6 +231,8 @@ class GameManager:
             status_data["current_round"] = state.round
             status_data["alive_players"] = list(state.alive_players)
             status_data["dead_players"] = list(state.dead_players)
+            status_data["sheriff_enabled"] = orch.game.sheriff_enabled
+            status_data["sheriff_id"] = orch.game.sheriff_id
             # 运行中实时成本
             status_data["total_cost"] = sum(self._collect_costs(orch).values())
 

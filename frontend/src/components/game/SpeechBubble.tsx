@@ -59,6 +59,12 @@ export default function SpeechBubble({ speech, roleAssignment, time }: Props) {
               {claim}
             </span>
           )}
+          {speech.data.sheriff_campaign && (
+            <span className="inline-flex items-center gap-0.5 rounded-full border border-[#e9c400]/35 bg-[#e9c400]/10 px-1.5 py-0.5 font-label text-[10px] text-[#ffe16d]">
+              <span className="material-symbols-outlined text-[12px]">campaign</span>
+              {speech.data.withdrew ? '竞选发言后退水' : '竞选警长'}
+            </span>
+          )}
           {time && (
             <span className="ml-auto font-label text-[10px] text-[#c8c5cb]/35">
               {time}

@@ -11,6 +11,11 @@ interface Props {
 }
 
 const PHASE_META: Record<string, { label: string; symbol: string; cls: string }> = {
+  sheriff_campaign: { label: '警长竞选', symbol: 'campaign', cls: 'bg-[#e9c400]/15 text-[#ffe16d] border-[#e9c400]/40' },
+  sheriff_voting: { label: '警长投票', symbol: 'how_to_vote', cls: 'bg-[#e9c400]/15 text-[#ffe16d] border-[#e9c400]/40' },
+  sheriff_tiebreak_speech: { label: '警长 PK', symbol: 'record_voice_over', cls: 'bg-[#7c3aed]/15 text-[#c4b5fd] border-[#7c3aed]/40' },
+  sheriff_tiebreak_voting: { label: '警长复投', symbol: 'how_to_vote', cls: 'bg-[#7c3aed]/15 text-[#c4b5fd] border-[#7c3aed]/40' },
+  badge_transfer: { label: '警徽处理', symbol: 'military_tech', cls: 'bg-[#e9c400]/15 text-[#ffe16d] border-[#e9c400]/40' },
   night: { label: '夜晚', symbol: 'dark_mode', cls: 'bg-[#c8c5cb]/10 text-[#c8c5cb] border-[#c8c5cb]/40' },
   day: { label: '白天', symbol: 'light_mode', cls: 'bg-[#e9c400]/15 text-[#ffe16d] border-[#e9c400]/40' },
   vote: { label: '投票', symbol: 'how_to_vote', cls: 'bg-[#64748b]/20 text-[#d3e4fe] border-[#64748b]/40' },
@@ -68,6 +73,12 @@ export default function GameHeader({ gameId, status }: Props) {
 
       {/* 右:成本 + 状态 */}
       <div className="flex items-center gap-3 shrink-0">
+        {status.sheriff_enabled && (
+          <span className="hidden sm:inline-flex items-center gap-1 rounded-md border border-[#e9c400]/30 bg-[#e9c400]/10 px-2 py-1 font-label text-[10px] text-[#ffe16d]">
+            <span className="material-symbols-outlined text-[14px]">military_tech</span>
+            {status.sheriff_id ? `警长 ${status.sheriff_id}` : '警徽流'}
+          </span>
+        )}
         {status.total_cost != null && (
           <div className="text-right">
             <div className="font-label text-label-sm text-[#c8c5cb]/50 uppercase tracking-wider">成本</div>

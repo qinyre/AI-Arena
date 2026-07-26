@@ -11,6 +11,11 @@ class GamePhase(Enum):
     """游戏阶段"""
     SETUP = "setup"
     NIGHT = "night"
+    SHERIFF_CAMPAIGN = "sheriff_campaign"
+    SHERIFF_VOTING = "sheriff_voting"
+    SHERIFF_TIEBREAK_SPEECH = "sheriff_tiebreak_speech"
+    SHERIFF_TIEBREAK_VOTING = "sheriff_tiebreak_voting"
+    BADGE_TRANSFER = "badge_transfer"
     DAY = "day"
     VOTING = "voting"
     TIEBREAK_SPEECH = "tiebreak_speech"
@@ -46,6 +51,8 @@ class ActionType(Enum):
     SPEAK = "speak"
     VOTE = "vote"
     ABSTAIN = "abstain"
+    TRANSFER_BADGE = "transfer_badge"
+    DESTROY_BADGE = "destroy_badge"
 
 
 @dataclass

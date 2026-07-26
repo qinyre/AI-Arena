@@ -219,7 +219,18 @@ class GameOrchestrator:
             events = self.game.advance_phase()
             self._broadcast_events(events)
 
-        elif self.game.state.phase == GamePhase.VOTING:
+        elif self.game.state.phase in (
+            GamePhase.SHERIFF_CAMPAIGN,
+            GamePhase.SHERIFF_TIEBREAK_SPEECH,
+        ):
+            await self.execute_day_phase()
+            self._broadcast_events(self.game.advance_phase())
+
+        elif self.game.state.phase in (
+            GamePhase.VOTING,
+            GamePhase.SHERIFF_VOTING,
+            GamePhase.SHERIFF_TIEBREAK_VOTING,
+        ):
             await self.execute_voting_phase()
             events = self.game.advance_phase()
             self._broadcast_events(events)
@@ -234,6 +245,10 @@ class GameOrchestrator:
 
         elif self.game.state.phase == GamePhase.DEATH_SKILL:
             await self.execute_death_skill_phase()
+            self._broadcast_events(self.game.advance_phase())
+
+        elif self.game.state.phase == GamePhase.BADGE_TRANSFER:
+            await self.execute_badge_transfer_phase()
             self._broadcast_events(self.game.advance_phase())
 
     async def execute_night_phase(self):
@@ -322,6 +337,19 @@ class GameOrchestrator:
     async def execute_death_skill_phase(self):
         """猎人/狼王死亡后依次发动技能。"""
         player_id = self.game.death_skill_actor
+        if not player_id:
+            return
+        actions = self.game.get_available_actions(player_id)
+        if actions:
+            await self._agent_act(
+                self.agents[player_id],
+                self.game.get_visible_state(player_id),
+                actions,
+            )
+
+    async def execute_badge_transfer_phase(self):
+        """死亡警长移交或撕毁警徽。"""
+        player_id = self.game.badge_transfer_actor
         if not player_id:
             return
         actions = self.game.get_available_actions(player_id)

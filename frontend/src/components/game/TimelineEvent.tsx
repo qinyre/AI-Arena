@@ -98,6 +98,46 @@ function getEventStyle(e: GameEvent): EventStyle | null {
       label: '狼队密聊',
     };
   }
+  if (e.event_type === 'sheriff_vote' || e.event_type === 'sheriff_abstain') {
+    return {
+      dotBorder: 'border-[#e9c400]',
+      dotCore: 'bg-[#e9c400]',
+      cardClass: '',
+      headColor: 'text-[#ffe16d]',
+      symbol: 'how_to_vote',
+      label: '警长投票',
+    };
+  }
+  if (e.event_type === 'sheriff_election_result') {
+    return {
+      dotBorder: 'border-[#e9c400]',
+      dotCore: 'bg-[#e9c400] shadow-[0_0_5px_rgba(233,196,0,0.9)]',
+      cardClass: 'seer-action',
+      headColor: 'text-[#ffe16d]',
+      symbol: 'military_tech',
+      label: '警长竞选结果',
+    };
+  }
+  if (e.event_type === 'sheriff_campaign_pass') {
+    return {
+      dotBorder: 'border-[#929095]',
+      dotCore: 'bg-[#929095]',
+      cardClass: '',
+      headColor: 'text-[#c8c5cb]',
+      symbol: 'person_off',
+      label: '不上警',
+    };
+  }
+  if (e.event_type === 'badge_transferred' || e.event_type === 'badge_destroyed') {
+    return {
+      dotBorder: 'border-[#e9c400]',
+      dotCore: 'bg-[#e9c400]',
+      cardClass: 'seer-action',
+      headColor: 'text-[#ffe16d]',
+      symbol: 'military_tech',
+      label: e.event_type === 'badge_transferred' ? '警徽移交' : '警徽撕毁',
+    };
+  }
   if (isPlayerSpeech(e)) {
     return {
       dotBorder: 'border-[#64748b]',
@@ -166,6 +206,12 @@ function getReasoning(e: GameEvent): string | null {
     const data = e.data as Record<string, unknown>;
     return typeof data.reasoning === 'string' ? data.reasoning : null;
   }
+  if (e.event_type === 'sheriff_vote' || e.event_type === 'sheriff_abstain') {
+    return typeof e.data.reasoning === 'string' ? e.data.reasoning : null;
+  }
+  if (e.event_type === 'badge_transferred' || e.event_type === 'badge_destroyed') {
+    return typeof e.data.reasoning === 'string' ? e.data.reasoning : null;
+  }
   return null;
 }
 
@@ -180,6 +226,11 @@ function getReasoningPlayer(e: GameEvent): string | null {
     return String(e.data.witch || '');
   }
   if (e.event_type === 'wolf_discussion') return String(e.data.speaker || '');
+  if (e.event_type === 'sheriff_vote' || e.event_type === 'sheriff_abstain') {
+    return String(e.data.voter || '');
+  }
+  if (e.event_type === 'badge_transferred') return String(e.data.from || '');
+  if (e.event_type === 'badge_destroyed') return String(e.data.player || '');
   return null;
 }
 
@@ -211,6 +262,9 @@ export default function TimelineEvent({ event, wolfKillEvents, rounds, roleAssig
     || !!wolfKillEvents?.length
     || event.event_type === 'white_wolf_king_self_destruct'
     || event.event_type === 'wolf_self_destruct'
+    || event.event_type === 'sheriff_election_result'
+    || event.event_type === 'badge_transferred'
+    || event.event_type === 'badge_destroyed'
   );
   const isChat = isPlayerSpeech(event) || event.event_type === 'wolf_discussion';
 
@@ -383,6 +437,49 @@ function EventBody({
   }
 
   // 发言
+  if (event.event_type === 'sheriff_campaign_pass') {
+    return (
+      <p className="font-body text-[13px] text-[#c8c5cb]">
+        <b>{String(event.data.player)}</b> 选择不上警
+      </p>
+    );
+  }
+  if (event.event_type === 'sheriff_vote') {
+    return (
+      <p className="font-body text-[13px] text-[#d3e4fe]">
+        <b>{String(event.data.voter)}</b>
+        <span className="mx-1.5 text-[#e9c400]">→</span>
+        <b>{String(event.data.target)}</b>
+      </p>
+    );
+  }
+  if (event.event_type === 'sheriff_abstain') {
+    return (
+      <p className="font-body text-[13px] text-[#c8c5cb]">
+        <b>{String(event.data.voter)}</b> 放弃警长票
+      </p>
+    );
+  }
+  if (event.event_type === 'sheriff_election_result') {
+    const result = String(event.data.result);
+    if (result === 'elected') {
+      return <p className="font-body text-[#ffe16d]"><b>{String(event.data.sheriff)}</b> 当选警长，放逐票计 1.5 票</p>;
+    }
+    if (result === 'tie') {
+      return <p className="font-body text-[#d3e4fe]">警长票平票：{(event.data.candidates as string[] || []).join(' / ')}，进入 PK</p>;
+    }
+    if (result === 'cancelled_by_self_destruct') {
+      return <p className="font-body text-[#ffb3b3]">竞选被自爆中止，本局没有警长</p>;
+    }
+    return <p className="font-body text-[#c8c5cb]">警长竞选结束，本局没有警长</p>;
+  }
+  if (event.event_type === 'badge_transferred') {
+    return <p className="font-body text-[#ffe16d]"><b>{String(event.data.from)}</b> 将警徽移交给 <b>{String(event.data.to)}</b></p>;
+  }
+  if (event.event_type === 'badge_destroyed') {
+    return <p className="font-body text-[#c8c5cb]"><b>{String(event.data.player)}</b> 撕毁了警徽</p>;
+  }
+
   if (isPlayerSpeech(event)) {
     return <SpeechBubble speech={event} roleAssignment={roleAssignment} time={time} />;
   }

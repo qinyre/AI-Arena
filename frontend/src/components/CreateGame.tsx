@@ -67,6 +67,7 @@ export default function CreateGame({ onGameCreated }: Props) {
 
   const [playerConfigs, setPlayerConfigs] = useState<PlayerConfig[]>([]);
   const [boardId, setBoardId] = useState('5p');
+  const [enableSheriff, setEnableSheriff] = useState(false);
   const [seed, setSeed] = useState<number | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -300,7 +301,8 @@ export default function CreateGame({ onGameCreated }: Props) {
       const response = await apiClient.createGame({
         player_configs: configsToSend,
         board_id: boardId,
-        seed: seed || undefined
+        seed: seed || undefined,
+        enable_sheriff: enableSheriff,
       });
 
       onGameCreated(response.game_id);
@@ -401,6 +403,25 @@ export default function CreateGame({ onGameCreated }: Props) {
               9/12 人局采用屠边规则；守卫不可连续守同一人，同守同救仍死亡。
             </p>
           </div>
+
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[#e9c400]/25 bg-[#e9c400]/5 p-4">
+            <input
+              type="checkbox"
+              checked={enableSheriff}
+              onChange={(event) => setEnableSheriff(event.target.checked)}
+              className="mt-1 h-4 w-4 accent-[#e9c400]"
+            />
+            <span>
+              <span className="flex items-center gap-2 font-display text-[16px] text-[#ffe16d]">
+                <span className="material-symbols-outlined text-[18px]">military_tech</span>
+                启用警长与警徽流
+              </span>
+              <span className="mt-1 block text-xs leading-relaxed text-[#c8c5cb]/65">
+                首日竞选警长；警长拥有 1.5 票，死亡时可移交或撕毁警徽。预言家竞选发言会安排警徽流。
+                {boardId === '5p' && ' 5 人局也可开启，但额外竞选会显著增加模型调用。'}
+              </span>
+            </span>
+          </label>
 
           {/* Player Configurations */}
           <div>

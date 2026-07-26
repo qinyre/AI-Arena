@@ -22,6 +22,16 @@ def make_game():
     return game
 
 
+def make_sheriff_game():
+    game = WerewolfGame()
+    game.initialize(PLAYERS, {
+        "game_id": "sheriff-test",
+        "seed": 7,
+        "enable_sheriff": True,
+    })
+    return game
+
+
 def test_required_target_and_duplicate_action_are_rejected():
     game = make_game()
     wolf = next(pid for pid, player in game.state.players.items() if player.role.value == "werewolf")
@@ -29,6 +39,144 @@ def test_required_target_and_duplicate_action_are_rejected():
     target = next(pid for pid in PLAYERS if pid != wolf)
     game.apply_action(GameAction(ActionType.KILL, wolf, target, {}))
     assert not game.is_valid_action(GameAction(ActionType.KILL, wolf, target, {}))
+
+
+def test_sheriff_mode_is_optional_and_starts_after_first_night():
+    normal = make_game()
+    normal.advance_phase()
+    assert normal.state.phase == GamePhase.DAY
+
+    sheriff_game = make_sheriff_game()
+    sheriff_game.advance_phase()
+    assert sheriff_game.state.phase == GamePhase.SHERIFF_CAMPAIGN
+    assert sheriff_game.get_visible_state(PLAYERS[0])["sheriff_enabled"]
+
+
+def test_first_night_death_is_announced_after_sheriff_election():
+    game = make_sheriff_game()
+    victim = PLAYERS[0]
+    game.state.players[victim].role = Role.VILLAGER
+    game.last_night_kill = victim
+    game.advance_phase()
+    assert victim in game.state.alive_players
+    assert game.get_available_actions(victim)
+
+    for player in PLAYERS:
+        game.apply_action(GameAction(
+            ActionType.PASS,
+            player,
+            parameters={"reasoning": "不上警"},
+        ))
+    game.advance_phase()
+    assert game.state.phase == GamePhase.DAY
+    assert victim in game.state.dead_players
+
+
+def test_sheriff_election_second_tie_ends_without_sheriff():
+    game = make_sheriff_game()
+    game.state.phase = GamePhase.SHERIFF_CAMPAIGN
+    for player in PLAYERS[:2]:
+        game.apply_action(GameAction(
+            ActionType.SPEAK,
+            player,
+            parameters={
+                "content": "我竞选警长",
+                "claim_role": "none",
+                "withdraw_after_speech": False,
+            },
+        ))
+    for player in PLAYERS[2:]:
+        game.apply_action(GameAction(
+            ActionType.PASS,
+            player,
+            parameters={"reasoning": "不上警"},
+        ))
+    game.advance_phase()
+    assert game.state.phase == GamePhase.SHERIFF_VOTING
+
+    game.apply_action(GameAction(ActionType.VOTE, "AI-3", "AI-1", {}))
+    game.apply_action(GameAction(ActionType.VOTE, "AI-4", "AI-2", {}))
+    game.apply_action(GameAction(
+        ActionType.ABSTAIN, "AI-5", parameters={"reasoning": "无法判断"}
+    ))
+    game.advance_phase()
+    assert game.state.phase == GamePhase.SHERIFF_TIEBREAK_SPEECH
+
+    for player in PLAYERS[:2]:
+        game.apply_action(GameAction(
+            ActionType.SPEAK,
+            player,
+            parameters={"content": "请把警徽票投给我", "claim_role": "none"},
+        ))
+    game.advance_phase()
+    game.apply_action(GameAction(ActionType.VOTE, "AI-3", "AI-1", {}))
+    game.apply_action(GameAction(ActionType.VOTE, "AI-4", "AI-2", {}))
+    game.apply_action(GameAction(
+        ActionType.ABSTAIN, "AI-5", parameters={"reasoning": "仍然无法判断"}
+    ))
+    game.advance_phase()
+
+    assert game.state.phase == GamePhase.DAY
+    assert game.sheriff_id is None
+    result = next(
+        event for event in reversed(game.state.events)
+        if event.event_type == "sheriff_election_result"
+    )
+    assert result.data["reason"] == "second_tie"
+
+
+def test_sheriff_vote_counts_as_one_and_a_half():
+    game = make_game()
+    game.sheriff_id = "AI-1"
+    game.state.players["AI-2"].role = Role.VILLAGER
+    game.current_votes = {"AI-1": "AI-2", "AI-3": "AI-4"}
+    result = game._process_votes()
+    assert result["data"]["eliminated"] == "AI-2"
+    assert result["data"]["votes"]["AI-2"] == 1.5
+
+
+def test_dead_sheriff_may_transfer_badge_before_game_resumes():
+    game = make_sheriff_game()
+    game.sheriff_id = "AI-1"
+    game.state.players["AI-1"].role = Role.VILLAGER
+    game._kill_player("AI-1", "werewolf_kill")
+    game.resume_phase = GamePhase.DAY
+    game._start_next_death_skill_or_resume([])
+    assert game.state.phase == GamePhase.BADGE_TRANSFER
+
+    game.apply_action(GameAction(
+        ActionType.TRANSFER_BADGE,
+        "AI-1",
+        "AI-2",
+        {"reasoning": "信任 AI-2"},
+    ))
+    game.advance_phase()
+    assert game.sheriff_id == "AI-2"
+    assert game.state.phase == GamePhase.DAY
+
+
+def test_seer_sheriff_prompt_requires_badge_flow():
+    agent = AIAgent("AI-1", FailingClient())
+    state = {
+        "your_player_id": "AI-1",
+        "your_role": "seer",
+        "alive_players": PLAYERS,
+        "dead_players": [],
+        "phase": "sheriff_campaign",
+        "sheriff_enabled": True,
+    }
+    system_prompt = agent._build_system_prompt(state)
+    action_prompt = agent._build_action_prompt(state, [{
+        "action_type": "speak",
+        "target_required": False,
+        "parameters": {
+            "content": {"type": "string"},
+            "claim_role": {"enum": ["none", "seer"]},
+            "withdraw_after_speech": {"type": "boolean"},
+        },
+    }])
+    assert "警徽流" in system_prompt
+    assert "一至两名未来查验对象" in action_prompt
 
 
 def test_tie_break_revote_and_abstain_end_without_elimination():

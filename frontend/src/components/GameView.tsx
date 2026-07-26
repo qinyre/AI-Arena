@@ -49,6 +49,7 @@ export default function GameView({ gameId }: Props) {
   const displayPlayers = useMemo(() => {
     if (!isCompleted || cursor >= events.length) return players;
     const deaths = new Map<string, { cause: string; round: number }>();
+    const sheriffId = sheriffAt(displayEvents);
     displayEvents.forEach((event) => {
       if (isPlayerDeath(event)) {
         deaths.set(event.data.player, {
@@ -62,6 +63,7 @@ export default function GameView({ gameId }: Props) {
       return {
         ...player,
         alive: !death,
+        isSheriff: player.id === sheriffId,
         deathCause: death?.cause,
         deathRound: death?.round,
       };
@@ -211,5 +213,33 @@ function replayStatus(
       round = event.data.round;
     }
   });
-  return { ...status, current_phase: phase, current_round: round };
+  return {
+    ...status,
+    current_phase: phase,
+    current_round: round,
+    sheriff_id: sheriffAt(events) ?? undefined,
+  };
+}
+
+function sheriffAt(events: GameEvent[]): string | null {
+  let sheriff: string | null = null;
+  events.forEach((event) => {
+    if (
+      event.event_type === 'sheriff_election_result'
+      && event.data.result === 'elected'
+    ) {
+      sheriff = String(event.data.sheriff);
+    } else if (event.event_type === 'badge_transferred') {
+      sheriff = String(event.data.to);
+    } else if (
+      event.event_type === 'badge_destroyed'
+      || (
+        event.event_type === 'sheriff_election_result'
+        && ['no_sheriff', 'cancelled_by_self_destruct'].includes(String(event.data.result))
+      )
+    ) {
+      sheriff = null;
+    }
+  });
+  return sheriff;
 }

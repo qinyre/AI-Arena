@@ -20,6 +20,11 @@ interface Props {
 }
 
 function phaseMeta(phase: string): { label: string; symbol: string } {
+  if (phase === 'sheriff_campaign') return { label: '警长竞选', symbol: 'campaign' };
+  if (phase === 'sheriff_voting') return { label: '警长投票', symbol: 'how_to_vote' };
+  if (phase === 'sheriff_tiebreak_speech') return { label: '警长平票 PK', symbol: 'record_voice_over' };
+  if (phase === 'sheriff_tiebreak_voting') return { label: '警长复投', symbol: 'how_to_vote' };
+  if (phase === 'badge_transfer') return { label: '警徽处理', symbol: 'military_tech' };
   if (phase === 'night') return { label: '夜晚', symbol: 'dark_mode' };
   if (phase === 'day') return { label: '白天', symbol: 'light_mode' };
   if (phase === 'vote' || phase === 'voting') return { label: '投票', symbol: 'how_to_vote' };

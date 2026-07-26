@@ -85,6 +85,7 @@ export interface CreateGameRequest {
   player_configs: PlayerConfig[];
   board_id: string;
   seed?: number;
+  enable_sheriff?: boolean;
 }
 
 export interface CreateGameResponse {
@@ -105,6 +106,8 @@ export interface GameStatusResponse {
   total_cost?: number;
   role_assignment: Record<string, string>;  // 玩家角色分配
   personality_assignment: Record<string, PersonalityProfile>;
+  sheriff_enabled: boolean;
+  sheriff_id?: string;
 }
 
 export interface GameResultResponse {
@@ -184,6 +187,9 @@ export interface PlayerSpeechEvent extends GameEventBase {
     claim_role: string; // none | seer | villager
     reasoning: string;
     round: number;
+    phase?: string;
+    sheriff_campaign?: boolean;
+    withdrew?: boolean;
   };
 }
 
@@ -291,6 +297,7 @@ export interface PlayerWithRole {
   role: Role;
   alive: boolean;
   personality?: PersonalityProfile;
+  isSheriff?: boolean;
   /** 死因（玩家视角的夜间死因会统一为 night_death） */
   deathCause?: string;
   deathRound?: number;

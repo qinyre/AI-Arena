@@ -41,6 +41,7 @@ class CreateGameRequest(BaseModel):
     player_configs: List[PlayerConfig]
     board_id: str = "5p"
     seed: Optional[int] = None
+    enable_sheriff: bool = False
 
 
 class ModelConnectionTestRequest(BaseModel):
@@ -82,6 +83,8 @@ class GameStatusResponse(BaseModel):
     total_cost: Optional[float] = None
     role_assignment: Dict[str, str] = Field(default_factory=dict)  # 玩家角色分配
     personality_assignment: Dict[str, PersonalityConfig] = Field(default_factory=dict)
+    sheriff_enabled: bool = False
+    sheriff_id: Optional[str] = None
 
 
 class GameReviewMVP(BaseModel):

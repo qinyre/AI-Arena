@@ -290,6 +290,18 @@ class AIAgent:
 - 注意：你的发言和投票对好人阵营很重要"""
         }
 
+        if visible_state.get("sheriff_enabled"):
+            if role == "seer":
+                role_descriptions["seer"] += (
+                    "\n- 本局启用警长：优先考虑上警，公开首夜验人；竞选时安排一至两名未来查验对象，"
+                    "明确说明查到好人/狼人时分别把警徽移交给谁或是否撕徽，这就是警徽流。"
+                )
+            elif role in ("werewolf", "white_wolf_king", "wolf_king"):
+                role_descriptions[role] += (
+                    "\n- 本局启用警长：可以上警争夺 1.5 票权，也可冒充预言家报假验人和假警徽流，"
+                    "但公开说法必须与已知信息保持一致。"
+                )
+
         your_id = visible_state.get("your_player_id", "?")
         alive = visible_state.get("alive_players", [])
         dead = visible_state.get("dead_players", [])
@@ -317,7 +329,12 @@ class AIAgent:
 
         # 白天发言顺序提示
         order_hint = ""
-        if phase == "day":
+        if phase in (
+            "day",
+            "tiebreak_speech",
+            "sheriff_campaign",
+            "sheriff_tiebreak_speech",
+        ):
             order = visible_state.get("speak_order", [])
             already = visible_state.get("speakers_already_spoke", [])
             remaining = visible_state.get("speakers_remaining", [])
@@ -452,10 +469,39 @@ class AIAgent:
         guide = phase_guide.get(phase, f"当前阶段: {phase}。只能从可选动作中选择。")
 
         # 列出本阶段允许的 action_type（来自 available_actions）
+        phase_guide.update({
+            "sheriff_campaign": (
+                "现在是【警长竞选】。pass 表示不上警；speak 表示上警并发表公开竞选发言。"
+                "上警发言必须填写 parameters.content、claim_role 和 withdraw_after_speech。"
+                "预言家应报告首夜验人并安排一至两名未来查验对象，明确好人/狼人结果对应的警徽移交或撕徽方案。"
+                "悍跳狼可给出自洽的假验人和假警徽流。withdraw_after_speech=true 表示发言后退水，且不能投警长票。"
+            ),
+            "sheriff_voting": (
+                "现在是【警长投票】。只能盲投一名候选人或有理由地弃票；候选人和退水玩家不能投票。"
+                "警长当选后白天放逐票按 1.5 票计算。"
+            ),
+            "sheriff_tiebreak_speech": (
+                "现在是【警长竞选平票 PK 发言】。只有同票候选人发言，请回应对手并解释自己的验人、警徽流或竞选价值。"
+            ),
+            "sheriff_tiebreak_voting": (
+                "现在是【警长竞选平票复投】。只能在同票候选人中盲投或有理由地弃票；再次同票则本局没有警长。"
+            ),
+            "badge_transfer": (
+                "现在是【警徽处理】。你已死亡，只能把警徽移交给一名存活玩家，或 destroy_badge 撕毁警徽。"
+                "若你是预言家，应结合最后一次查验和此前公开的警徽流传递真实信息。"
+            ),
+        })
+        guide = phase_guide.get(phase, guide)
+
         allowed_types = sorted({
             a.get("action_type", "") for a in available_actions if a.get("action_type")
         })
-        if phase == "day" and set(allowed_types) <= {"self_destruct", "pass"}:
+        if phase in (
+            "day",
+            "tiebreak_speech",
+            "sheriff_campaign",
+            "sheriff_tiebreak_speech",
+        ) and set(allowed_types) <= {"self_destruct", "pass"}:
             guide = (
                 "现在是白狼王的【即时自爆窗口】。你可以立刻自爆带人，"
                 "也可以选择 pass 继续观察；不能公开发言或投票。"
@@ -473,7 +519,12 @@ class AIAgent:
                     " 本晚尚无队友发言。你可以用 wolf_speak 提出新目标或判断，"
                     "也可以选择 pass，把提议机会留给后续队友；不要为了发言而发言。"
                 )
-        elif phase == "day" and "self_destruct" in allowed_types:
+        elif phase in (
+            "day",
+            "tiebreak_speech",
+            "sheriff_campaign",
+            "sheriff_tiebreak_speech",
+        ) and "self_destruct" in allowed_types:
             guide += " 狼人还可以选择 self_destruct 自爆并立即进入夜晚。"
 
         return f"""

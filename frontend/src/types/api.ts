@@ -162,7 +162,8 @@ export interface PlayerDeathEvent extends GameEventBase {
   event_type: 'player_death';
   data: {
     player: string;
-    cause: 'werewolf_kill' | 'voted_out' | 'poison' | 'shot'
+    cause: 'werewolf_kill' | 'voted_out' | 'poison' | 'night_death'
+      | 'hunter_shot' | 'wolf_king_shot'
       | 'white_wolf_king' | 'self_destruct';
     round: number;
     shooter?: string;
@@ -242,7 +243,7 @@ export interface PlayerWithRole {
   id: string;
   role: Role;
   alive: boolean;
-  /** 死因(从 player_death 事件反推): werewolf_kill | voted_out */
+  /** 死因（玩家视角的夜间死因会统一为 night_death） */
   deathCause?: string;
   deathRound?: number;
 }

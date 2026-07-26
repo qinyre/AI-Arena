@@ -16,6 +16,9 @@ function reasonLabel(reason: string): string {
   const map: Record<string, string> = {
     werewolves_outnumber_villagers: '狼人数量已超过好人,无法翻盘',
     all_werewolves_eliminated: '所有狼人已被找出并放逐',
+    all_villagers_or_gods_eliminated: '全部平民或全部神职已经出局',
+    werewolf_kill_completed_edge: '狼刀率先完成屠边',
+    wolf_skill_completed_edge: '狼方技能结算后完成屠边',
   };
   return map[reason] || reason;
 }

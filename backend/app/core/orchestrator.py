@@ -278,6 +278,41 @@ class GameOrchestrator:
                 await self._agent_act(agent, visible_state, available_actions)
             if self.game.day_interrupted:
                 break
+            if (
+                self.game.state.players[player_id].role.value != "white_wolf_king"
+                and await self._offer_white_wolf_interrupt()
+            ):
+                break
+
+    async def _offer_white_wolf_interrupt(self) -> bool:
+        """每次其他玩家发言后，给存活白狼王一个即时自爆窗口。"""
+        white_wolf = next(
+            (
+                player_id
+                for player_id in self.game.state.alive_players
+                if self.game.state.players[player_id].role.value == "white_wolf_king"
+            ),
+            None,
+        )
+        if not white_wolf:
+            return False
+
+        day_acted = set(self.game.acted_players)
+        self.game.day_interrupt_window = True
+        self.game.acted_players = set()
+        try:
+            actions = self.game.get_available_actions(white_wolf)
+            if actions:
+                await self._agent_act(
+                    self.agents[white_wolf],
+                    self.game.get_visible_state(white_wolf),
+                    actions,
+                )
+        finally:
+            self.game.day_interrupt_window = False
+            if not self.game.day_interrupted:
+                self.game.acted_players = day_acted
+        return self.game.day_interrupted
 
     async def execute_death_skill_phase(self):
         """猎人/狼王死亡后依次发动技能。"""
@@ -349,8 +384,17 @@ class GameOrchestrator:
 
             if visibility == "public":
                 # 公开事件所有人都能看到
+                memory_event = event
+                if (
+                    event.get("event_type") == "player_death"
+                    and event.get("data", {}).get("cause") in {"werewolf_kill", "poison"}
+                ):
+                    memory_event = {
+                        **event,
+                        "data": {**event["data"], "cause": "night_death"},
+                    }
                 for agent in self.agents.values():
-                    agent.update_memory(event)
+                    agent.update_memory(memory_event)
             elif visibility == "private":
                 # 私密事件只有特定玩家能看到
                 visible_to = event.get("visible_to", [])

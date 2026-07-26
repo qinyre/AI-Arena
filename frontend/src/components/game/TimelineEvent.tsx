@@ -78,14 +78,14 @@ function getEventStyle(e: GameEvent): EventStyle | null {
       label: e.event_type === 'guard_action' ? '守卫行动' : '女巫行动',
     };
   }
-  if (e.event_type === 'white_wolf_king_self_destruct') {
+  if (e.event_type === 'white_wolf_king_self_destruct' || e.event_type === 'wolf_self_destruct') {
     return {
       dotBorder: 'border-[#eb2445]',
       dotCore: 'bg-[#eb2445] shadow-[0_0_5px_rgba(235,36,69,0.9)]',
       cardClass: 'wolf-action',
       headColor: 'text-[#ffb3b3]',
       symbol: 'bomb',
-      label: '白狼王自爆',
+      label: e.event_type === 'white_wolf_king_self_destruct' ? '白狼王自爆' : '狼人自爆',
     };
   }
   if (e.event_type === 'wolf_discussion') {
@@ -339,6 +339,11 @@ function EventBody({
   if (event.event_type === 'white_wolf_king_self_destruct') {
     return <p className="font-body text-body-lg text-[#ffb3b3]">
       <b>{String(event.data.player)}</b> 自爆并带走了 <b>{String(event.data.target)}</b>
+    </p>;
+  }
+  if (event.event_type === 'wolf_self_destruct') {
+    return <p className="font-body text-body-lg text-[#ffb3b3]">
+      <b>{String(event.data.player)}</b> 自爆，白天立即结束
     </p>;
   }
   if (event.event_type === 'wolf_discussion') {

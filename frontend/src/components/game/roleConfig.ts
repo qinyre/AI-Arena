@@ -93,7 +93,9 @@ export function deathCauseLabel(cause?: string): string {
   if (cause === 'werewolf_kill') return '被狼人杀害';
   if (cause === 'voted_out') return '被投票放逐';
   if (cause === 'poison') return '被女巫毒杀';
-  if (cause === 'shot') return '被死亡技能带走';
+  if (cause === 'night_death') return '在夜间死亡';
+  if (cause === 'hunter_shot') return '被猎人开枪带走';
+  if (cause === 'wolf_king_shot') return '被狼王开枪带走';
   if (cause === 'white_wolf_king') return '被白狼王带走';
   if (cause === 'self_destruct') return '自爆';
   return '已淘汰';

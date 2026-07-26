@@ -77,6 +77,9 @@ class WerewolfGame(BaseGame):
         self.death_skill_actor: Optional[str] = None
         self.resume_phase: Optional[GamePhase] = None
         self.day_interrupted = False
+        self.day_interrupt_window = False
+        self.forced_winner: Optional[str] = None
+        self.forced_win_reason: Optional[str] = None
 
     def initialize(self, players: List[str], config: Dict) -> None:
         """初始化游戏"""
@@ -241,6 +244,22 @@ class WerewolfGame(BaseGame):
 
         actions = []
 
+        if self.day_interrupt_window:
+            if (
+                self.state.phase not in (GamePhase.DAY, GamePhase.TIEBREAK_SPEECH)
+                or player.role != Role.WHITE_WOLF_KING
+            ):
+                return []
+            actions.append({
+                "action_type": "self_destruct",
+                "description": "立即打断当前白天发言，自爆并带走一名存活玩家",
+                "target_required": True,
+                "valid_targets": [p for p in self.state.alive_players if p != player_id],
+                "parameters": {"reasoning": {"type": "string", "description": "自爆理由"}},
+            })
+            actions.append(self._pass_action("暂不自爆"))
+            return actions
+
         if self.state.phase == GamePhase.NIGHT:
             if self.night_stage == "wolf_discussion" and player.role in WOLF_ROLES:
                 actions.append({
@@ -353,12 +372,20 @@ class WerewolfGame(BaseGame):
                     }
                 }
             })
-            if player.role == Role.WHITE_WOLF_KING:
+            if player.role in WOLF_ROLES:
+                is_white_wolf_king = player.role == Role.WHITE_WOLF_KING
                 actions.append({
                     "action_type": "self_destruct",
-                    "description": "白天自爆并带走一名其他存活玩家，本轮立即入夜",
-                    "target_required": True,
-                    "valid_targets": [p for p in self.state.alive_players if p != player_id],
+                    "description": (
+                        "白天自爆并带走一名其他存活玩家，本轮立即入夜"
+                        if is_white_wolf_king else
+                        "白天自爆，本轮立即入夜"
+                    ),
+                    "target_required": is_white_wolf_king,
+                    "valid_targets": (
+                        [p for p in self.state.alive_players if p != player_id]
+                        if is_white_wolf_king else []
+                    ),
                     "parameters": {"reasoning": {"type": "string", "description": "自爆理由"}}
                 })
 
@@ -399,6 +426,21 @@ class WerewolfGame(BaseGame):
                     "target_required": False,
                     "parameters": {"content": {"type": "string", "description": "公开发言"}}
                 })
+                if player.role in WOLF_ROLES:
+                    is_white_wolf_king = player.role == Role.WHITE_WOLF_KING
+                    actions.append({
+                        "action_type": "self_destruct",
+                        "description": (
+                            "自爆并带走一名其他存活玩家"
+                            if is_white_wolf_king else "自爆并立即入夜"
+                        ),
+                        "target_required": is_white_wolf_king,
+                        "valid_targets": (
+                            [p for p in self.state.alive_players if p != player_id]
+                            if is_white_wolf_king else []
+                        ),
+                        "parameters": {"reasoning": {"type": "string", "description": "自爆理由"}},
+                    })
 
         elif self.state.phase == GamePhase.TIEBREAK_VOTING:
             if player_id not in self.tie_candidates and player.can_vote:
@@ -575,37 +617,56 @@ class WerewolfGame(BaseGame):
 
         elif action.action_type == ActionType.SHOOT:
             victim = action.target_id
-            self._kill_player(victim, "shot")
+            shooter_role = self.state.players[action.actor_id].role
+            cause = (
+                "hunter_shot" if shooter_role == Role.HUNTER
+                else "wolf_king_shot"
+            )
+            self._kill_player(victim, cause)
+            if shooter_role == Role.WOLF_KING and self._edge_completed():
+                self._force_winner("werewolf", "wolf_skill_completed_edge")
             events.append({
                 "event_type": "player_death",
-                "data": {"player": victim, "cause": "shot", "round": self.state.round,
+                "data": {"player": victim, "cause": cause, "round": self.state.round,
                          "shooter": action.actor_id},
                 "visibility": "public",
             })
 
         elif action.action_type == ActionType.SELF_DESTRUCT:
+            actor_role = self.state.players[action.actor_id].role
             self._kill_player(action.actor_id, "self_destruct")
-            self._kill_player(action.target_id, "white_wolf_king")
             self.day_interrupted = True
-            events.extend([
-                {
-                    "event_type": "white_wolf_king_self_destruct",
-                    "data": {"player": action.actor_id, "target": action.target_id},
+            if actor_role == Role.WHITE_WOLF_KING:
+                self._kill_player(action.target_id, "white_wolf_king")
+                if self._edge_completed():
+                    self._force_winner("werewolf", "wolf_skill_completed_edge")
+                events.extend([
+                    {
+                        "event_type": "white_wolf_king_self_destruct",
+                        "data": {"player": action.actor_id, "target": action.target_id},
+                        "visibility": "public",
+                    },
+                    {
+                        "event_type": "player_death",
+                        "data": {"player": action.target_id, "cause": "white_wolf_king",
+                                 "round": self.state.round},
+                        "visibility": "public",
+                    },
+                ])
+            else:
+                events.append({
+                    "event_type": "wolf_self_destruct",
+                    "data": {"player": action.actor_id},
                     "visibility": "public",
-                },
+                })
+            events.append(
                 {
                     "event_type": "player_death",
                     "data": {"player": action.actor_id, "cause": "self_destruct",
                              "round": self.state.round},
                     "visibility": "public",
-                },
-                {
-                    "event_type": "player_death",
-                    "data": {"player": action.target_id, "cause": "white_wolf_king",
-                             "round": self.state.round},
-                    "visibility": "public",
-                },
-            ])
+                }
+            )
 
         elif action.action_type == ActionType.PASS:
             events.append({
@@ -672,7 +733,19 @@ class WerewolfGame(BaseGame):
         """推进游戏阶段"""
         events = []
 
-        if self.state.phase == GamePhase.DEATH_SKILL:
+        if (
+            self.day_interrupted
+            and self.state.phase in (GamePhase.DAY, GamePhase.TIEBREAK_SPEECH)
+        ):
+            from_phase = self.state.phase.value
+            self.day_interrupted = False
+            if self.pending_death_skills:
+                self.resume_phase = GamePhase.NIGHT
+                self._start_next_death_skill_or_resume(events, from_phase)
+            else:
+                self._begin_next_night(events, from_phase)
+
+        elif self.state.phase == GamePhase.DEATH_SKILL:
             self._start_next_death_skill_or_resume(events)
 
         elif self.state.phase == GamePhase.TIEBREAK_SPEECH:
@@ -702,6 +775,10 @@ class WerewolfGame(BaseGame):
                 if victim not in self.state.alive_players:
                     continue
                 self._kill_player(victim, cause)
+                if cause == "werewolf_kill" and self._edge_completed():
+                    # 竞技屠边局采用狼刀在先：狼刀已经完成屠边时，后续毒药
+                    # 即使杀光狼人也不反转本轮胜负。
+                    self._force_winner("werewolf", "werewolf_kill_completed_edge")
                 events.append({
                     "event_type": "player_death",
                     "data": {
@@ -723,16 +800,8 @@ class WerewolfGame(BaseGame):
 
         elif self.state.phase == GamePhase.DAY:
             from_phase = self.state.phase.value
-            if self.day_interrupted:
-                self.day_interrupted = False
-                if self.pending_death_skills:
-                    self.resume_phase = GamePhase.NIGHT
-                    self._start_next_death_skill_or_resume(events, from_phase)
-                else:
-                    self._begin_next_night(events, from_phase)
-            else:
-                self.current_votes = {}
-                self._change_phase(events, from_phase, GamePhase.VOTING)
+            self.current_votes = {}
+            self._change_phase(events, from_phase, GamePhase.VOTING)
 
         elif self.state.phase == GamePhase.VOTING:
             # 投票结束，处理投票结果
@@ -861,6 +930,15 @@ class WerewolfGame(BaseGame):
         if not self.state:
             return None
 
+        if self.forced_winner:
+            return GameResult(
+                game_id=self.game_id,
+                winner=self.forced_winner,
+                final_round=self.state.round,
+                reason=self.forced_win_reason or "priority_win",
+                duration_seconds=0.0,
+            )
+
         if self.pending_death_skills or self.state.phase == GamePhase.DEATH_SKILL:
             return None
 
@@ -908,6 +986,24 @@ class WerewolfGame(BaseGame):
 
         return None
 
+    def _edge_completed(self) -> bool:
+        if BOARD_PRESETS[self.board_id]["win_rule"] != "edge":
+            return False
+        villagers_alive = any(
+            p.is_alive and p.role == Role.VILLAGER
+            for p in self.state.players.values()
+        )
+        gods_alive = any(
+            p.is_alive and p.role in GOD_ROLES
+            for p in self.state.players.values()
+        )
+        return not villagers_alive or not gods_alive
+
+    def _force_winner(self, winner: str, reason: str) -> None:
+        if self.forced_winner is None:
+            self.forced_winner = winner
+            self.forced_win_reason = reason
+
     def get_game_summary(self) -> Dict:
         """获取游戏总结"""
         if not self.state:
@@ -954,9 +1050,11 @@ class WerewolfGame(BaseGame):
             self.state.players[player_id].is_alive = False
             role = self.state.players[player_id].role
             can_trigger = (
-                role == Role.HUNTER and cause != "poison"
+                role == Role.HUNTER
+                and cause in {"werewolf_kill", "voted_out"}
             ) or (
-                role == Role.WOLF_KING and cause in {"werewolf_kill", "voted_out"}
+                role == Role.WOLF_KING
+                and cause in {"werewolf_kill", "voted_out", "hunter_shot"}
             )
             if can_trigger:
                 self.pending_death_skills.append(player_id)
@@ -1059,6 +1157,11 @@ class WerewolfGame(BaseGame):
                 # 深拷贝 data 再删 reasoning,避免污染 state 里的事件原文
                 data = dict(d["data"])
                 data.pop("reasoning", None)
+                d["data"] = data
+            elif et == "player_death" and isinstance(d.get("data"), dict):
+                data = dict(d["data"])
+                if data.get("cause") in {"werewolf_kill", "poison"}:
+                    data["cause"] = "night_death"
                 d["data"] = data
             result.append(d)
         return result[-limit:]

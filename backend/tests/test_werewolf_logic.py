@@ -2,6 +2,7 @@ import asyncio
 
 from app.core.agent import AIAgent
 from app.core.models import ActionType, GameAction, GamePhase, Role
+from app.core.orchestrator import GameOrchestrator
 from app.core.werewolf import BOARD_PRESETS, WerewolfGame
 
 
@@ -163,6 +164,146 @@ def test_hunter_poisoned_cannot_shoot_but_night_killed_can():
     game.state.players[other].role = Role.HUNTER
     game._kill_player(other, "werewolf_kill")
     assert game.pending_death_skills == [other]
+
+
+def test_gun_and_function_kill_triggers_match_online_rules():
+    game = make_game()
+    hunter, wolf_king = PLAYERS[:2]
+    game.state.players[hunter].role = Role.HUNTER
+    game.state.players[wolf_king].role = Role.WOLF_KING
+
+    game._kill_player(hunter, "white_wolf_king")
+    assert hunter not in game.pending_death_skills
+
+    game._kill_player(wolf_king, "hunter_shot")
+    assert game.pending_death_skills == [wolf_king]
+
+
+def test_night_death_cause_is_hidden_from_player_view():
+    game = make_game()
+    target = next(
+        pid for pid, player in game.state.players.items()
+        if player.role != Role.WEREWOLF
+    )
+    viewer = next(pid for pid in PLAYERS if pid != target)
+    game.last_night_kill = target
+    game.advance_phase()
+
+    raw_death = next(
+        event for event in game.state.events
+        if event.event_type == "player_death"
+    )
+    visible_death = next(
+        event for event in game.get_visible_state(viewer)["public_events"]
+        if event["event_type"] == "player_death"
+    )
+    assert raw_death.data["cause"] == "werewolf_kill"
+    assert visible_death["data"]["cause"] == "night_death"
+
+
+def test_ordinary_wolf_can_self_destruct_without_target():
+    players = [f"AI-{i}" for i in range(1, 10)]
+    game = WerewolfGame()
+    game.initialize(players, {"game_id": "wolf-boom", "board_id": "9p", "seed": 6})
+    wolf = next(pid for pid, p in game.state.players.items() if p.role == Role.WEREWOLF)
+    game.state.phase = GamePhase.DAY
+    game.acted_players = set()
+    action_spec = next(
+        action for action in game.get_available_actions(wolf)
+        if action["action_type"] == "self_destruct"
+    )
+    assert not action_spec["target_required"]
+    game.apply_action(GameAction(
+        ActionType.SELF_DESTRUCT, wolf, parameters={"reasoning": "吞掉白天轮次"}
+    ))
+    assert game.day_interrupted
+    assert wolf in game.state.dead_players
+
+
+def test_last_wolf_king_shooting_last_god_wins_by_edge():
+    players = [f"AI-{i}" for i in range(1, 10)]
+    game = WerewolfGame()
+    game.initialize(players, {"game_id": "priority", "board_id": "9p", "seed": 7})
+    wolf_king, last_god = players[:2]
+    for player in game.state.players.values():
+        player.role = Role.VILLAGER
+        player.is_alive = True
+    game.state.players[wolf_king].role = Role.WOLF_KING
+    game.state.players[last_god].role = Role.SEER
+    game.state.alive_players = list(players)
+    game.state.dead_players = []
+
+    game._kill_player(wolf_king, "voted_out")
+    game.state.phase = GamePhase.VOTING
+    game.resume_phase = GamePhase.NIGHT
+    game._start_next_death_skill_or_resume([])
+    game.apply_action(GameAction(
+        ActionType.SHOOT, wolf_king, last_god, {"reasoning": "带走最后一神"}
+    ))
+
+    result = game.check_win_condition()
+    assert result and result.winner == "werewolf"
+    assert result.reason == "wolf_skill_completed_edge"
+
+
+class ScriptedDayAgent:
+    def __init__(self, agent_id):
+        self.agent_id = agent_id
+
+    async def decide(self, _state, actions):
+        self_destruct = next(
+            (action for action in actions if action["action_type"] == "self_destruct"),
+            None,
+        )
+        if self_destruct:
+            return GameAction(
+                ActionType.SELF_DESTRUCT,
+                self.agent_id,
+                (self_destruct.get("valid_targets") or [None])[0],
+                {"reasoning": "立即打断"},
+            )
+        return GameAction(
+            ActionType.SPEAK,
+            self.agent_id,
+            parameters={"content": "测试发言", "claim_role": "none"},
+        )
+
+    def update_memory(self, _event):
+        pass
+
+
+def test_white_wolf_king_can_interrupt_another_players_speech():
+    players = [f"AI-{i}" for i in range(1, 13)]
+    game = WerewolfGame()
+    game.initialize(players, {
+        "game_id": "interrupt",
+        "board_id": "12p_white_wolf_guard",
+        "seed": 8,
+    })
+    white_wolf = next(
+        pid for pid, p in game.state.players.items()
+        if p.role == Role.WHITE_WOLF_KING
+    )
+    first_good = next(
+        pid for pid, p in game.state.players.items()
+        if p.role not in {Role.WEREWOLF, Role.WHITE_WOLF_KING, Role.WOLF_KING}
+    )
+    game.state.alive_players.remove(first_good)
+    game.state.alive_players.insert(0, first_good)
+    game.state.phase = GamePhase.DAY
+    game.acted_players = set()
+
+    orchestrator = GameOrchestrator("interrupt", {})
+    orchestrator.game = game
+    orchestrator.agents = {
+        player_id: ScriptedDayAgent(player_id)
+        for player_id in players
+    }
+    asyncio.run(orchestrator.execute_day_phase())
+
+    assert game.state.speeches[0]["speaker"] == first_good
+    assert white_wolf in game.state.dead_players
+    assert game.day_interrupted
 
 
 def test_white_wolf_king_self_destruct_skips_vote_and_enters_night():

@@ -51,6 +51,10 @@ class ModelConnectionTestRequest(BaseModel):
     api_key: Optional[str] = None
 
 
+class GameReviewRequest(ModelConnectionTestRequest):
+    """使用一个已配置的模型端点生成终局复盘。"""
+
+
 # ---------------------------------------------------------------------------
 # 响应模型
 # ---------------------------------------------------------------------------
@@ -77,6 +81,47 @@ class GameStatusResponse(BaseModel):
     winner: Optional[str] = None
     total_cost: Optional[float] = None
     role_assignment: Dict[str, str] = Field(default_factory=dict)  # 玩家角色分配
+    personality_assignment: Dict[str, PersonalityConfig] = Field(default_factory=dict)
+
+
+class GameReviewMVP(BaseModel):
+    player_id: str
+    reason: str
+
+
+class GameReviewTurningPoint(BaseModel):
+    round: int = Field(ge=0)
+    title: str
+    impact: str
+
+
+class GameReviewPlayer(BaseModel):
+    player_id: str
+    score: int = Field(ge=0, le=100)
+    verdict: str
+    strengths: List[str] = Field(default_factory=list)
+    improvements: List[str] = Field(default_factory=list)
+
+
+class GameReviewAward(BaseModel):
+    title: str
+    player_id: str
+    reason: str
+
+
+class GameReviewContent(BaseModel):
+    headline: str
+    overview: str
+    mvp: GameReviewMVP
+    turning_points: List[GameReviewTurningPoint] = Field(default_factory=list)
+    player_reviews: List[GameReviewPlayer]
+    awards: List[GameReviewAward] = Field(default_factory=list)
+
+
+class GameReview(GameReviewContent):
+    model: str
+    usage: Dict[str, int] = Field(default_factory=dict)
+    generated_at: str
 
 
 class GameResultResponse(BaseModel):
@@ -89,6 +134,7 @@ class GameResultResponse(BaseModel):
     total_cost: float
     player_costs: Dict[str, float]
     summary: Any = None
+    ai_review: Optional[GameReview] = None
 
 
 class GameListItem(BaseModel):

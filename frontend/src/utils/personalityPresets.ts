@@ -97,6 +97,12 @@ export function saveCustomPersonalityPresets(presets: PersonalityPreset[]) {
 }
 
 export function personalityProfile(preset: PersonalityPreset): PersonalityProfile {
-  const { id: _id, builtIn: _builtIn, ...profile } = preset;
-  return profile;
+  return {
+    name: preset.name,
+    tone: preset.tone,
+    reasoning_style: preset.reasoning_style,
+    risk_tolerance: preset.risk_tolerance,
+    assertiveness: preset.assertiveness,
+    verbosity: preset.verbosity,
+  };
 }

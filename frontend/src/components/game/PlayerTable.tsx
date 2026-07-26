@@ -6,8 +6,9 @@
  * GameView 把玩家按 index 分两半,本组件渲染其中一半(side=left/right)。
  */
 import { cn } from '../../utils/cn';
+import { REASONING_LABELS, TONE_LABELS } from '../../utils/personalityPresets';
 import { getRoleConfig, deathCauseLabel, avatarColor, playerInitial } from './roleConfig';
-import type { PlayerWithRole } from '../../types/api';
+import type { PersonalityProfile, PlayerWithRole } from '../../types/api';
 
 interface Props {
   players: PlayerWithRole[];
@@ -57,17 +58,20 @@ export default function PlayerTable({
           const isDead = !p.alive;
 
           return (
-            <button
-              key={p.id}
-              onClick={() => onSelectPlayer(p.id)}
-              className={cn(
-                'player-card rounded-lg p-3 flex items-center gap-3 text-left',
-                rc.cardClass,
-                isSpeaking && 'is-speaking',
-                isSelected && 'is-selected',
-                isDead && 'dead',
-              )}
-            >
+            <div key={p.id} className="space-y-2">
+              <button
+                type="button"
+                onClick={() => onSelectPlayer(p.id)}
+                aria-expanded={isSelected}
+                aria-controls={`personality-${p.id}`}
+                className={cn(
+                  'player-card w-full rounded-lg p-3 flex items-center gap-3 text-left',
+                  rc.cardClass,
+                  isSpeaking && 'is-speaking',
+                  isSelected && 'is-selected',
+                  isDead && 'dead',
+                )}
+              >
               {/* 头像 + 角色 ring */}
               <div className="relative shrink-0">
                 <div
@@ -124,20 +128,84 @@ export default function PlayerTable({
               </div>
 
               {/* 状态 chip */}
-              <span
-                className={cn(
-                  'shrink-0 px-2 py-0.5 rounded-full font-label text-[10px] uppercase tracking-wider border',
-                  isDead
-                    ? 'bg-[#1b2b3f] text-[#c8c5cb]/40 border-[#47464b]/30'
-                    : 'bg-[#1b2b3f] text-[#d3e4fe] border-[#47464b]/30',
-                )}
-              >
-                {isDead ? '死亡' : '存活'}
-              </span>
-            </button>
+                <span
+                  className={cn(
+                    'shrink-0 px-2 py-0.5 rounded-full font-label text-[10px] uppercase tracking-wider border',
+                    isDead
+                      ? 'bg-[#1b2b3f] text-[#c8c5cb]/40 border-[#47464b]/30'
+                      : 'bg-[#1b2b3f] text-[#d3e4fe] border-[#47464b]/30',
+                  )}
+                >
+                  {isDead ? '死亡' : '存活'}
+                </span>
+              </button>
+              {isSelected && (
+                <PersonalityDetails playerId={p.id} personality={p.personality} />
+              )}
+            </div>
           );
         })}
       </div>
     </div>
+  );
+}
+
+function PersonalityDetails({
+  playerId,
+  personality,
+}: {
+  playerId: string;
+  personality?: PersonalityProfile;
+}) {
+  const profile = personality ?? {
+    name: '标准平衡',
+    tone: 'calm' as const,
+    reasoning_style: 'evidence' as const,
+    risk_tolerance: 3,
+    assertiveness: 3,
+    verbosity: 3,
+  };
+  const traits = [
+    ['风险', profile.risk_tolerance],
+    ['主导', profile.assertiveness],
+    ['表达', profile.verbosity],
+  ] as const;
+
+  return (
+    <section
+      id={`personality-${playerId}`}
+      aria-label={`${playerId} 的性格档案`}
+      className="rounded-lg border border-[#c4b5fd]/25 bg-[#0b1c30]/90 p-3 shadow-[inset_3px_0_0_rgba(196,181,253,0.45)]"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-label text-[9px] uppercase tracking-[0.24em] text-[#c4b5fd]/70">
+          Personality
+        </span>
+        <span className="material-symbols-outlined text-[16px] text-[#c4b5fd]/55">psychology</span>
+      </div>
+      <h3 className="mt-1 font-display text-[17px] leading-tight text-[#f0eaff]">{profile.name}</h3>
+      <p className="mt-1 text-[10px] text-[#c8c5cb]/60">
+        {TONE_LABELS[profile.tone]} · {REASONING_LABELS[profile.reasoning_style]}
+      </p>
+      <div className="mt-3 space-y-2">
+        {traits.map(([label, value]) => (
+          <div key={label} className="grid grid-cols-[28px_1fr_12px] items-center gap-2">
+            <span className="font-label text-[9px] text-[#c8c5cb]/55">{label}</span>
+            <span className="h-1 overflow-hidden rounded-full bg-[#1b2b3f]">
+              <span
+                className="block h-full rounded-full bg-[#c4b5fd]"
+                style={{ width: `${value * 20}%` }}
+              />
+            </span>
+            <b className="font-label text-[9px] text-[#d3e4fe]">{value}</b>
+          </div>
+        ))}
+      </div>
+      {!personality && (
+        <p className="mt-2 text-[9px] leading-relaxed text-[#c8c5cb]/40">
+          未指定预设，采用默认决策与表达风格。
+        </p>
+      )}
+    </section>
   );
 }

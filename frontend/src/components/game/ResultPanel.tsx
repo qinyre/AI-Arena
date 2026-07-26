@@ -5,6 +5,7 @@
 import { cn } from '../../utils/cn';
 import { getRoleConfig, avatarColor, playerInitial } from './roleConfig';
 import type { GameResultResponse, GameStatusResponse } from '../../types/api';
+import GameReviewPanel from './GameReviewPanel';
 
 interface Props {
   result: GameResultResponse | null;
@@ -118,6 +119,12 @@ export default function ResultPanel({ result, status }: Props) {
               })}
           </div>
         </div>
+
+        <GameReviewPanel
+          gameId={result.game_id}
+          initialReview={result.ai_review}
+          roleAssignment={roleAssignment}
+        />
       </div>
     </div>
   );

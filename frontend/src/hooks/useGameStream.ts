@@ -209,6 +209,7 @@ export function useGameStream(gameId: string | null): GameStream {
         id,
         role: roleMap[id] || 'villager',
         alive,
+        personality: status.personality_assignment?.[id],
         deathCause: d?.cause,
         deathRound: d?.round,
       };

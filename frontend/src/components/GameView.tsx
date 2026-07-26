@@ -71,7 +71,7 @@ export default function GameView({ gameId }: Props) {
             players={leftPlayers}
             currentSpeaker={currentSpeaker}
             selectedPlayer={selectedPlayer}
-            onSelectPlayer={setSelectedPlayer}
+            onSelectPlayer={(id) => setSelectedPlayer((current) => current === id ? null : id)}
             side="left"
           />
         </aside>
@@ -87,7 +87,7 @@ export default function GameView({ gameId }: Props) {
             players={rightPlayers}
             currentSpeaker={currentSpeaker}
             selectedPlayer={selectedPlayer}
-            onSelectPlayer={setSelectedPlayer}
+            onSelectPlayer={(id) => setSelectedPlayer((current) => current === id ? null : id)}
             side="right"
           />
         </aside>

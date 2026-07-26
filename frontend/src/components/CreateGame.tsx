@@ -190,6 +190,23 @@ export default function CreateGame({ onGameCreated }: Props) {
     )));
   };
 
+  const randomizePersonalities = (onlyIndex?: number) => {
+    const shuffled = [...personalityPresets];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    setPlayerConfigs((configs) => configs.map((config, index) => {
+      if (onlyIndex !== undefined && index !== onlyIndex) return config;
+      const preset = shuffled[index % shuffled.length];
+      return {
+        ...config,
+        personality_id: preset.id,
+        personality: personalityProfile(preset),
+      };
+    }));
+  };
+
   const changeBoard = (id: string) => {
     const count = BOARD_OPTIONS.find((board) => board.id === id)?.count ?? 5;
     const fallback = playerConfigs[0] ?? {
@@ -387,7 +404,17 @@ export default function CreateGame({ onGameCreated }: Props) {
 
           {/* Player Configurations */}
           <div>
-            <h3 className="text-lg font-semibold mb-4">玩家配置</h3>
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h3 className="text-lg font-semibold">玩家配置</h3>
+              <button
+                type="button"
+                onClick={() => randomizePersonalities()}
+                className="inline-flex items-center gap-1.5 rounded border border-[#c4b5fd]/30 bg-[#c4b5fd]/5 px-3 py-1.5 font-label text-[10px] text-[#d8ccff] transition-colors hover:border-[#c4b5fd]/65 hover:bg-[#c4b5fd]/10"
+              >
+                <span className="material-symbols-outlined text-[15px]">shuffle</span>
+                随机分配性格
+              </button>
+            </div>
             <div className="space-y-4">
               {playerConfigs.map((config, index) => {
                 const provider = config.provider!;
@@ -535,6 +562,15 @@ export default function CreateGame({ onGameCreated }: Props) {
                           </optgroup>
                         )}
                       </select>
+                      <button
+                        type="button"
+                        onClick={() => randomizePersonalities(index)}
+                        aria-label={`随机设置 ${config.player_id} 的性格`}
+                        title="随机性格"
+                        className="grid h-9 w-9 shrink-0 place-items-center rounded border border-[#c4b5fd]/25 text-[#c4b5fd]/65 transition-colors hover:border-[#c4b5fd]/60 hover:bg-[#c4b5fd]/10 hover:text-[#e7e0ff]"
+                      >
+                        <span className="material-symbols-outlined text-[17px]">casino</span>
+                      </button>
                       {config.personality && (
                         <div className="hidden min-w-[180px] text-right sm:block">
                           <p className="text-xs text-[#c4b5fd]">

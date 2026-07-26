@@ -17,6 +17,8 @@ from app.api.schemas import (
     StatsResponse,
     DeleteResponse,
     GameEventResponse,
+    GameReview,
+    GameReviewRequest,
 )
 from app.api.game_manager import game_manager
 
@@ -68,6 +70,24 @@ async def get_game_result(game_id: str):
     if result is None:
         raise HTTPException(status_code=404, detail=f"游戏 {game_id} 不存在")
     return result
+
+
+@router.post("/{game_id}/review", response_model=GameReview)
+async def generate_game_review(game_id: str, request: GameReviewRequest):
+    """调用用户选择的模型生成并保存终局复盘。"""
+    if not request.base_url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=422, detail="Base URL 必须以 http:// 或 https:// 开头")
+    try:
+        return await game_manager.generate_review(game_id, request.model_dump())
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        detail = str(exc)
+        if request.api_key:
+            detail = detail.replace(request.api_key, "***")
+        raise HTTPException(status_code=502, detail=detail[:400]) from exc
 
 
 @router.get("/{game_id}/events", response_model=GameEventResponse)

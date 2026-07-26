@@ -61,6 +61,26 @@ export interface ModelConnectionTestResponse {
   usage: { total_tokens?: number };
 }
 
+export type GameReviewRequest = ModelConnectionTestRequest;
+
+export interface GameReview {
+  headline: string;
+  overview: string;
+  mvp: { player_id: string; reason: string };
+  turning_points: Array<{ round: number; title: string; impact: string }>;
+  player_reviews: Array<{
+    player_id: string;
+    score: number;
+    verdict: string;
+    strengths: string[];
+    improvements: string[];
+  }>;
+  awards: Array<{ title: string; player_id: string; reason: string }>;
+  model: string;
+  usage: { input_tokens?: number; output_tokens?: number; total_tokens?: number };
+  generated_at: string;
+}
+
 export interface CreateGameRequest {
   player_configs: PlayerConfig[];
   board_id: string;
@@ -84,6 +104,7 @@ export interface GameStatusResponse {
   winner?: string;
   total_cost?: number;
   role_assignment: Record<string, string>;  // 玩家角色分配
+  personality_assignment: Record<string, PersonalityProfile>;
 }
 
 export interface GameResultResponse {
@@ -95,6 +116,7 @@ export interface GameResultResponse {
   total_cost: number;
   player_costs: Record<string, number>;
   summary: any;
+  ai_review?: GameReview;
 }
 
 export interface GameListItem {
@@ -268,6 +290,7 @@ export interface PlayerWithRole {
   id: string;
   role: Role;
   alive: boolean;
+  personality?: PersonalityProfile;
   /** 死因（玩家视角的夜间死因会统一为 night_death） */
   deathCause?: string;
   deathRound?: number;

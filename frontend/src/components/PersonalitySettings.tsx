@@ -46,9 +46,15 @@ export default function PersonalitySettings() {
   };
 
   const edit = (preset: PersonalityPreset) => {
-    const { id, builtIn: _builtIn, ...profile } = preset;
-    setEditingId(id);
-    setForm(profile);
+    setEditingId(preset.id);
+    setForm({
+      name: preset.name,
+      tone: preset.tone,
+      reasoning_style: preset.reasoning_style,
+      risk_tolerance: preset.risk_tolerance,
+      assertiveness: preset.assertiveness,
+      verbosity: preset.verbosity,
+    });
   };
 
   const remove = (preset: PersonalityPreset) => {

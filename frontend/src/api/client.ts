@@ -11,7 +11,9 @@ import type {
   ProvidersResponse,
   ModelConnectionTestRequest,
   ModelConnectionTestResponse,
-  GameEventResponse
+  GameEventResponse,
+  GameReview,
+  GameReviewRequest,
 } from '../types/api';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
@@ -63,6 +65,13 @@ class APIClient {
   // Get game result
   async getGameResult(gameId: string): Promise<GameResultResponse> {
     return this.request<GameResultResponse>(`/api/games/${gameId}/result`);
+  }
+
+  async generateGameReview(gameId: string, request: GameReviewRequest): Promise<GameReview> {
+    return this.request<GameReview>(`/api/games/${gameId}/review`, {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
   }
 
   // List games

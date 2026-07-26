@@ -9,9 +9,15 @@ interface Props {
   gameId: string;
   initialReview?: GameReview;
   roleAssignment: Record<string, string>;
+  onReviewGenerated?: (review: GameReview) => void;
 }
 
-export default function GameReviewPanel({ gameId, initialReview, roleAssignment }: Props) {
+export default function GameReviewPanel({
+  gameId,
+  initialReview,
+  roleAssignment,
+  onReviewGenerated,
+}: Props) {
   const [presets] = useState(loadModelPresets);
   const [presetId, setPresetId] = useState(presets[0]?.id || '');
   const [review, setReview] = useState(initialReview);
@@ -26,12 +32,14 @@ export default function GameReviewPanel({ gameId, initialReview, roleAssignment 
     setLoading(true);
     setError(null);
     try {
-      setReview(await apiClient.generateGameReview(gameId, {
+      const generated = await apiClient.generateGameReview(gameId, {
         api_format: preset.apiFormat,
         base_url: preset.baseUrl,
         model: preset.model,
         ...(preset.apiKey ? { api_key: preset.apiKey } : {}),
-      }));
+      });
+      setReview(generated);
+      onReviewGenerated?.(generated);
     } catch (err) {
       setError(err instanceof Error ? err.message : '复盘生成失败');
     } finally {

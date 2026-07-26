@@ -16,6 +16,7 @@ interface Props {
   events: GameEvent[];
   rounds: RoundData[];
   status: GameStatusResponse | null;
+  followPlayback?: boolean;
 }
 
 function phaseMeta(phase: string): { label: string; symbol: string } {
@@ -28,7 +29,7 @@ function phaseMeta(phase: string): { label: string; symbol: string } {
   return { label: phase, symbol: 'circle' };
 }
 
-export default function EventFeed({ events, rounds, status }: Props) {
+export default function EventFeed({ events, rounds, status, followPlayback = false }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const userScrolledUp = useRef(false);
 
@@ -47,9 +48,9 @@ export default function EventFeed({ events, rounds, status }: Props) {
   // 新事件来了,自动滚到底(仅当用户没在上滚查看)
   useEffect(() => {
     const el = containerRef.current;
-    if (!el || userScrolledUp.current) return;
+    if (!el || (!followPlayback && userScrolledUp.current)) return;
     el.scrollTop = el.scrollHeight;
-  }, [events.length]);
+  }, [events.length, followPlayback]);
 
   const roleAssignment = status?.role_assignment;
 

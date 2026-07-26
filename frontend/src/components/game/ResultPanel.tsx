@@ -10,6 +10,7 @@ import GameReviewPanel from './GameReviewPanel';
 interface Props {
   result: GameResultResponse | null;
   status: GameStatusResponse | null;
+  onReviewGenerated?: (review: NonNullable<GameResultResponse['ai_review']>) => void;
 }
 
 /** 后端 reason 是蛇形枚举,这里映射成人类可读中文 */
@@ -24,7 +25,7 @@ function reasonLabel(reason: string): string {
   return map[reason] || reason;
 }
 
-export default function ResultPanel({ result, status }: Props) {
+export default function ResultPanel({ result, status, onReviewGenerated }: Props) {
   if (!result) return null;
 
   const winnerGood = result.winner === 'good';
@@ -124,6 +125,7 @@ export default function ResultPanel({ result, status }: Props) {
           gameId={result.game_id}
           initialReview={result.ai_review}
           roleAssignment={roleAssignment}
+          onReviewGenerated={onReviewGenerated}
         />
       </div>
     </div>

@@ -46,7 +46,9 @@ class GameManager:
     # ------------------------------------------------------------------
     # 创建游戏
     # ------------------------------------------------------------------
-    async def create_game(self, player_configs: List[Dict], seed: Optional[int]) -> Dict:
+    async def create_game(
+        self, player_configs: List[Dict], seed: Optional[int], board_id: str = "5p"
+    ) -> Dict:
         """
         创建并启动一局游戏。
 
@@ -58,11 +60,17 @@ class GameManager:
             {"game_id", "status", "message", "players"}
 
         Raises:
-            ValueError: 玩家数不是 5 人
+            ValueError: 板型不存在或玩家数不匹配
         """
-        # 5 人校验(werewolf 强制)
-        if len(player_configs) != 5:
-            raise ValueError(f"当前 MVP 仅支持 5 人局,收到 {len(player_configs)} 人")
+        from app.core.werewolf import BOARD_PRESETS
+
+        board = BOARD_PRESETS.get(board_id)
+        if not board:
+            raise ValueError(f"未知板型: {board_id}")
+        if len(player_configs) != len(board["roles"]):
+            raise ValueError(
+                f"{board['name']}需要 {len(board['roles'])} 人,收到 {len(player_configs)} 人"
+            )
 
         game_id = f"game-{uuid.uuid4().hex[:8]}"
         players = [c["player_id"] for c in player_configs]
@@ -76,6 +84,7 @@ class GameManager:
             "game_id": game_id,
             "players": players,
             "model_configs": model_configs,
+            "board_id": board_id,
             "seed": seed,
         }
 
@@ -108,6 +117,7 @@ class GameManager:
             "status": "initialized",
             "message": "游戏已创建,正在后台启动",
             "players": players,
+            "board_id": board_id,
         }
 
     async def _run_game_safe(self, game_id: str):

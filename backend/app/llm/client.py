@@ -13,6 +13,20 @@ from abc import ABC, abstractmethod
 from typing import Dict, Optional
 
 
+class LLMError(RuntimeError):
+    """LLM 调用错误基类。"""
+
+
+class RetryableError(LLMError):
+    """可重试错误：网络抖动、超时、限流(429)、服务端临时故障(5xx)。
+    上层应带指数退避重试。"""
+
+
+class NonRetryableError(LLMError):
+    """不可重试错误：鉴权失败(401)、模型不存在(404)、请求格式错误(400)。
+    重试无意义，应立即失败并暴露给调用方。"""
+
+
 class ModelClient(ABC):
     """LLM 客户端抽象基类"""
 

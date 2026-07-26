@@ -38,6 +38,7 @@ export interface ProvidersResponse {
 
 export interface CreateGameRequest {
   player_configs: PlayerConfig[];
+  board_id: string;
   seed?: number;
 }
 
@@ -147,17 +148,25 @@ export interface PlayerVoteEvent extends GameEventBase {
 export interface VoteResultEvent extends GameEventBase {
   event_type: 'vote_result';
   data: {
-    result: 'eliminated' | 'tie' | 'no_votes';
+    result: 'eliminated' | 'tie' | 'no_votes' | 'no_elimination' | 'idiot_revealed';
     eliminated?: string;
+    player?: string;
     candidates?: string[];
-    votes?: Record<string, number>;
+    votes?: Record<string, number>;        // target -> 得票数
+    vote_detail?: Record<string, string>;  // voter -> target（弃票为 "abstain"）
     round: number;
   };
 }
 
 export interface PlayerDeathEvent extends GameEventBase {
   event_type: 'player_death';
-  data: { player: string; cause: 'werewolf_kill' | 'voted_out'; round: number };
+  data: {
+    player: string;
+    cause: 'werewolf_kill' | 'voted_out' | 'poison' | 'shot'
+      | 'white_wolf_king' | 'self_destruct';
+    round: number;
+    shooter?: string;
+  };
 }
 
 export interface GameEndEvent extends GameEventBase {
@@ -223,8 +232,10 @@ export interface GameEventResponse {
 
 // ---- 观战界面用的派生类型 ----
 
-export type Role = 'werewolf' | 'seer' | 'villager' | string;
-export type GamePhase = 'night' | 'day' | 'vote' | string;
+export type Role =
+  | 'werewolf' | 'seer' | 'witch' | 'hunter' | 'idiot' | 'guard'
+  | 'white_wolf_king' | 'wolf_king' | 'villager' | string;
+export type GamePhase = 'night' | 'day' | 'vote' | 'death_skill' | string;
 
 /** 玩家 + 身份 + 存活状态(合并 status.role_assignment 与 alive/dead) */
 export interface PlayerWithRole {

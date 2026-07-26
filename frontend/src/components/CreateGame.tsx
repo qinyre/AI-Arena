@@ -9,34 +9,42 @@ interface Props {
 // 特殊 provider 值：用户自定义端点（对应后端"用户直填"路径，绕过 yaml 白名单）
 const CUSTOM_PROVIDER = '__custom__';
 
+const BOARD_OPTIONS = [
+  { id: '5p', name: '5人极简场', count: 5, roles: '1狼 · 预言家 · 3民' },
+  { id: '9p', name: '9人标准场', count: 9, roles: '3狼 · 预言家/女巫/猎人 · 3民' },
+  { id: '12p_idiot', name: '12人预女猎白', count: 12, roles: '4狼 · 预言家/女巫/猎人/白痴 · 4民' },
+  { id: '12p_white_wolf_guard', name: '12人白狼王守卫', count: 12, roles: '3狼+白狼王 · 预言家/女巫/猎人/守卫 · 4民' },
+  { id: '12p_wolf_king_guard', name: '12人狼王守卫', count: 12, roles: '3狼+狼王 · 预言家/女巫/猎人/守卫 · 4民' },
+] as const;
+
 // 快速开始预设（基于 2026-07 最新模型）
 const QUICK_START_PRESETS = [
   {
-    name: '5个 DeepSeek V4 Flash（推荐 💰）',
+    name: '全员 DeepSeek V4 Flash（推荐 💰）',
     provider: 'deepseek',
     model: 'deepseek-v4-flash',
     description: '极低成本 $0.28/1M，国内直连',
   },
   {
-    name: '5个 GPT-5 Nano（快速 ⚡）',
+    name: '全员 GPT-5 Nano（快速 ⚡）',
     provider: 'openai',
     model: 'gpt-5-nano',
     description: 'OpenAI 最快模型 $0.05/1M',
   },
   {
-    name: '5个 Claude Haiku 4.5（智能 🧠）',
+    name: '全员 Claude Haiku 4.5（智能 🧠）',
     provider: 'anthropic',
     model: 'claude-haiku-4-5',
     description: 'Anthropic 快速模型 $0.8/1M',
   },
   {
-    name: '5个 Gemini 3.6 Flash（长文本 📄）',
+    name: '全员 Gemini 3.6 Flash（长文本 📄）',
     provider: 'gemini',
     model: 'gemini-3.6-flash',
     description: '1M 上下文 $0.3/1M',
   },
   {
-    name: '5个 Ollama DeepSeek-R1（本地 🏠）',
+    name: '全员 Ollama DeepSeek-R1（本地 🏠）',
     provider: 'ollama',
     model: 'deepseek-r1',
     description: '完全免费，需本地运行 Ollama',
@@ -48,6 +56,7 @@ export default function CreateGame({ onGameCreated }: Props) {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [playerConfigs, setPlayerConfigs] = useState<PlayerConfig[]>([]);
+  const [boardId, setBoardId] = useState('5p');
   const [seed, setSeed] = useState<number | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,7 +122,7 @@ export default function CreateGame({ onGameCreated }: Props) {
   };
 
   const applyQuickStart = (preset: typeof QUICK_START_PRESETS[0]) => {
-    const newConfigs = Array.from({ length: 5 }, (_, i) => ({
+    const newConfigs = Array.from({ length: playerConfigs.length }, (_, i) => ({
       player_id: `AI-${i + 1}`,
       provider: preset.provider,
       model: preset.model,
@@ -121,6 +130,20 @@ export default function CreateGame({ onGameCreated }: Props) {
     setPlayerConfigs(newConfigs);
     setValidationErrors({});
     setError(null);
+  };
+
+  const changeBoard = (id: string) => {
+    const count = BOARD_OPTIONS.find((board) => board.id === id)?.count ?? 5;
+    const fallback = playerConfigs[0] ?? {
+      player_id: 'AI-1',
+      provider: providersData?.default_provider,
+      model: providersData?.default_model ?? '',
+    };
+    setBoardId(id);
+    setPlayerConfigs(Array.from({ length: count }, (_, i) => (
+      playerConfigs[i] ?? { ...fallback, player_id: `AI-${i + 1}` }
+    )));
+    setValidationErrors({});
   };
 
   const validateForm = (): boolean => {
@@ -191,6 +214,7 @@ export default function CreateGame({ onGameCreated }: Props) {
 
       const response = await apiClient.createGame({
         player_configs: configsToSend,
+        board_id: boardId,
         seed: seed || undefined
       });
 
@@ -251,6 +275,24 @@ export default function CreateGame({ onGameCreated }: Props) {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">板型</label>
+            <select
+              value={boardId}
+              onChange={(e) => changeBoard(e.target.value)}
+              className="select w-full"
+            >
+              {BOARD_OPTIONS.map((board) => (
+                <option key={board.id} value={board.id}>
+                  {board.name}（{board.roles}）
+                </option>
+              ))}
+            </select>
+            <p className="mt-2 text-xs text-gray-400">
+              9/12 人局采用屠边规则；守卫不可连续守同一人，同守同救仍死亡。
+            </p>
+          </div>
+
           {/* Player Configurations */}
           <div>
             <h3 className="text-lg font-semibold mb-4">玩家配置</h3>

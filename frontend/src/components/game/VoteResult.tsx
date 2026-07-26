@@ -12,14 +12,23 @@ interface Props {
 }
 
 export default function VoteResult({ votes, result }: Props) {
-  // 票数汇总
+  // 投票明细优先用 vote_result 里的 vote_detail（voter->target，含弃票），
+  // 回退到 player_vote 事件数组。
+  const detail: Record<string, string> = result?.data.vote_detail
+    ? result.data.vote_detail
+    : Object.fromEntries(votes.map((v) => [v.data.voter, v.data.target]));
+
+  // 票数汇总（只统计有效投票，弃票不计入得票数）
   const counts: Record<string, number> = {};
-  for (const v of votes) {
-    counts[v.data.target] = (counts[v.data.target] || 0) + 1;
+  for (const target of Object.values(detail)) {
+    if (target && target !== 'abstain') counts[target] = (counts[target] || 0) + 1;
   }
   const maxVotes = Math.max(1, ...Object.values(counts));
   const eliminated = result?.data.result === 'eliminated' ? result.data.eliminated : undefined;
-  const tieCandidates = result?.data.result === 'tie' ? result.data.candidates : undefined;
+  const tieCandidates =
+    result?.data.result === 'tie' || result?.data.result === 'no_elimination'
+      ? result.data.candidates
+      : undefined;
 
   return (
     <div className="flex flex-col gap-3">
@@ -57,30 +66,44 @@ export default function VoteResult({ votes, result }: Props) {
         </div>
       )}
 
-      {/* 谁投谁 */}
+      {/* 谁投谁（含弃票） */}
       <div className="flex flex-wrap gap-1.5">
-        {votes.map((v, i) => (
-          <span
-            key={i}
-            className="inline-flex items-center gap-1 text-[11px] bg-[#1b2b3f]/60 border border-[#47464b]/30 px-1.5 py-0.5 rounded font-label"
-          >
+        {Object.entries(detail).map(([voter, target]) => {
+          const isAbstain = target === 'abstain' || !target;
+          return (
             <span
+              key={voter}
               className={cn(
-                'w-3.5 h-3.5 rounded-full flex items-center justify-center text-white text-[8px] font-bold',
-                avatarColor(v.data.voter),
+                'inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded font-label border',
+                isAbstain
+                  ? 'bg-[#1b2b3f]/40 border-[#47464b]/20 text-[#64748b]'
+                  : 'bg-[#1b2b3f]/60 border-[#47464b]/30',
               )}
             >
-              {playerInitial(v.data.voter).slice(-1)}
+              <span
+                className={cn(
+                  'w-3.5 h-3.5 rounded-full flex items-center justify-center text-white text-[8px] font-bold',
+                  avatarColor(voter),
+                )}
+              >
+                {playerInitial(voter).slice(-1)}
+              </span>
+              <span className="text-[#d3e4fe]">{voter}</span>
+              {isAbstain ? (
+                <span className="text-[#64748b]">弃票</span>
+              ) : (
+                <>
+                  <span className="material-symbols-outlined text-[12px] text-[#e9c400]/70">arrow_forward</span>
+                  <span className="text-[#d3e4fe]">{target}</span>
+                </>
+              )}
             </span>
-            <span className="text-[#d3e4fe]">{v.data.voter}</span>
-            <span className="material-symbols-outlined text-[12px] text-[#e9c400]/70">arrow_forward</span>
-            <span className="text-[#d3e4fe]">{v.data.target}</span>
-          </span>
-        ))}
+          );
+        })}
       </div>
 
       {/* 结果文字 */}
-      {result?.data.result === 'tie' && tieCandidates && (
+      {tieCandidates && (result?.data.result === 'tie' || result?.data.result === 'no_elimination') && (
         <div className="font-body text-body-md text-[#ffe16d] bg-[#e9c400]/10 border border-[#e9c400]/30 rounded-md px-3 py-1.5">
           ⚖ 平票({tieCandidates.join(' vs ')}),无人出局
         </div>
@@ -88,6 +111,11 @@ export default function VoteResult({ votes, result }: Props) {
       {result?.data.result === 'no_votes' && (
         <div className="font-body text-body-md text-[#c8c5cb] bg-[#1b2b3f]/60 rounded-md px-3 py-1.5">
           无人投票
+        </div>
+      )}
+      {result?.data.result === 'idiot_revealed' && (
+        <div className="font-body text-body-md text-pink-200 bg-pink-500/10 border border-pink-500/30 rounded-md px-3 py-1.5">
+          🃏 {result.data.player} 翻牌为白痴，免于放逐但失去投票权
         </div>
       )}
     </div>

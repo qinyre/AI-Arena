@@ -42,6 +42,36 @@ const ROLE_MAP: Record<string, RoleConfig> = {
     ringClass: 'ring-[#e9c400]/60',
     team: 'good',
   },
+  witch: {
+    icon: '🧪', symbol: 'experiment', label: '女巫', color: '#a78bfa',
+    badgeClass: 'bg-violet-500/15 text-violet-200 border border-violet-500/30',
+    cardClass: '', ringClass: 'ring-violet-500/60', team: 'good',
+  },
+  hunter: {
+    icon: '🏹', symbol: 'my_location', label: '猎人', color: '#f59e0b',
+    badgeClass: 'bg-amber-500/15 text-amber-200 border border-amber-500/30',
+    cardClass: '', ringClass: 'ring-amber-500/60', team: 'good',
+  },
+  idiot: {
+    icon: '🃏', symbol: 'playing_cards', label: '白痴', color: '#ec4899',
+    badgeClass: 'bg-pink-500/15 text-pink-200 border border-pink-500/30',
+    cardClass: '', ringClass: 'ring-pink-500/60', team: 'good',
+  },
+  guard: {
+    icon: '🛡️', symbol: 'shield', label: '守卫', color: '#22c55e',
+    badgeClass: 'bg-green-500/15 text-green-200 border border-green-500/30',
+    cardClass: '', ringClass: 'ring-green-500/60', team: 'good',
+  },
+  white_wolf_king: {
+    icon: '🐺', symbol: 'bomb', label: '白狼王', color: '#fb7185',
+    badgeClass: 'bg-rose-500/15 text-rose-200 border border-rose-500/30',
+    cardClass: 'active-wolf', ringClass: 'ring-rose-500/60', team: 'werewolf',
+  },
+  wolf_king: {
+    icon: '👑', symbol: 'crown', label: '狼王', color: '#dc2626',
+    badgeClass: 'bg-red-600/15 text-red-200 border border-red-600/30',
+    cardClass: 'active-wolf', ringClass: 'ring-red-600/60', team: 'werewolf',
+  },
   villager: {
     icon: '👤',
     symbol: 'person',
@@ -62,14 +92,17 @@ export function getRoleConfig(role: Role): RoleConfig {
 export function deathCauseLabel(cause?: string): string {
   if (cause === 'werewolf_kill') return '被狼人杀害';
   if (cause === 'voted_out') return '被投票放逐';
+  if (cause === 'poison') return '被女巫毒杀';
+  if (cause === 'shot') return '被死亡技能带走';
+  if (cause === 'white_wolf_king') return '被白狼王带走';
+  if (cause === 'self_destruct') return '自爆';
   return '已淘汰';
 }
 
 /** 身份声明(claim_role) → 标签 */
 export function claimRoleLabel(claim: string): string | null {
-  if (claim === 'seer') return '自称预言家';
-  if (claim === 'villager') return '自称村民';
-  return null;
+  if (claim === 'none') return null;
+  return `自称${getRoleConfig(claim).label}`;
 }
 
 /** 玩家头像色块:基于 id 生成稳定的颜色(用于无图头像底色) */

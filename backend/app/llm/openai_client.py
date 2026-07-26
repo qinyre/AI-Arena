@@ -14,7 +14,7 @@ OpenAI 兼容协议客户端实现。
 from openai import AsyncOpenAI
 import json
 from typing import Dict, Optional
-from app.llm.client import ModelClient
+from app.llm.client import ModelClient, RetryableError, NonRetryableError
 
 
 class OpenAICompatibleClient(ModelClient):
@@ -117,7 +117,26 @@ class OpenAICompatibleClient(ModelClient):
             return result
 
         except Exception as e:
-            raise RuntimeError(f"LLM API调用失败: {str(e)}")
+            # 区分可重试错误（网络/超时/限流/服务端临时故障）与不可重试错误
+            # （鉴权失败/模型不存在/请求格式错误）。前者交给上层带退避重试，
+            # 后者立即失败避免无意义重试浪费配额。
+            name = type(e).__name__
+            msg = str(e)
+            # openai SDK 的异常类名：APIConnectionError/APITimeoutError/RateLimitError/
+            # InternalServerError 可重试；AuthenticationError/NotFoundError/BadRequestError 不可重试
+            retryable_names = {
+                "APIConnectionError", "APITimeoutError", "RateLimitError",
+                "InternalServerError", "APIError", "ConflictError",
+            }
+            # 兜底：状态码 408/429/5xx 或明显网络错误也视为可重试
+            status = getattr(e, "status_code", None) or getattr(getattr(e, "response", None), "status_code", None)
+            is_retryable = (
+                name in retryable_names
+                or status in (408, 425, 429, 500, 502, 503, 504)
+                or any(k in msg for k in ("timeout", "timed out", "connection", "Connection", "temporarily", "overloaded"))
+            )
+            err_cls = RetryableError if is_retryable else NonRetryableError
+            raise err_cls(f"LLM API调用失败[{name}]: {msg}") from e
 
     def get_total_usage(self) -> Dict:
         """获取总 token 使用情况"""

@@ -26,6 +26,7 @@ class PlayerConfig(BaseModel):
 class CreateGameRequest(BaseModel):
     """POST /api/games/ 请求体。"""
     player_configs: List[PlayerConfig]
+    board_id: str = "5p"
     seed: Optional[int] = None
 
 

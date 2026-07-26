@@ -15,6 +15,7 @@ class GamePhase(Enum):
     VOTING = "voting"
     TIEBREAK_SPEECH = "tiebreak_speech"
     TIEBREAK_VOTING = "tiebreak_voting"
+    DEATH_SKILL = "death_skill"
     ENDED = "ended"
 
 
@@ -22,13 +23,26 @@ class Role(Enum):
     """角色"""
     WEREWOLF = "werewolf"
     SEER = "seer"
+    WITCH = "witch"
+    HUNTER = "hunter"
+    IDIOT = "idiot"
+    GUARD = "guard"
+    WHITE_WOLF_KING = "white_wolf_king"
+    WOLF_KING = "wolf_king"
     VILLAGER = "villager"
 
 
 class ActionType(Enum):
     """动作类型"""
     KILL = "kill"
+    WOLF_SPEAK = "wolf_speak"
     INVESTIGATE = "investigate"
+    HEAL = "heal"
+    POISON = "poison"
+    GUARD = "guard"
+    SHOOT = "shoot"
+    SELF_DESTRUCT = "self_destruct"
+    PASS = "pass"
     SPEAK = "speak"
     VOTE = "vote"
     ABSTAIN = "abstain"
@@ -78,13 +92,15 @@ class Player:
     id: str
     role: Role
     is_alive: bool = True
+    can_vote: bool = True
     investigation_results: List[Dict] = field(default_factory=list)
 
     def to_dict(self) -> Dict:
         return {
             "id": self.id,
             "role": self.role.value,
-            "is_alive": self.is_alive
+            "is_alive": self.is_alive,
+            "can_vote": self.can_vote
         }
 
 

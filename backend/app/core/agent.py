@@ -2,9 +2,13 @@
 AI Agent Implementation
 """
 from typing import Dict, List, Optional
-from app.llm.client import ModelClient
+import asyncio
+import logging
+from app.llm.client import ModelClient, RetryableError, NonRetryableError
 from app.core.models import GameAction, ActionType
 import json
+
+logger = logging.getLogger(__name__)
 
 
 class AIAgent:
@@ -57,61 +61,123 @@ class AIAgent:
             available_actions
         )
 
-        # 调用LLM
-        response = await self._generate_with_retry(action_prompt, system_prompt)
+        # 调用LLM（带重试）。重试覆盖三类失败：网络异常、JSON 解析失败、
+        # 以及语义校验失败（action_type 非法 / target 越界 / content 为空等）。
+        # 后两类是 LLM 偶发输出不规范，重试一次通常能修正，避免轻易降级。
+        last_action: Optional[GameAction] = None
+        for attempt in range(1, 4):  # 最多 3 轮：原始 + 2 次修正重试
+            response = await self._generate_with_retry(action_prompt, system_prompt)
+            parsed = response.get("parsed")
+            if not parsed:
+                # 解析失败已在 _generate_with_retry 内重试过，这里直接进下一轮整体重试
+                if attempt < 3:
+                    await asyncio.sleep(1.0)
+                    continue
+                break
 
-        # 解析响应
-        parsed = response.get("parsed")
-        if not parsed:
-            # 降级：随机选择一个动作
-            chosen = next((a for a in available_actions if a["action_type"] != "abstain"), available_actions[0])
-            if chosen["action_type"] == "speak":
-                return GameAction(
-                    action_type=ActionType.SPEAK, actor_id=self.agent_id,
-                    parameters={"content": "我暂时没有新的信息。", "claim_role": "none", "reasoning": "模型不可用，使用默认动作"}
-                )
-            return GameAction(
-                action_type=ActionType(chosen["action_type"]),
-                actor_id=self.agent_id,
-                target_id=chosen.get("valid_targets", [None])[0] if chosen.get("valid_targets") else None,
-                parameters={"reasoning": "LLM解析失败，随机选择"}
-            )
+            action, ok, reason = self._build_action(parsed, available_actions)
+            if ok and action is not None:
+                last_action = action
+                break
+            # 语义校验失败：带提示重试，让 LLM 修正
+            logger.warning("[%s] 动作语义校验失败（attempt %d）: %s", self.agent_id, attempt, reason)
+            if attempt < 3:
+                await asyncio.sleep(1.0)
 
-        # 构建GameAction
+        if last_action is not None:
+            return last_action
+        return self._fallback_action(available_actions)
+
+    def _build_action(
+        self,
+        parsed: Dict,
+        available_actions: List[Dict],
+    ) -> tuple[Optional[GameAction], bool, str]:
+        """把 LLM 解析结果构建为 GameAction，并做语义校验。
+
+        返回 (action, ok, reason)。ok=False 时 reason 说明失败原因，
+        供调用方决定是否带提示重试。
+        """
         chosen_action = parsed.get("chosen_action", {})
         if not isinstance(chosen_action, dict):
-            return self._fallback_action(available_actions)
+            return None, False, "chosen_action 不是对象"
         try:
             action_type = ActionType(chosen_action.get("action_type"))
         except ValueError:
-            return self._fallback_action(available_actions)
+            return None, False, f"action_type 非法: {chosen_action.get('action_type')}"
         target_id = chosen_action.get("target")
         parameters = chosen_action.get("parameters", {})
         spec = next((a for a in available_actions if a["action_type"] == action_type.value), None)
-        if not spec or not isinstance(parameters, dict):
-            return self._fallback_action(available_actions)
-        if spec.get("target_required") and target_id not in spec.get("valid_targets", []):
-            return self._fallback_action(available_actions)
-        if not spec.get("target_required") and target_id is not None:
-            return self._fallback_action(available_actions)
+        if not spec:
+            return None, False, f"action_type {action_type.value} 不在当前可用动作中"
+        if not isinstance(parameters, dict):
+            return None, False, "parameters 不是对象"
+        # 规范化 target：LLM 常给 speak 这类无 target 动作填空串/null/占位符，
+        # 统一视为"未指定"，避免误判为格式错误而降级。
+        if isinstance(target_id, str):
+            target_id = target_id.strip()
+        if target_id in ("", "null", "none", "None", "N/A", "-"):
+            target_id = None
+        if spec.get("target_required"):
+            if target_id not in spec.get("valid_targets", []):
+                return None, False, f"target {target_id} 不在合法目标 {spec.get('valid_targets')} 中"
+        else:
+            # 该动作不需要 target；LLM 若误填了实际玩家 id 才算错误，空值则忽略
+            if target_id is not None:
+                return None, False, f"该动作不需要 target，却传了 {target_id}"
         parameters["reasoning"] = parsed.get("reasoning", "")
         if not isinstance(parameters["reasoning"], str) or len(parameters["reasoning"]) > 500:
-            return self._fallback_action(available_actions)
+            return None, False, "reasoning 缺失或超长"
+        if action_type in (ActionType.SPEAK, ActionType.WOLF_SPEAK):
+            content = parameters.get("content")
+            if not isinstance(content, str) or not content.strip() or len(content) > 500:
+                return None, False, "发言动作缺少合法 content"
         if action_type == ActionType.SPEAK:
-            if not isinstance(parameters.get("content"), str) or not parameters["content"].strip() or len(parameters["content"]) > 500:
-                return self._fallback_action(available_actions)
-            if parameters.get("claim_role", "none") not in ("none", "seer", "villager"):
-                return self._fallback_action(available_actions)
+            claimable = next(
+                (
+                    set(spec["parameters"]["claim_role"].get("enum", []))
+                    for spec in available_actions
+                    if spec["action_type"] == "speak"
+                    and "claim_role" in spec.get("parameters", {})
+                ),
+                {"none"},
+            )
+            if parameters.get("claim_role", "none") not in claimable:
+                return None, False, f"claim_role 非法: {parameters.get('claim_role')}"
+        elif action_type == ActionType.ABSTAIN:
+            # 弃票必须有理由：避免 AI 信息不足时偷懒弃票而不给依据。
+            # 校验失败会触发重试，让 LLM 补上 reasoning。
+            abstain_reason = parameters.get("reasoning", "")
+            if not isinstance(abstain_reason, str) or not abstain_reason.strip() or len(abstain_reason) > 500:
+                return None, False, "弃票必须填写理由（reasoning 不能为空）"
 
         return GameAction(
             action_type=action_type,
             actor_id=self.agent_id,
             target_id=target_id,
-            parameters=parameters
-        )
+            parameters=parameters,
+        ), True, ""
 
-    async def _generate_with_retry(self, prompt: str, system_prompt: str) -> Dict:
-        for _ in range(2):
+    async def _generate_with_retry(
+        self,
+        prompt: str,
+        system_prompt: str,
+        max_attempts: int = 4,
+        base_delay: float = 1.5,
+    ) -> Dict:
+        """带指数退避的 LLM 调用重试。
+
+        策略：
+        - 可重试错误（网络/超时/限流 429/服务端 5xx）：指数退避重试，
+          delay = base_delay * 2^(attempt-1)（1.5s → 3s → 6s → 12s），
+          上限约 12s，配合 jitter 抖动避免雪崩。
+        - 不可重试错误（鉴权 401 / 模型不存在 404 / 请求 400）：立即失败，
+          不浪费配额与时间。
+        - 解析失败（LLM 返回了但 JSON 解析不出）：重试 1 次（偶发格式问题），
+          仍失败则返回 parsed=None 由调用方降级。
+        """
+        last_error: Optional[Exception] = None
+        for attempt in range(1, max_attempts + 1):
             try:
                 response = await self.model_client.generate(
                     prompt=prompt, system_prompt=system_prompt,
@@ -119,15 +185,53 @@ class AIAgent:
                 )
                 if response.get("parsed"):
                     return response
-            except Exception:
-                pass
-        return {"parsed": None}
+                # 解析失败诊断：记录原始返回，便于定位是 LLM 没返回 JSON 还是格式问题
+                raw = (response.get("content") or "")[:500]
+                parse_err = response.get("parse_error", "")
+                logger.warning("[%s] LLM 响应未解析成功 (attempt %d). parse_error=%s content=%s",
+                               self.agent_id, attempt, parse_err, repr(raw))
+                # 解析失败：首次重试一次（偶发），后续不再因解析失败重试
+                if attempt == 1:
+                    last_error = RuntimeError("LLM 响应 JSON 解析失败")
+                    await asyncio.sleep(base_delay)
+                    continue
+                logger.warning("[%s] LLM 响应解析失败（attempt %d），降级", self.agent_id, attempt)
+                return response  # parsed=None
+
+            except NonRetryableError as e:
+                # 鉴权/模型不存在/请求格式错——重试无意义，立即失败
+                logger.error("[%s] LLM 不可重试错误，放弃: %s", self.agent_id, e)
+                raise
+            except RetryableError as e:
+                last_error = e
+                if attempt >= max_attempts:
+                    logger.error("[%s] LLM 重试 %d 次仍失败，降级: %s", self.agent_id, max_attempts, e)
+                    break
+                # 指数退避 + jitter
+                delay = min(base_delay * (2 ** (attempt - 1)), 15.0)
+                import random as _r
+                delay = delay * (0.5 + _r.random() * 0.5)  # 50%~100% 抖动
+                logger.warning("[%s] LLM 可重试错误（attempt %d/%d），%.1fs 后重试: %s",
+                               self.agent_id, attempt, max_attempts, delay, e)
+                await asyncio.sleep(delay)
+            except Exception as e:
+                # 未知异常：保守当作可重试，但只重试一次
+                last_error = e
+                logger.warning("[%s] LLM 未知错误（attempt %d）: %s", self.agent_id, attempt, e)
+                if attempt >= max_attempts:
+                    break
+                await asyncio.sleep(base_delay)
+
+        return {"parsed": None, "_last_error": str(last_error) if last_error else "unknown"}
 
     def _fallback_action(self, available_actions: List[Dict]) -> GameAction:
         chosen = next((a for a in available_actions if a["action_type"] != "abstain"), available_actions[0])
         parameters = {"reasoning": "模型不可用，使用默认动作"}
-        if chosen["action_type"] == "speak":
-            parameters.update(content="我暂时没有新的信息。", claim_role="none")
+        if chosen["action_type"] in ("speak", "wolf_speak"):
+            if chosen["action_type"] == "wolf_speak":
+                parameters.update(content="建议优先刀最像神职的玩家。")
+            else:
+                parameters.update(content="我暂时没有新的信息。", claim_role="none")
         return GameAction(ActionType(chosen["action_type"]), self.agent_id,
                           (chosen.get("valid_targets") or [None])[0], parameters)
 
@@ -137,7 +241,7 @@ class AIAgent:
 
         role_descriptions = {
             "werewolf": """你是一名狼人。
-- 目标：消灭所有好人，让狼人数量 ≥ 好人数量
+- 目标：按本局胜利规则消灭好人阵营
 - 能力：每晚选择一名玩家杀死
 - 策略：隐藏身份，伪装成好人，在发言中误导其他玩家
 - 注意：不要在公开发言中暴露自己是狼人""",
@@ -147,6 +251,34 @@ class AIAgent:
 - 能力：每晚查验一名玩家的真实身份（好人/狼人）
 - 策略：收集信息，选择合适时机公开身份，分享查验结果
 - 注意：需要防备假预言家（狼人冒充）""",
+
+            "witch": """你是女巫。
+- 阵营：好人；解药和毒药各一瓶，每晚至多使用一瓶
+- 解药只能救当晚狼队刀口；毒药可以毒杀一名其他存活玩家
+- 守卫同守同救时目标仍会死亡，请谨慎判断是否用药""",
+
+            "hunter": """你是猎人。
+- 阵营：好人；死亡后可选择开枪带走一名存活玩家
+- 若被女巫毒死则不能开枪，也可以主动放弃开枪""",
+
+            "idiot": """你是白痴。
+- 阵营：好人；白天首次被投票放逐时翻牌免死
+- 翻牌后仍可发言，但永久失去投票权；夜杀、毒杀和枪杀不能免死""",
+
+            "guard": """你是守卫。
+- 阵营：好人；每晚可守护一名玩家，能挡住狼刀
+- 不能连续两晚守护同一人；守护不能抵挡毒药
+- 若女巫同时解救你守护的狼刀目标，同守同救会导致目标死亡""",
+
+            "white_wolf_king": """你是白狼王，属于狼人阵营。
+- 夜间与狼队共同选择刀口
+- 白天发言时可自爆并带走一名存活玩家，随后立即入夜
+- 普通死亡不能带人；公开发言不要暴露狼人身份""",
+
+            "wolf_king": """你是狼王，属于狼人阵营。
+- 夜间与狼队共同选择刀口
+- 被狼刀或白天投票放逐后可带走一名存活玩家
+- 被毒或被枪带走时不能发动；公开发言不要暴露狼人身份""",
 
             "villager": """你是一名普通村民。
 - 目标：帮助好人阵营找出并放逐狼人
@@ -163,7 +295,7 @@ class AIAgent:
 
         # 角色 + 队伍身份自述
         identity_lines = [f"你的玩家编号是 **{your_id}**。"]
-        if role == "werewolf":
+        if role in ("werewolf", "white_wolf_king", "wolf_king"):
             teammates = visible_state.get("werewolf_teammates", [])
             wc = visible_state.get("werewolf_count", 1)
             if wc <= 1 or not teammates:
@@ -210,7 +342,7 @@ class AIAgent:
                     parts.append(f"在你之后还有 {', '.join(not_me_after)} 将要发言。")
             order_hint = "\n# 发言顺序\n" + "\n".join(parts)
 
-        return f"""你是一个5人局狼人杀游戏中的AI玩家（1狼人 + 1预言家 + 3村民）。
+        return f"""你是一个{visible_state.get('board_name', '狼人杀')}中的AI玩家。
 
 # 你的身份
 {identity}
@@ -221,6 +353,7 @@ class AIAgent:
 # 当前局势
 回合: {round_no} ｜ 阶段: {phase}
 总玩家数: {visible_state.get('total_players', len(alive) + len(dead))}
+胜利规则: {'屠边（狼人消灭全部神职或全部平民）' if visible_state.get('win_rule') == 'edge' else '人数优势（狼人数量不少于好人）'}
 存活玩家: {', '.join(alive) if alive else '无'}
 死亡玩家: {', '.join(dead) if dead else '无'}
 {order_hint}
@@ -246,21 +379,35 @@ class AIAgent:
         # 把阶段翻译成 LLM 能理解的"现在能做什么/不能做什么"
         phase_guide = {
             "night": (
-                "现在是【夜晚】阶段。你只能执行夜间行动（狼人杀人 / 预言家查验），"
-                "不能发言、不能投票、不能跳身份。所有决策都是暗中进行的。"
+                "现在是【夜晚】阶段。你只能从当前角色可见的夜间行动中选择，"
+                "不能公开发言、不能放逐投票、不能跳身份。wolf_speak 是仅狼队可见的密聊。"
             ),
             "day": (
                 "现在是【白天发言】阶段。你只能【发言】一次（speak 动作），"
                 "在 parameters.content 里写出你的公开发言内容。"
                 "白天发言阶段不能投票、不能杀人、不能查验。"
                 "你的查验/身份声明等必须通过公开发言（content）来表达，"
-                "不要把 action_type 写成 vote / kill / investigate。"
+                "不要把 action_type 写成 vote / kill / investigate。\n"
+                "发言要有信息量，推动局势。禁止只复述显而易见的事实（例如"
+                "「昨晚有人死了，狼人行动了」「大家要小心」「我是村民没信息」"
+                "这类空话）。你的发言应当至少包含以下之一：\n"
+                "  - 对某个玩家的具体怀疑或信任，并给出依据（哪句话、哪个行为矛盾）\n"
+                "  - 跳身份并公布查验结果（预言家）/ 伪造查验（悍跳狼）\n"
+                "  - 分析死者的身份推断（被刀的人可能是预言家/关键好人吗）\n"
+                "  - 对他人发言的回应或反驳（指出逻辑漏洞）\n"
+                "  - 明确的投票倾向（建议投谁、跟谁的票）\n"
+                "如果你确实没有信息可分析，也要基于已知发言给出你的立场和判断，"
+                "而不是说「没有信息」收场。"
             ),
             "voting": (
-                "现在是【投票】阶段。你只能【投票】放逐一名玩家（vote 动作），"
+                "现在是【投票】阶段。你只能投票或有理由地弃票，"
                 "不能再发言、不能跳身份、不能杀人、不能查验。"
                 "即便局势危急也只能选择投票目标——已没有发言机会。"
-                "如果参数里有 content 字段会被忽略；chosen_action 只能是 vote。"
+                "如果参数里有 content 字段会被忽略。"
+            ),
+            "death_skill": (
+                "现在是【死亡技能】阶段。你已死亡，只能选择带走一名存活玩家，"
+                "或选择 pass 放弃发动。"
             ),
         }
         guide = phase_guide.get(phase, f"当前阶段: {phase}。只能从可选动作中选择。")
@@ -296,7 +443,7 @@ class AIAgent:
 }}
 
 注意：reasoning 是你的内部思考，不会被其他玩家看到。chosen_action 必须严格匹配上面的可选动作；
-若是 speak 动作，把公开发言写在 parameters.content；若是 vote/kill/investigate 动作，
+若是 speak/wolf_speak 动作，把发言写在 parameters.content；若是带目标的动作，
 parameters 里通常只需 reasoning（如需），不要硬塞 content。
 """
 

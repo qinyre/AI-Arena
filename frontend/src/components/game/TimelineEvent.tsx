@@ -10,6 +10,7 @@ import { cn } from '../../utils/cn';
 import SpeechBubble from './SpeechBubble';
 import VoteResult from './VoteResult';
 import AIReasoningPanel from './AIReasoningPanel';
+import { deathCauseLabel } from './roleConfig';
 import {
   isPhaseChange,
   isWerewolfKill,
@@ -65,6 +66,36 @@ function getEventStyle(e: GameEvent): EventStyle | null {
       headColor: 'text-[#ffe16d]',
       symbol: 'visibility',
       label: '预言家行动',
+    };
+  }
+  if (e.event_type === 'guard_action' || e.event_type === 'witch_heal' || e.event_type === 'witch_poison') {
+    return {
+      dotBorder: 'border-violet-400',
+      dotCore: 'bg-violet-400 shadow-[0_0_5px_rgba(167,139,250,0.9)]',
+      cardClass: '',
+      headColor: 'text-violet-200',
+      symbol: e.event_type === 'guard_action' ? 'shield' : 'experiment',
+      label: e.event_type === 'guard_action' ? '守卫行动' : '女巫行动',
+    };
+  }
+  if (e.event_type === 'white_wolf_king_self_destruct') {
+    return {
+      dotBorder: 'border-[#eb2445]',
+      dotCore: 'bg-[#eb2445] shadow-[0_0_5px_rgba(235,36,69,0.9)]',
+      cardClass: 'wolf-action',
+      headColor: 'text-[#ffb3b3]',
+      symbol: 'bomb',
+      label: '白狼王自爆',
+    };
+  }
+  if (e.event_type === 'wolf_discussion') {
+    return {
+      dotBorder: 'border-[#eb2445]',
+      dotCore: 'bg-[#eb2445] shadow-[0_0_5px_rgba(235,36,69,0.9)]',
+      cardClass: 'wolf-action',
+      headColor: 'text-[#ffb3b3]',
+      symbol: 'forum',
+      label: '狼队密聊',
     };
   }
   if (isPlayerSpeech(e)) {
@@ -127,6 +158,14 @@ function getReasoning(e: GameEvent): string | null {
   if (isSeerInvestigate(e)) return e.data.reasoning;
   if (isPlayerSpeech(e)) return e.data.reasoning;
   if (isPlayerVote(e)) return e.data.reasoning;
+  if (['guard_action', 'witch_heal', 'witch_poison'].includes(e.event_type)) {
+    const data = e.data as Record<string, unknown>;
+    return typeof data.reasoning === 'string' ? data.reasoning : null;
+  }
+  if (e.event_type === 'wolf_discussion') {
+    const data = e.data as Record<string, unknown>;
+    return typeof data.reasoning === 'string' ? data.reasoning : null;
+  }
   return null;
 }
 
@@ -136,6 +175,11 @@ function getReasoningPlayer(e: GameEvent): string | null {
   if (isSeerInvestigate(e)) return e.data.seer;
   if (isPlayerSpeech(e)) return e.data.speaker;
   if (isPlayerVote(e)) return e.data.voter;
+  if (e.event_type === 'guard_action') return String(e.data.guard || '');
+  if (e.event_type === 'witch_heal' || e.event_type === 'witch_poison') {
+    return String(e.data.witch || '');
+  }
+  if (e.event_type === 'wolf_discussion') return String(e.data.speaker || '');
   return null;
 }
 
@@ -279,6 +323,29 @@ function EventBody({
       </p>
     );
   }
+  if (event.event_type === 'guard_action') {
+    return <p className="font-body text-body-lg text-[#d3e4fe]">
+      <b className="text-green-200">{String(event.data.guard)}</b> 守护了{' '}
+      <b>{String(event.data.target)}</b>
+    </p>;
+  }
+  if (event.event_type === 'witch_heal' || event.event_type === 'witch_poison') {
+    return <p className="font-body text-body-lg text-[#d3e4fe]">
+      <b className="text-violet-200">{String(event.data.witch)}</b>
+      {event.event_type === 'witch_heal' ? ' 使用解药救下了 ' : ' 使用毒药指向了 '}
+      <b>{String(event.data.target)}</b>
+    </p>;
+  }
+  if (event.event_type === 'white_wolf_king_self_destruct') {
+    return <p className="font-body text-body-lg text-[#ffb3b3]">
+      <b>{String(event.data.player)}</b> 自爆并带走了 <b>{String(event.data.target)}</b>
+    </p>;
+  }
+  if (event.event_type === 'wolf_discussion') {
+    return <p className="font-body text-body-lg text-[#ffb3b3]">
+      <b>{String(event.data.speaker)}</b> 对狼队说：{String(event.data.content)}
+    </p>;
+  }
 
   // 发言
   if (isPlayerSpeech(event)) {
@@ -305,7 +372,7 @@ function EventBody({
     return (
       <p className="font-body text-body-lg text-[#ffb3b3] italic">
         <b className="font-display not-italic">{event.data.player}</b>
-        {' '}在夜晚的阴影中遇害(第{event.data.round}轮)。
+        {' '}{deathCauseLabel(event.data.cause)}(第{event.data.round}轮)。
       </p>
     );
   }

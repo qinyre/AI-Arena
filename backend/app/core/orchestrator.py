@@ -227,23 +227,42 @@ class GameOrchestrator:
             await self.execute_voting_phase()
             self._broadcast_events(self.game.advance_phase())
 
+        elif self.game.state.phase == GamePhase.DEATH_SKILL:
+            await self.execute_death_skill_phase()
+            self._broadcast_events(self.game.advance_phase())
+
     async def execute_night_phase(self):
         """执行夜晚阶段"""
         print(f"\n=== 第{self.game.state.round}轮 - 夜晚 ===")
 
-        # 所有活着的玩家同时行动
-        tasks = []
-        for player_id in self.game.state.alive_players:
-            agent = self.agents[player_id]
-            visible_state = self.game.get_visible_state(player_id)
-            available_actions = self.game.get_available_actions(player_id)
-
-            if available_actions:
-                tasks.append(self._agent_act(agent, visible_state, available_actions))
-
-        # 并发执行
-        if tasks:
-            await asyncio.gather(*tasks)
+        # 主持人口令顺序：守卫 → 狼队密聊 → 狼队投刀 → 女巫 → 预言家。
+        for stage in ("guard", "wolf_discussion", "wolves", "witch", "seer"):
+            self.game.night_stage = stage
+            self.game.acted_players = set()
+            if stage == "wolf_discussion":
+                # 依次密聊，确保后发言狼人能看到前面队友的意见。
+                for player_id in list(self.game.state.alive_players):
+                    available_actions = self.game.get_available_actions(player_id)
+                    if available_actions:
+                        await self._agent_act(
+                            self.agents[player_id],
+                            self.game.get_visible_state(player_id),
+                            available_actions,
+                        )
+                continue
+            tasks = []
+            for player_id in list(self.game.state.alive_players):
+                available_actions = self.game.get_available_actions(player_id)
+                if available_actions:
+                    tasks.append(self._agent_act(
+                        self.agents[player_id],
+                        self.game.get_visible_state(player_id),
+                        available_actions,
+                    ))
+            if tasks:
+                await asyncio.gather(*tasks)
+            if stage == "wolves":
+                self.game.finalize_wolf_vote()
 
     async def execute_day_phase(self):
         """执行白天发言阶段"""
@@ -257,12 +276,34 @@ class GameOrchestrator:
 
             if available_actions:
                 await self._agent_act(agent, visible_state, available_actions)
+            if self.game.day_interrupted:
+                break
+
+    async def execute_death_skill_phase(self):
+        """猎人/狼王死亡后依次发动技能。"""
+        player_id = self.game.death_skill_actor
+        if not player_id:
+            return
+        actions = self.game.get_available_actions(player_id)
+        if actions:
+            await self._agent_act(
+                self.agents[player_id],
+                self.game.get_visible_state(player_id),
+                actions,
+            )
 
     async def execute_voting_phase(self):
-        """执行投票阶段"""
-        print(f"\n=== 第{self.game.state.round}轮 - 投票 ===")
+        """执行投票阶段。
 
-        # 所有活着的玩家同时投票
+        所有玩家【盲投】并发投票——投票期间任何人都看不到他人的投票
+        对象和理由（符合真实狼人杀规则）。投票结束后才统一公布结果
+        （每人投了谁）。因此用并发 gather，且 visible_state 在投票开始前
+        统一生成，投票过程中产生的新 player_vote 事件不喂给同阶段其他玩家。
+        """
+        print(f"\n=== 第{self.game.state.round}轮 - 投票（盲投） ===")
+
+        # 并发盲投。注意：visible_state 在此循环内逐个生成，但因并发执行，
+        # 各玩家的 get_visible_state 看到的都是投票前的状态（互不可见）。
         tasks = []
         for player_id in self.game.state.alive_players:
             agent = self.agents[player_id]
@@ -297,7 +338,9 @@ class GameOrchestrator:
             print(f"  {agent.agent_id}: {action.action_type.value} -> {action.target_id}")
 
         except Exception as e:
-            print(f"  {agent.agent_id} 动作失败: {e}")
+            import traceback
+            print(f"  [DIAG] {agent.agent_id} 动作失败: {type(e).__name__}: {e}", flush=True)
+            traceback.print_exc()
 
     def _broadcast_events(self, events: List[Dict]):
         """广播事件（更新所有智能体的记忆）"""

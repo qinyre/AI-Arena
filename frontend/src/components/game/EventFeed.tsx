@@ -24,6 +24,7 @@ function phaseMeta(phase: string): { label: string; symbol: string } {
   if (phase === 'vote' || phase === 'voting') return { label: '投票', symbol: 'how_to_vote' };
   if (phase === 'tiebreak_speech') return { label: '平票辩护', symbol: 'record_voice_over' };
   if (phase === 'tiebreak_voting') return { label: '加赛投票', symbol: 'how_to_vote' };
+  if (phase === 'death_skill') return { label: '死亡技能', symbol: 'my_location' };
   return { label: phase, symbol: 'circle' };
 }
 

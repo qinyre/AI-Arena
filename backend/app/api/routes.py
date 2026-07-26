@@ -30,6 +30,7 @@ async def create_game(request: CreateGameRequest):
     try:
         result = await game_manager.create_game(
             player_configs=player_configs,
+            board_id=request.board_id,
             seed=request.seed,
         )
     except ValueError as e:

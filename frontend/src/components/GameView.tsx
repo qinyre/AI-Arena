@@ -89,20 +89,19 @@ export default function GameView({ gameId }: Props) {
   // 首次加载
   if (loading && !status) {
     return (
-      <div className="glass-panel rounded-lg p-12 text-center">
-        <span className="material-symbols-outlined text-[40px] text-[#e9c400] animate-spin inline-block mb-3">
-          progress_activity
-        </span>
-        <p className="font-body text-body-md text-[#c8c5cb]">连接对局...</p>
+      <div className="glass-panel rounded-sm p-12 text-center">
+        <span className="mb-4 inline-block h-2 w-2 animate-pulse rounded-full bg-[#b99758]" />
+        <p className="font-display text-lg tracking-[0.08em] text-[#e6dfd2]">正在开启旁观席</p>
+        <p className="mt-1 font-body text-xs text-[#aaa79f]/55">同步对局状态与行动记录</p>
       </div>
     );
   }
 
   if (error && !status) {
     return (
-      <div className="glass-panel rounded-lg p-6">
-        <div className="flex items-center gap-2 bg-[#eb2445]/10 border border-[#eb2445]/40 text-[#ffb3b3] px-4 py-3 rounded-md">
-          <span className="material-symbols-outlined">error</span>
+      <div className="glass-panel rounded-sm p-6">
+        <div className="flex items-center gap-2 border border-[#b8463d]/40 bg-[#b8463d]/10 px-4 py-3 text-[#d28c85]">
+          <span aria-hidden="true">!</span>
           <span className="font-body">{error}</span>
         </div>
       </div>
@@ -116,7 +115,7 @@ export default function GameView({ gameId }: Props) {
   const activeReview = generatedReview ?? result?.ai_review;
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-3.5">
       <ActionCinematics events={events} completed={isCompleted} />
 
       {/* 顶栏 */}
@@ -134,11 +133,11 @@ export default function GameView({ gameId }: Props) {
       {/* 剧场环绕:左玩家栏 | 中央时间线 | 右玩家栏
           三栏固定高度、各自内部滚动,不被下方复盘挤压 */}
       <div className={cn(
-        'grid grid-cols-1 lg:grid-cols-[1fr_minmax(0,2fr)_1fr] gap-4 min-h-[480px]',
+        'grid min-h-[480px] grid-cols-1 gap-3 lg:grid-cols-[minmax(230px,.82fr)_minmax(0,2.3fr)_minmax(230px,.82fr)]',
         isCompleted ? 'h-[calc(100vh-330px)]' : 'h-[calc(100vh-180px)]',
       )}>
         {/* 左栏:参与者(前一半) */}
-        <aside className="glass-panel rounded-lg p-4 overflow-hidden hidden lg:flex flex-col">
+        <aside className="arena-rail hidden overflow-hidden rounded-sm p-3 lg:flex lg:flex-col">
           <PlayerTable
             players={leftPlayers}
             currentSpeaker={displaySpeaker}
@@ -149,7 +148,7 @@ export default function GameView({ gameId }: Props) {
         </aside>
 
         {/* 中栏:事件时间线(主舞台) */}
-        <main className="glass-panel rounded-lg p-4 overflow-hidden">
+        <main className="chronicle-panel overflow-hidden rounded-sm p-3 sm:p-4">
           <EventFeed
             events={displayEvents}
             rounds={displayRounds}
@@ -159,7 +158,7 @@ export default function GameView({ gameId }: Props) {
         </main>
 
         {/* 右栏:参与者(后一半) */}
-        <aside className="glass-panel rounded-lg p-4 overflow-hidden hidden lg:flex flex-col">
+        <aside className="arena-rail hidden overflow-hidden rounded-sm p-3 lg:flex lg:flex-col">
           <PlayerTable
             players={rightPlayers}
             currentSpeaker={displaySpeaker}

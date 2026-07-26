@@ -190,6 +190,8 @@ export interface PlayerSpeechEvent extends GameEventBase {
     phase?: string;
     sheriff_campaign?: boolean;
     withdrew?: boolean;
+    sheriff_summary?: boolean;
+    nomination?: string;
   };
 }
 

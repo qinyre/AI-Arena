@@ -138,6 +138,16 @@ function getEventStyle(e: GameEvent): EventStyle | null {
       label: e.event_type === 'badge_transferred' ? '警徽移交' : '警徽撕毁',
     };
   }
+  if (e.event_type === 'speech_order_decided') {
+    return {
+      dotBorder: 'border-[#e9c400]',
+      dotCore: 'bg-[#e9c400]',
+      cardClass: '',
+      headColor: 'text-[#ffe16d]',
+      symbol: 'route',
+      label: '发言顺序',
+    };
+  }
   if (isPlayerSpeech(e)) {
     return {
       dotBorder: 'border-[#64748b]',
@@ -212,6 +222,9 @@ function getReasoning(e: GameEvent): string | null {
   if (e.event_type === 'badge_transferred' || e.event_type === 'badge_destroyed') {
     return typeof e.data.reasoning === 'string' ? e.data.reasoning : null;
   }
+  if (e.event_type === 'speech_order_decided') {
+    return typeof e.data.reasoning === 'string' ? e.data.reasoning : null;
+  }
   return null;
 }
 
@@ -231,6 +244,9 @@ function getReasoningPlayer(e: GameEvent): string | null {
   }
   if (e.event_type === 'badge_transferred') return String(e.data.from || '');
   if (e.event_type === 'badge_destroyed') return String(e.data.player || '');
+  if (e.event_type === 'speech_order_decided' && e.data.chooser !== 'judge') {
+    return String(e.data.chooser || '');
+  }
   return null;
 }
 
@@ -478,6 +494,18 @@ function EventBody({
   }
   if (event.event_type === 'badge_destroyed') {
     return <p className="font-body text-[#c8c5cb]"><b>{String(event.data.player)}</b> 撕毁了警徽</p>;
+  }
+  if (event.event_type === 'speech_order_decided') {
+    const direction = event.data.direction === 'clockwise' ? '正序' : '逆序';
+    const chooser = event.data.chooser === 'judge' ? '法官' : String(event.data.chooser);
+    const order = Array.isArray(event.data.order) ? event.data.order.map(String) : [];
+    return (
+      <p className="font-body text-[13px] leading-relaxed text-[#d3e4fe]">
+        <b className="text-[#ffe16d]">{chooser}</b> 选择{direction}
+        <span className="mx-2 text-[#64748b]">·</span>
+        {order.join(' → ')}
+      </p>
+    );
   }
 
   if (isPlayerSpeech(event)) {

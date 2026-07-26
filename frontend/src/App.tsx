@@ -5,9 +5,11 @@ import GameHistory from './components/GameHistory';
 import Stats from './components/Stats';
 import Settings from './components/Settings';
 
+type Tab = 'create' | 'view' | 'history' | 'settings';
+
 function App() {
   const [currentGameId, setCurrentGameId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'create' | 'view' | 'history' | 'settings'>('create');
+  const [activeTab, setActiveTab] = useState<Tab>('create');
 
   const handleGameCreated = (gameId: string) => {
     setCurrentGameId(gameId);
@@ -19,107 +21,71 @@ function App() {
     setActiveTab('view');
   };
 
+  const tabClass = (tab: Tab) => (
+    `nav-tab ${activeTab === tab ? 'is-active' : ''}`
+  );
+
   return (
-    <div className="min-h-screen bg-[#031427] text-[#d3e4fe]">
-      {/* Header */}
-      <header className="bg-[#0b1c30]/80 backdrop-blur-sm border-b border-[#47464b]/30">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              {/* 面具图标：贴合 Nocturne Stage 面具剧场主题 */}
-              <span
-                className="material-symbols-outlined text-[34px]"
-                style={{ color: '#e9c400', textShadow: '0 0 18px rgba(233,196,0,0.45)' }}
-              >
-                theater_comedy
-              </span>
-              <div>
-                <h1
-                  className="font-display text-3xl font-semibold"
-                  style={{
-                    background: 'linear-gradient(90deg, #ffe16d 0%, #e9c400 50%, #eb2445 100%)',
-                    WebkitBackgroundClip: 'text',
-                    WebkitTextFillColor: 'transparent',
-                    backgroundClip: 'text',
-                  }}
-                >
-                  AI Arena
+    <div className="app-shell">
+      <header className="site-masthead">
+        <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-5 px-4 py-4 sm:px-6">
+          <div className="flex min-w-0 items-center gap-3.5">
+            <div className="brand-seal shrink-0" aria-hidden="true">幕</div>
+            <div className="min-w-0">
+              <div className="flex items-baseline gap-2">
+                <h1 className="m-0 truncate font-display text-[25px] leading-none tracking-[0.02em] text-[#e6dfd2] sm:text-[30px]">
+                  AI 狼人杀剧场
                 </h1>
-                <p className="text-[#c8c5cb] text-xs mt-0.5 font-label tracking-wider uppercase">
-                  面具剧场 · 5人狼人杀 AI 对战
-                </p>
+                <span className="hidden font-label text-[9px] tracking-[0.28em] text-[#b99758]/70 sm:inline">
+                  NIGHT TRIBUNAL
+                </span>
               </div>
+              <p className="mt-1 truncate font-body text-[11px] tracking-[0.06em] text-[#aaa79f]/60">
+                每个判断都留下痕迹，每张票都改变结局
+              </p>
             </div>
-            <Stats />
           </div>
+          <Stats />
         </div>
       </header>
 
-      {/* Navigation */}
-      <nav className="bg-[#0b1c30]/60 border-b border-[#47464b]/20">
-        <div className="container mx-auto px-4">
-          <div className="flex space-x-1">
-            <button
-              onClick={() => setActiveTab('create')}
-              className={`px-6 py-3 font-label text-sm tracking-wide transition-colors border-b-2 ${
-                activeTab === 'create'
-                  ? 'text-[#ffe16d] border-[#e9c400] bg-[#e9c400]/5'
-                  : 'text-[#c8c5cb] hover:text-[#d3e4fe] border-transparent hover:bg-[#1b2b3f]/40'
-              }`}
-            >
-              创建游戏
-            </button>
-            <button
-              onClick={() => setActiveTab('view')}
-              disabled={!currentGameId}
-              className={`px-6 py-3 font-label text-sm tracking-wide transition-colors border-b-2 ${
-                activeTab === 'view'
-                  ? 'text-[#ffe16d] border-[#e9c400] bg-[#e9c400]/5'
-                  : 'text-[#c8c5cb] hover:text-[#d3e4fe] border-transparent hover:bg-[#1b2b3f]/40'
-              } disabled:opacity-40 disabled:cursor-not-allowed`}
-            >
-              当前游戏
-            </button>
-            <button
-              onClick={() => setActiveTab('history')}
-              className={`px-6 py-3 font-label text-sm tracking-wide transition-colors border-b-2 ${
-                activeTab === 'history'
-                  ? 'text-[#ffe16d] border-[#e9c400] bg-[#e9c400]/5'
-                  : 'text-[#c8c5cb] hover:text-[#d3e4fe] border-transparent hover:bg-[#1b2b3f]/40'
-              }`}
-            >
-              历史记录
-            </button>
-            <button
-              onClick={() => setActiveTab('settings')}
-              className={`ml-auto flex items-center gap-1.5 px-5 py-3 font-label text-sm tracking-wide transition-colors border-b-2 ${
-                activeTab === 'settings'
-                  ? 'text-[#ffe16d] border-[#e9c400] bg-[#e9c400]/5'
-                  : 'text-[#c8c5cb] hover:text-[#d3e4fe] border-transparent hover:bg-[#1b2b3f]/40'
-              }`}
-            >
-              <span className="material-symbols-outlined text-[17px]">settings</span>
-              设置
-            </button>
-          </div>
+      <nav className="site-nav">
+        <div className="mx-auto flex max-w-[1600px] overflow-x-auto px-2 sm:px-4">
+          <button type="button" onClick={() => setActiveTab('create')} className={tabClass('create')}>
+            创建对局
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('view')}
+            disabled={!currentGameId}
+            className={tabClass('view')}
+          >
+            当前对局
+          </button>
+          <button type="button" onClick={() => setActiveTab('history')} className={tabClass('history')}>
+            对局档案
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('settings')}
+            className={`${tabClass('settings')} ml-auto`}
+          >
+            模型与性格
+          </button>
         </div>
       </nav>
 
-      {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
+      <main className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 sm:py-8">
         {activeTab === 'create' && <CreateGame onGameCreated={handleGameCreated} />}
         {activeTab === 'view' && currentGameId && <GameView gameId={currentGameId} />}
         {activeTab === 'history' && <GameHistory onViewGame={handleViewGame} />}
         {activeTab === 'settings' && <Settings />}
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-[#47464b]/20 mt-16">
-        <div className="container mx-auto px-4 py-6 text-center text-[#64748b] text-sm">
-          <p>AI Arena v0.1.0 MVP — 让 AI 智能体在面具剧场中一决高下</p>
-          <p className="mt-2 font-label tracking-wide">
-            支持 DeepSeek / OpenAI / Anthropic / Gemini / Qwen / SiliconFlow / Ollama
-          </p>
+      <footer className="mt-14 border-t border-[#e6dfd2]/[0.07]">
+        <div className="mx-auto flex max-w-[1600px] flex-col gap-1 px-6 py-6 text-[11px] text-[#aaa79f]/45 sm:flex-row sm:items-center sm:justify-between">
+          <span className="font-display tracking-[0.12em]">AI ARENA · 面具审判场</span>
+          <span className="font-body">夜晚行动、白昼陈词、放逐票型，完整留档。</span>
         </div>
       </footer>
     </div>

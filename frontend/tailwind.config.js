@@ -11,29 +11,29 @@ export default {
         // 深海军蓝底 + 容器层级 + 金/绯红/蓝灰角色语义色
         nocturne: {
           // 基础舞台
-          stage: '#031427',          // 主背景(深海军蓝)
-          'stage-bright': '#2a3a4f',  // 亮舞台
+          stage: '#090d10',
+          'stage-bright': '#222a2f',
           // 容器层级(深→浅,做深度感)
-          'container-lowest': '#000f21',
-          'container-low': '#0b1c30',
-          'container': '#102034',
-          'container-high': '#1b2b3f',
-          'container-highest': '#26364a',
+          'container-lowest': '#070a0c',
+          'container-low': '#0d1216',
+          'container': '#12181c',
+          'container-high': '#182126',
+          'container-highest': '#202b31',
           // 文字
-          'on-surface': '#d3e4fe',    // 主文字(冷白)
-          'on-surface-variant': '#c8c5cb', // 次要文字
+          'on-surface': '#e6dfd2',
+          'on-surface-variant': '#aaa79f',
           // 描边
-          'outline': '#929095',
-          'outline-variant': '#47464b',
+          'outline': '#6f7472',
+          'outline-variant': '#343b3d',
           // ── 角色语义色(对齐借鉴稿)──
           // 金 = 预言家 / 真相
-          gold: '#e9c400',            // secondary-fixed-dim,主金色
-          'gold-bright': '#ffe16d',   // secondary-fixed,亮金(高亮)
+          gold: '#b99758',
+          'gold-bright': '#d7bd8b',
           // 绯红 = 狼人 / 危险
-          crimson: '#eb2445',         // on-tertiary-container,主绯红
-          'crimson-soft': '#ffb3b3',  // tertiary-fixed-dim,浅绯红
+          crimson: '#b8463d',
+          'crimson-soft': '#d28c85',
           // 蓝灰 = 村民 / 中性
-          neutral: '#64748b',
+          neutral: '#6f7c83',
         },
         // ── 旧色板保留(向后兼容,现有组件迁移期间用)──
         stage: {
@@ -56,9 +56,9 @@ export default {
       },
       fontFamily: {
         // 三套字体系统(借鉴稿)
-        display: ['"EB Garamond"', 'Georgia', 'serif'],         // 标题/玩家名/阶段
-        body: ['"Source Sans 3"', 'system-ui', 'sans-serif'],    // 对话/推理正文
-        label: ['"DM Sans"', 'system-ui', 'sans-serif'],         // 状态/时间戳/按钮
+        display: ['"Noto Serif SC"', '"EB Garamond"', 'serif'],
+        body: ['"Noto Sans SC"', 'sans-serif'],
+        label: ['"Noto Sans SC"', 'sans-serif'],
       },
       fontSize: {
         // 借鉴稿字号刻度

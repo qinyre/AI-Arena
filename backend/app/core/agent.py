@@ -324,6 +324,11 @@ class AIAgent:
                 identity_lines.append(
                     f"本局共有 {wc} 个狼人。你的狼人队友是: {', '.join(teammates)}（若为空则你是独狼）。"
                 )
+        if visible_state.get("sheriff_id") == your_id:
+            identity_lines.append(
+                "你是当前警长：负责决定白天发言方向、在全员发言后总结归票，"
+                "且放逐投票按 1.5 票计算。"
+            )
         identity = "\n".join(identity_lines)
         personality = self._build_personality_prompt()
 
@@ -470,6 +475,17 @@ class AIAgent:
 
         # 列出本阶段允许的 action_type（来自 available_actions）
         phase_guide.update({
+            "speech_order": (
+                "现在是【警长决定发言顺序】。选择 order_clockwise 或 "
+                "order_counterclockwise。若昨夜恰有一名死者，发言从其相邻座位沿所选方向开始；"
+                "若平安夜或多死，发言从警长相邻座位开始且警长最后发言。"
+                "请根据你希望哪些玩家先表态、哪些玩家后置听信息来选择。"
+            ),
+            "sheriff_summary": (
+                "现在是【警长总结归票】。你已听完本轮全部公开发言，只能用 speak 总结关键分歧，"
+                "在 content 中公开说明归票理由，并把 target 设置为你号召全场放逐的存活玩家。"
+                "归票只是公开建议，随后仍由每名玩家独立投票。"
+            ),
             "sheriff_campaign": (
                 "现在是【警长竞选】。pass 表示不上警；speak 表示上警并发表公开竞选发言。"
                 "上警发言必须填写 parameters.content、claim_role 和 withdraw_after_speech。"
@@ -498,6 +514,7 @@ class AIAgent:
         })
         if phase in (
             "day",
+            "sheriff_summary",
             "tiebreak_speech",
             "sheriff_campaign",
             "sheriff_tiebreak_speech",
@@ -521,6 +538,7 @@ class AIAgent:
                 )
         elif phase in (
             "day",
+            "sheriff_summary",
             "tiebreak_speech",
             "sheriff_campaign",
             "sheriff_tiebreak_speech",

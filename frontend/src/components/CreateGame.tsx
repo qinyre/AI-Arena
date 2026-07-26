@@ -28,31 +28,31 @@ const BOARD_OPTIONS = [
 // 快速开始预设（基于 2026-07 最新模型）
 const QUICK_START_PRESETS = [
   {
-    name: '全员 DeepSeek V4 Flash（推荐 💰）',
+    name: 'DeepSeek V4 Flash · 经济',
     provider: 'deepseek',
     model: 'deepseek-v4-flash',
     description: '极低成本 $0.28/1M，国内直连',
   },
   {
-    name: '全员 GPT-5 Nano（快速 ⚡）',
+    name: 'GPT-5 Nano · 快速',
     provider: 'openai',
     model: 'gpt-5-nano',
     description: 'OpenAI 最快模型 $0.05/1M',
   },
   {
-    name: '全员 Claude Haiku 4.5（智能 🧠）',
+    name: 'Claude Haiku 4.5 · 均衡',
     provider: 'anthropic',
     model: 'claude-haiku-4-5',
     description: 'Anthropic 快速模型 $0.8/1M',
   },
   {
-    name: '全员 Gemini 3.6 Flash（长文本 📄）',
+    name: 'Gemini 3.6 Flash · 长文本',
     provider: 'gemini',
     model: 'gemini-3.6-flash',
     description: '1M 上下文 $0.3/1M',
   },
   {
-    name: '全员 Ollama DeepSeek-R1（本地 🏠）',
+    name: 'Ollama DeepSeek-R1 · 本地',
     provider: 'ollama',
     model: 'deepseek-r1',
     description: '完全免费，需本地运行 Ollama',
@@ -342,26 +342,27 @@ export default function CreateGame({ onGameCreated }: Props) {
   );
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="mx-auto max-w-[1400px]">
       <div className="card">
-        <h2 className="text-2xl font-bold mb-6">创建新游戏</h2>
+        <div className="mb-6 border-b border-white/[0.08] pb-4">
+          <p className="font-label text-[9px] tracking-[0.24em] text-antique-gold/65">OPEN A NEW CASE</p>
+          <h2 className="mt-1 font-display text-2xl text-paper">创建新对局</h2>
+          <p className="mt-1 text-xs text-ink-muted">选择板型、模型与性格，让十二个席位各自入场。</p>
+        </div>
 
         {modelPresets.length > 0 && (
-          <div className="mb-4 rounded-lg border border-[#e9c400]/35 bg-[#e9c400]/5 p-4">
-            <h3 className="mb-3 flex items-center gap-2 text-sm font-medium text-[#ffe16d]">
-              <span className="material-symbols-outlined text-[17px]">memory</span>
-              我的模型预设
-            </h3>
+          <div className="mb-4 border border-antique-gold/20 bg-antique-gold/[0.035] p-4">
+            <h3 className="mb-3 font-display text-sm text-antique-gold">我的模型预设</h3>
             <div className="flex flex-wrap gap-2">
               {modelPresets.map((preset) => (
                 <button
                   key={preset.id}
                   type="button"
                   onClick={() => applyModelPreset(preset)}
-                  className="rounded border border-[#e9c400]/30 bg-[#102034] px-3 py-2 text-left transition-colors hover:border-[#e9c400]/70 hover:bg-[#1b2b3f]"
+                  className="border border-white/10 bg-black/15 px-3 py-2 text-left transition-colors hover:border-antique-gold/45 hover:bg-antique-gold/[0.04]"
                 >
-                  <span className="block font-label text-xs text-[#d3e4fe]">{preset.name}</span>
-                  <span className="block text-[10px] text-[#c8c5cb]/50">{preset.provider} · {preset.model}</span>
+                  <span className="block font-label text-xs text-paper/85">{preset.name}</span>
+                  <span className="block text-[10px] text-ink-muted">{preset.provider} · {preset.model}</span>
                 </button>
               ))}
             </div>
@@ -369,17 +370,18 @@ export default function CreateGame({ onGameCreated }: Props) {
         )}
 
         {/* 快速开始预设 */}
-        <div className="mb-6 p-4 bg-blue-900/20 border border-blue-700 rounded-lg">
-          <h3 className="text-sm font-medium text-blue-200 mb-3">⚡ 快速开始</h3>
-          <div className="flex flex-wrap gap-2">
-            {QUICK_START_PRESETS.map((preset, index) => (
+        <div className="mb-6 border border-white/10 bg-black/10 p-4">
+          <h3 className="mb-3 font-display text-sm text-paper/85">快速布置席位</h3>
+          <div className="flex flex-wrap gap-px">
+            {QUICK_START_PRESETS.map((preset) => (
               <button
-                key={index}
+                key={preset.model}
                 type="button"
                 onClick={() => applyQuickStart(preset)}
-                className="px-4 py-2 bg-blue-700 hover:bg-blue-600 text-white rounded transition-colors text-sm"
+                className="min-w-[155px] flex-1 bg-stage-deep px-3 py-2.5 text-left transition-colors hover:bg-antique-gold/[0.07]"
               >
-                {preset.name}
+                <span className="block font-label text-xs text-paper/85">{preset.name}</span>
+                <span className="mt-0.5 block text-[10px] text-ink-muted">{preset.description}</span>
               </button>
             ))}
           </div>
@@ -404,19 +406,16 @@ export default function CreateGame({ onGameCreated }: Props) {
             </p>
           </div>
 
-          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[#e9c400]/25 bg-[#e9c400]/5 p-4">
+          <label className="flex cursor-pointer items-start gap-3 border border-antique-gold/20 bg-antique-gold/[0.035] p-4">
             <input
               type="checkbox"
               checked={enableSheriff}
               onChange={(event) => setEnableSheriff(event.target.checked)}
-              className="mt-1 h-4 w-4 accent-[#e9c400]"
+              className="mt-1 h-4 w-4 accent-[#b99758]"
             />
             <span>
-              <span className="flex items-center gap-2 font-display text-[16px] text-[#ffe16d]">
-                <span className="material-symbols-outlined text-[18px]">military_tech</span>
-                启用警长与警徽流
-              </span>
-              <span className="mt-1 block text-xs leading-relaxed text-[#c8c5cb]/65">
+              <span className="font-display text-[16px] text-antique-gold">启用警长与警徽流</span>
+              <span className="mt-1 block text-xs leading-relaxed text-ink-muted">
                 首日竞选警长；警长拥有 1.5 票，死亡时可移交或撕毁警徽。预言家竞选发言会安排警徽流。
                 {boardId === '5p' && ' 5 人局也可开启，但额外竞选会显著增加模型调用。'}
               </span>
@@ -430,13 +429,12 @@ export default function CreateGame({ onGameCreated }: Props) {
               <button
                 type="button"
                 onClick={() => randomizePersonalities()}
-                className="inline-flex items-center gap-1.5 rounded border border-[#c4b5fd]/30 bg-[#c4b5fd]/5 px-3 py-1.5 font-label text-[10px] text-[#d8ccff] transition-colors hover:border-[#c4b5fd]/65 hover:bg-[#c4b5fd]/10"
+                className="inline-flex items-center gap-1.5 border border-white/15 px-3 py-1.5 font-label text-[10px] text-paper/65 transition-colors hover:border-antique-gold/45 hover:text-antique-gold"
               >
-                <span className="material-symbols-outlined text-[15px]">shuffle</span>
                 随机分配性格
               </button>
             </div>
-            <div className="space-y-4">
+            <div className="grid gap-4 xl:grid-cols-2">
               {playerConfigs.map((config, index) => {
                 const provider = config.provider!;
                 const provInfo = isCustom(provider)
@@ -446,17 +444,17 @@ export default function CreateGame({ onGameCreated }: Props) {
                 return (
                   <div
                     key={index}
-                    className={`bg-gray-700 p-4 rounded-lg space-y-3 ${
-                      hasError ? 'border-2 border-red-500' : ''
+                    className={`space-y-3 border bg-white/[0.025] p-4 ${
+                      hasError ? 'border-crimson' : 'border-white/[0.08]'
                     }`}
                   >
                     {hasError && (
                       <div className="text-sm text-red-400 bg-red-900/30 px-3 py-2 rounded">
-                        ⚠️ {hasError}
+                        {hasError}
                       </div>
                     )}
-                    <div className="flex gap-4 items-center">
-                      <div className="w-24">
+                    <div className="grid items-end gap-3 sm:grid-cols-[6rem_minmax(0,1fr)_minmax(0,1fr)]">
+                      <div>
                         <label className="block text-sm text-gray-400 mb-1">玩家</label>
                         <input
                           type="text"
@@ -520,8 +518,8 @@ export default function CreateGame({ onGameCreated }: Props) {
 
                     {/* 自定义端点的额外字段 */}
                     {isCustom(provider) && (
-                      <div className="flex gap-4 items-center pt-2 border-t border-gray-600">
-                        <div className="w-40">
+                      <div className="grid gap-3 border-t border-gray-600 pt-2 sm:grid-cols-2">
+                        <div>
                           <label className="block text-sm text-gray-400 mb-1">接口格式</label>
                           <select
                             value={config.api_format || 'openai'}
@@ -558,31 +556,39 @@ export default function CreateGame({ onGameCreated }: Props) {
                       </div>
                     )}
 
-                    <div className="flex items-center gap-4 border-t border-gray-600/70 pt-3">
-                      <div className="w-24 shrink-0">
+                    <div className="grid grid-cols-[6rem_minmax(0,1fr)_2.25rem] items-center gap-3 border-t border-gray-600/70 pt-3">
+                      <div>
                         <span className="block text-sm text-gray-400">玩家性格</span>
                         <span className="text-[10px] text-gray-500">影响表达与倾向</span>
                       </div>
-                      <select
-                        value={config.personality_id || ''}
-                        onChange={(e) => applyPersonality(index, e.target.value)}
-                        className="select min-w-0 flex-1"
-                        aria-label={`${config.player_id} 的性格`}
-                      >
-                        <option value="">标准平衡</option>
-                        <optgroup label="内置性格">
-                          {personalityPresets.filter((item) => item.builtIn).map((preset) => (
-                            <option key={preset.id} value={preset.id}>{preset.name}</option>
-                          ))}
-                        </optgroup>
-                        {personalityPresets.some((item) => !item.builtIn) && (
-                          <optgroup label="我的性格">
-                            {personalityPresets.filter((item) => !item.builtIn).map((preset) => (
+                      <div className="min-w-0">
+                        <select
+                          value={config.personality_id || ''}
+                          onChange={(e) => applyPersonality(index, e.target.value)}
+                          className="select w-full"
+                          aria-label={`${config.player_id} 的性格`}
+                        >
+                          <option value="">标准平衡</option>
+                          <optgroup label="内置性格">
+                            {personalityPresets.filter((item) => item.builtIn).map((preset) => (
                               <option key={preset.id} value={preset.id}>{preset.name}</option>
                             ))}
                           </optgroup>
+                          {personalityPresets.some((item) => !item.builtIn) && (
+                            <optgroup label="我的性格">
+                              {personalityPresets.filter((item) => !item.builtIn).map((preset) => (
+                                <option key={preset.id} value={preset.id}>{preset.name}</option>
+                              ))}
+                            </optgroup>
+                          )}
+                        </select>
+                        {config.personality && (
+                          <p className="mt-1 truncate text-[10px] text-[#c4b5fd]">
+                            {TONE_LABELS[config.personality.tone]} · {REASONING_LABELS[config.personality.reasoning_style]}
+                            {' · '}风险 {config.personality.risk_tolerance} · 主导 {config.personality.assertiveness} · 表达 {config.personality.verbosity}
+                          </p>
                         )}
-                      </select>
+                      </div>
                       <button
                         type="button"
                         onClick={() => randomizePersonalities(index)}
@@ -592,16 +598,6 @@ export default function CreateGame({ onGameCreated }: Props) {
                       >
                         <span className="material-symbols-outlined text-[17px]">casino</span>
                       </button>
-                      {config.personality && (
-                        <div className="hidden min-w-[180px] text-right sm:block">
-                          <p className="text-xs text-[#c4b5fd]">
-                            {TONE_LABELS[config.personality.tone]} · {REASONING_LABELS[config.personality.reasoning_style]}
-                          </p>
-                          <p className="font-label text-[9px] text-gray-500">
-                            风险 {config.personality.risk_tolerance} · 主导 {config.personality.assertiveness} · 表达 {config.personality.verbosity}
-                          </p>
-                        </div>
-                      )}
                     </div>
                   </div>
                 );
@@ -636,14 +632,14 @@ export default function CreateGame({ onGameCreated }: Props) {
             disabled={loading}
             className="btn-primary w-full py-3 text-lg"
           >
-            {loading ? '创建中...' : '🎮 创建游戏'}
+            {loading ? '正在创建…' : '创建对局'}
           </button>
         </form>
 
         {/* Info */}
-        <div className="mt-6 p-4 bg-blue-900/20 border border-blue-700 rounded-lg">
-          <p className="text-sm text-blue-200">
-            <strong>💡 提示:</strong> 使用快速开始可一键创建预设配置。
+        <div className="mt-6 border-l-2 border-antique-gold/30 bg-white/[0.02] px-4 py-3">
+          <p className="text-xs leading-relaxed text-ink-muted">
+            <strong className="font-normal text-paper/70">配置说明：</strong>使用快速布置可一键创建预设配置。
             provider 列表来自后端 <code>config/models.yaml</code>，
             后端更新后前端自动同步。选「自定义端点」可填任意 OpenAI/Anthropic 格式的 API。
           </p>

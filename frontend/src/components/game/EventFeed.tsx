@@ -25,6 +25,8 @@ function phaseMeta(phase: string): { label: string; symbol: string } {
   if (phase === 'sheriff_tiebreak_speech') return { label: '警长平票 PK', symbol: 'record_voice_over' };
   if (phase === 'sheriff_tiebreak_voting') return { label: '警长复投', symbol: 'how_to_vote' };
   if (phase === 'badge_transfer') return { label: '警徽处理', symbol: 'military_tech' };
+  if (phase === 'speech_order') return { label: '决定发言顺序', symbol: 'route' };
+  if (phase === 'sheriff_summary') return { label: '警长归票', symbol: 'campaign' };
   if (phase === 'night') return { label: '夜晚', symbol: 'dark_mode' };
   if (phase === 'day') return { label: '白天', symbol: 'light_mode' };
   if (phase === 'vote' || phase === 'voting') return { label: '投票', symbol: 'how_to_vote' };
@@ -62,12 +64,17 @@ export default function EventFeed({ events, rounds, status, followPlayback = fal
   return (
     <div className="h-full flex flex-col">
       {/* 标题区 */}
-      <div className="text-center mb-4 shrink-0">
-        <h2 className="font-display text-display-lg text-transparent bg-clip-text bg-gradient-to-r from-[#d3e4fe] to-[#c8c5cd] m-0 leading-none text-[32px]">
-          事件时间线
-        </h2>
-        <p className="font-body text-body-md text-[#c8c5cb]/80 mt-1">
-          观看 AI 思考、决策和博弈的全过程
+      <div className="mb-3 flex shrink-0 items-end justify-between gap-4 border-b border-[#e6dfd2]/[0.08] pb-3">
+        <div>
+          <p className="mb-1 font-label text-[9px] tracking-[0.3em] text-[#b99758]/65">
+            MATCH CHRONICLE
+          </p>
+          <h2 className="m-0 font-display text-[27px] leading-none tracking-[0.04em] text-[#e6dfd2]">
+            对局纪要
+          </h2>
+        </div>
+        <p className="hidden max-w-[20rem] text-right font-body text-[11px] leading-relaxed text-[#aaa79f]/50 sm:block">
+          夜间行动、公开发言与票型，按发生顺序留档
         </p>
       </div>
 
@@ -77,21 +84,19 @@ export default function EventFeed({ events, rounds, status, followPlayback = fal
         className="flex-1 overflow-y-auto custom-scrollbar relative pr-3"
       >
         {events.length === 0 && (
-          <div className="text-center text-[#c8c5cb]/60 py-16 font-body">
-            <span className="material-symbols-outlined text-[48px] opacity-30 block mb-3">
-              dark_mode
-            </span>
-            夜幕降临,对局即将开始...
+          <div className="py-16 text-center font-body text-[#aaa79f]/55">
+            <span className="mx-auto mb-4 block h-px w-20 bg-[#b99758]/35" />
+            夜幕尚未落下，等待第一项行动
           </div>
         )}
 
         {events.length > 0 && (
           <>
             {/* 对局开始标记 */}
-            <div className="text-center py-3 relative z-10">
-              <span className="inline-flex items-center gap-1.5 text-[11px] text-[#c8c5cb]/70 bg-[#1b2b3f]/60 px-3 py-1 rounded-full font-label uppercase tracking-wider border border-[#47464b]/40">
-                <span className="material-symbols-outlined text-[14px]">theater_comedy</span>
-                对局开始 · 上帝视角
+            <div className="relative z-10 py-3 text-center">
+              <span className="inline-flex items-center gap-2 border-y border-[#e6dfd2]/10 px-3 py-1 font-label text-[10px] tracking-[0.16em] text-[#aaa79f]/60">
+                <span className="h-1 w-1 rounded-full bg-[#b99758]/70" />
+                旁观席开启 · 全信息记录
               </span>
             </div>
 

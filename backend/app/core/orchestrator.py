@@ -220,6 +220,13 @@ class GameOrchestrator:
             self._broadcast_events(events)
 
         elif self.game.state.phase in (
+            GamePhase.SPEECH_ORDER,
+            GamePhase.SHERIFF_SUMMARY,
+        ):
+            await self.execute_sheriff_phase()
+            self._broadcast_events(self.game.advance_phase())
+
+        elif self.game.state.phase in (
             GamePhase.SHERIFF_CAMPAIGN,
             GamePhase.SHERIFF_TIEBREAK_SPEECH,
         ):
@@ -289,7 +296,12 @@ class GameOrchestrator:
         print(f"\n=== 第{self.game.state.round}轮 - 白天 ===")
 
         # 依次发言
-        for player_id in self.game.state.alive_players:
+        order = (
+            self.game.day_speech_order or self.game.state.alive_players
+            if self.game.state.phase == GamePhase.DAY
+            else self.game.state.alive_players
+        )
+        for player_id in list(order):
             agent = self.agents[player_id]
             visible_state = self.game.get_visible_state(player_id)
             available_actions = self.game.get_available_actions(player_id)
@@ -303,6 +315,25 @@ class GameOrchestrator:
                 and await self._offer_white_wolf_interrupt()
             ):
                 break
+
+    async def execute_sheriff_phase(self):
+        """执行警长选序或归票；无警长时由规则引擎直接推进。"""
+        player_id = self.game.sheriff_id
+        if player_id not in self.game.state.alive_players:
+            return
+        actions = self.game.get_available_actions(player_id)
+        if actions:
+            await self._agent_act(
+                self.agents[player_id],
+                self.game.get_visible_state(player_id),
+                actions,
+            )
+        if (
+            self.game.state.phase == GamePhase.SHERIFF_SUMMARY
+            and not self.game.day_interrupted
+            and self.game.state.players[player_id].role.value != "white_wolf_king"
+        ):
+            await self._offer_white_wolf_interrupt()
 
     async def _offer_white_wolf_interrupt(self) -> bool:
         """每次其他玩家发言后，给存活白狼王一个即时自爆窗口。"""

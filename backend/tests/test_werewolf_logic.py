@@ -44,6 +44,8 @@ def test_required_target_and_duplicate_action_are_rejected():
 def test_sheriff_mode_is_optional_and_starts_after_first_night():
     normal = make_game()
     normal.advance_phase()
+    assert normal.state.phase == GamePhase.SPEECH_ORDER
+    normal.advance_phase()
     assert normal.state.phase == GamePhase.DAY
 
     sheriff_game = make_sheriff_game()
@@ -68,8 +70,11 @@ def test_first_night_death_is_announced_after_sheriff_election():
             parameters={"reasoning": "不上警"},
         ))
     game.advance_phase()
-    assert game.state.phase == GamePhase.DAY
+    assert game.state.phase == GamePhase.SPEECH_ORDER
     assert victim in game.state.dead_players
+    assert game.last_night_deaths == [victim]
+    game.advance_phase()
+    assert game.state.phase == GamePhase.DAY
 
 
 def test_sheriff_election_second_tie_ends_without_sheriff():
@@ -116,13 +121,97 @@ def test_sheriff_election_second_tie_ends_without_sheriff():
     ))
     game.advance_phase()
 
-    assert game.state.phase == GamePhase.DAY
+    assert game.state.phase == GamePhase.SPEECH_ORDER
     assert game.sheriff_id is None
     result = next(
         event for event in reversed(game.state.events)
         if event.event_type == "sheriff_election_result"
     )
     assert result.data["reason"] == "second_tie"
+
+
+def test_sheriff_orders_from_single_night_death_seat():
+    game = make_sheriff_game()
+    game.sheriff_id = "AI-3"
+    game.sheriff_election_done = True
+    game.state.players["AI-1"].role = Role.VILLAGER
+    game._kill_player("AI-1", "werewolf_kill")
+    game.last_night_deaths = ["AI-1"]
+    game.state.phase = GamePhase.SPEECH_ORDER
+
+    events = game.apply_action(GameAction(
+        ActionType.ORDER_CLOCKWISE,
+        "AI-3",
+        parameters={"reasoning": "让死者右侧先发言"},
+    ))
+
+    assert game.day_speech_order == ["AI-2", "AI-3", "AI-4", "AI-5"]
+    assert events[0]["data"]["anchor_type"] == "single_death"
+    game.advance_phase()
+    assert game.state.phase == GamePhase.DAY
+    visible = game.get_visible_state("AI-2")
+    assert visible["speak_order"] == game.day_speech_order
+    order_event = next(
+        event for event in visible["public_events"]
+        if event["event_type"] == "speech_order_decided"
+    )
+    assert "reasoning" not in order_event["data"]
+
+
+def test_sheriff_speaks_last_after_peaceful_or_multiple_death_night():
+    game = make_sheriff_game()
+    game.sheriff_id = "AI-3"
+    game.sheriff_election_done = True
+    game.state.phase = GamePhase.SPEECH_ORDER
+
+    game.apply_action(GameAction(
+        ActionType.ORDER_CLOCKWISE,
+        "AI-3",
+        parameters={"reasoning": "后置总结"},
+    ))
+
+    assert game.day_speech_order == ["AI-4", "AI-5", "AI-1", "AI-2", "AI-3"]
+
+
+def test_judge_speech_order_is_reproducible_without_sheriff():
+    first = make_game()
+    second = make_game()
+    for game in (first, second):
+        game.state.phase = GamePhase.SPEECH_ORDER
+        game.advance_phase()
+        assert game.state.phase == GamePhase.DAY
+        assert sorted(game.day_speech_order) == sorted(PLAYERS)
+
+    assert first.day_speech_order == second.day_speech_order
+    event = next(
+        event for event in first.state.events
+        if event.event_type == "speech_order_decided"
+    )
+    assert event.data["chooser"] == "judge"
+
+
+def test_sheriff_summarizes_and_nominates_before_voting():
+    game = make_sheriff_game()
+    game.sheriff_id = "AI-3"
+    game.sheriff_election_done = True
+    game.state.phase = GamePhase.DAY
+
+    game.advance_phase()
+    assert game.state.phase == GamePhase.SHERIFF_SUMMARY
+    assert game.get_available_actions("AI-1") == []
+
+    events = game.apply_action(GameAction(
+        ActionType.SPEAK,
+        "AI-3",
+        "AI-1",
+        {"content": "综合发言，今天归票 AI-1。", "claim_role": "none"},
+    ))
+    assert game.sheriff_nomination == "AI-1"
+    assert events[0]["data"]["sheriff_summary"]
+    assert events[0]["data"]["nomination"] == "AI-1"
+
+    game.advance_phase()
+    assert game.state.phase == GamePhase.VOTING
 
 
 def test_sheriff_vote_counts_as_one_and_a_half():

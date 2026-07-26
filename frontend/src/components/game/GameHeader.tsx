@@ -1,7 +1,3 @@
-/**
- * 顶栏:轮次、阶段大徽章、状态、实时成本。
- * Nocturne Stage 风格:玻璃拟态 + Material Symbols + 金/绯红阶段色。
- */
 import { cn } from '../../utils/cn';
 import type { GameStatusResponse } from '../../types/api';
 
@@ -10,92 +6,72 @@ interface Props {
   status: GameStatusResponse | null;
 }
 
-const PHASE_META: Record<string, { label: string; symbol: string; cls: string }> = {
-  sheriff_campaign: { label: '警长竞选', symbol: 'campaign', cls: 'bg-[#e9c400]/15 text-[#ffe16d] border-[#e9c400]/40' },
-  sheriff_voting: { label: '警长投票', symbol: 'how_to_vote', cls: 'bg-[#e9c400]/15 text-[#ffe16d] border-[#e9c400]/40' },
-  sheriff_tiebreak_speech: { label: '警长 PK', symbol: 'record_voice_over', cls: 'bg-[#7c3aed]/15 text-[#c4b5fd] border-[#7c3aed]/40' },
-  sheriff_tiebreak_voting: { label: '警长复投', symbol: 'how_to_vote', cls: 'bg-[#7c3aed]/15 text-[#c4b5fd] border-[#7c3aed]/40' },
-  badge_transfer: { label: '警徽处理', symbol: 'military_tech', cls: 'bg-[#e9c400]/15 text-[#ffe16d] border-[#e9c400]/40' },
-  night: { label: '夜晚', symbol: 'dark_mode', cls: 'bg-[#c8c5cb]/10 text-[#c8c5cb] border-[#c8c5cb]/40' },
-  day: { label: '白天', symbol: 'light_mode', cls: 'bg-[#e9c400]/15 text-[#ffe16d] border-[#e9c400]/40' },
-  vote: { label: '投票', symbol: 'how_to_vote', cls: 'bg-[#64748b]/20 text-[#d3e4fe] border-[#64748b]/40' },
-  voting: { label: '投票', symbol: 'how_to_vote', cls: 'bg-[#64748b]/20 text-[#d3e4fe] border-[#64748b]/40' },
-  tiebreak_speech: { label: '平票辩护', symbol: 'record_voice_over', cls: 'bg-[#7c3aed]/15 text-[#c4b5fd] border-[#7c3aed]/40' },
-  tiebreak_voting: { label: '加赛投票', symbol: 'how_to_vote', cls: 'bg-[#64748b]/20 text-[#d3e4fe] border-[#64748b]/40' },
-  death_skill: { label: '死亡技能', symbol: 'my_location', cls: 'bg-[#eb2445]/15 text-[#ffb3b3] border-[#eb2445]/40' },
+const PHASE_LABEL: Record<string, string> = {
+  sheriff_campaign: '警长竞选',
+  sheriff_voting: '警长投票',
+  sheriff_tiebreak_speech: '警长平票发言',
+  sheriff_tiebreak_voting: '警长加赛投票',
+  badge_transfer: '警徽移交',
+  speech_order: '决定发言顺序',
+  sheriff_summary: '警长归票',
+  night: '夜晚',
+  day: '白昼',
+  vote: '放逐投票',
+  voting: '放逐投票',
+  tiebreak_speech: '平票发言',
+  tiebreak_voting: '加赛投票',
+  death_skill: '死亡技能',
+  ended: '终局',
 };
 
-const STATUS_META: Record<string, { label: string; cls: string }> = {
-  pending: { label: '等待', cls: 'bg-[#1b2b3f] text-[#c8c5cb]' },
-  initialized: { label: '已就绪', cls: 'bg-[#0b1c30] text-[#d3e4fe]' },
-  running: { label: '运行中', cls: 'bg-[#e9c400]/20 text-[#ffe16d] animate-pulse' },
-  completed: { label: '已结束', cls: 'bg-[#e9c400]/15 text-[#ffe16d]' },
-  error: { label: '错误', cls: 'bg-[#eb2445]/20 text-[#ffb3b3]' },
+const STATUS_META: Record<GameStatusResponse['status'], { label: string; className: string }> = {
+  pending: { label: '等待', className: 'text-ink-muted' },
+  initialized: { label: '已就绪', className: 'text-paper/75' },
+  running: { label: '进行中', className: 'text-antique-gold' },
+  completed: { label: '已落幕', className: 'text-paper/75' },
+  error: { label: '异常', className: 'text-crimson' },
 };
 
 export default function GameHeader({ gameId, status }: Props) {
   if (!status) {
-    return (
-      <div className="glass-panel rounded-md px-4 py-3 flex items-center justify-between">
-        <span className="font-body text-body-md text-[#c8c5cb]">加载中...</span>
-      </div>
-    );
+    return <div className="glass-panel px-4 py-3 text-sm text-ink-muted">正在翻开本局记录…</div>;
   }
 
-  const phase = status.current_phase;
-  const pm = phase ? PHASE_META[phase] : null;
-  const sm = STATUS_META[status.status] || STATUS_META.pending;
+  const phaseLabel = PHASE_LABEL[status.current_phase || ''] || status.current_phase || '准备中';
+  const statusMeta = STATUS_META[status.status];
 
   return (
-    <div className="glass-panel rounded-md px-4 py-2.5 flex items-center justify-between gap-3">
-      {/* 左:阶段徽章 + 轮次 */}
-      <div className="flex items-center gap-3 min-w-0">
-        {pm && (
-          <span
-            className={cn(
-              'shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-md font-label text-label-md uppercase tracking-wider border',
-              pm.cls,
-            )}
-          >
-            <span className="material-symbols-outlined text-[16px]">{pm.symbol}</span>
-            {pm.label}
-          </span>
-        )}
+    <header className="glass-panel flex items-center justify-between gap-4 px-4 py-3">
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="border-r border-white/10 pr-3 text-center">
+          <div className="font-display text-xl leading-none text-paper">{status.current_round ?? '—'}</div>
+          <div className="mt-1 font-label text-[9px] tracking-[0.18em] text-ink-muted">轮次</div>
+        </div>
         <div className="min-w-0">
-          <div className="font-display text-[18px] leading-tight text-[#d3e4fe]">
-            第 {status.current_round ?? '-'} 轮
-          </div>
-          <div className="font-label text-label-sm text-[#c8c5cb]/50 truncate uppercase tracking-wider">
-            {gameId}
-          </div>
+          <div className="font-display text-lg leading-tight text-paper">{phaseLabel}</div>
+          <div className="truncate font-label text-[9px] tracking-[0.12em] text-ink-muted">{gameId}</div>
         </div>
       </div>
 
-      {/* 右:成本 + 状态 */}
-      <div className="flex items-center gap-3 shrink-0">
+      <div className="flex shrink-0 items-center gap-3">
         {status.sheriff_enabled && (
-          <span className="hidden sm:inline-flex items-center gap-1 rounded-md border border-[#e9c400]/30 bg-[#e9c400]/10 px-2 py-1 font-label text-[10px] text-[#ffe16d]">
-            <span className="material-symbols-outlined text-[14px]">military_tech</span>
-            {status.sheriff_id ? `警长 ${status.sheriff_id}` : '警徽流'}
-          </span>
-        )}
-        {status.total_cost != null && (
-          <div className="text-right">
-            <div className="font-label text-label-sm text-[#c8c5cb]/50 uppercase tracking-wider">成本</div>
-            <div className="font-label text-body-md text-[#ffe16d]">
-              ${status.total_cost.toFixed(4)}
-            </div>
+          <div className="hidden border-l border-white/10 pl-3 text-right sm:block">
+            <div className="font-label text-[9px] tracking-[0.12em] text-ink-muted">警徽</div>
+            <div className="text-xs text-antique-gold">{status.sheriff_id || '竞选中'}</div>
           </div>
         )}
-        <span
-          className={cn(
-            'px-2.5 py-1 rounded-md font-label text-label-sm uppercase tracking-wider',
-            sm.cls,
-          )}
-        >
-          {sm.label}
+
+        {status.total_cost != null && (
+          <div className="border-l border-white/10 pl-3 text-right">
+            <div className="font-label text-[9px] tracking-[0.12em] text-ink-muted">成本</div>
+            <div className="font-label text-xs text-paper/80">${status.total_cost.toFixed(4)}</div>
+          </div>
+        )}
+
+        <span className={cn('border-l border-white/10 pl-3 font-label text-[10px]', statusMeta.className)}>
+          {statusMeta.label}
         </span>
       </div>
-    </div>
+    </header>
   );
 }

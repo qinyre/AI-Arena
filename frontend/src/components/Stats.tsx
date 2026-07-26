@@ -27,24 +27,21 @@ export default function Stats() {
     return null;
   }
 
+  const entries = [
+    ['总局数', stats.total_games],
+    ['已落幕', stats.completed],
+    ['进行中', stats.running],
+    ['累计成本', `$${stats.total_cost.toFixed(4)}`],
+  ];
+
   return (
-    <div className="flex gap-4 text-sm">
-      <div className="bg-gray-700 px-3 py-2 rounded">
-        <span className="text-gray-400">总计:</span>{' '}
-        <span className="font-bold text-white">{stats.total_games}</span>
-      </div>
-      <div className="bg-green-900/30 px-3 py-2 rounded">
-        <span className="text-gray-400">完成:</span>{' '}
-        <span className="font-bold text-green-300">{stats.completed}</span>
-      </div>
-      <div className="bg-yellow-900/30 px-3 py-2 rounded">
-        <span className="text-gray-400">运行:</span>{' '}
-        <span className="font-bold text-yellow-300">{stats.running}</span>
-      </div>
-      <div className="bg-blue-900/30 px-3 py-2 rounded">
-        <span className="text-gray-400">总成本:</span>{' '}
-        <span className="font-bold text-blue-300">${stats.total_cost.toFixed(4)}</span>
-      </div>
-    </div>
+    <dl className="hidden divide-x divide-white/10 border-y border-white/[0.07] text-right md:flex">
+      {entries.map(([label, value]) => (
+        <div key={label} className="px-3 py-1.5">
+          <dt className="font-label text-[8px] tracking-[0.12em] text-ink-muted">{label}</dt>
+          <dd className="mt-0.5 font-label text-xs text-paper/80">{value}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }

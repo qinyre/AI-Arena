@@ -84,6 +84,11 @@ class WerewolfGame(BaseGame):
         self.sheriff_voters: List[str] = []
         self.sheriff_tie_candidates: List[str] = []
         self.badge_transfer_actor: Optional[str] = None
+        self.seat_order: List[str] = []
+        self.last_night_deaths: List[str] = []
+        self.day_speech_order: List[str] = []
+        self.speech_direction: Optional[str] = None
+        self.sheriff_nomination: Optional[str] = None
         self.resume_phase: Optional[GamePhase] = None
         self.day_interrupted = False
         self.day_interrupt_window = False
@@ -102,6 +107,7 @@ class WerewolfGame(BaseGame):
         self.game_id = config.get("game_id", "")
         self.config = config
         self.sheriff_enabled = bool(config.get("enable_sheriff", False))
+        self.seat_order = list(players)
 
         # 设置随机种子（可复现性）
         seed = config.get("seed")
@@ -166,6 +172,10 @@ class WerewolfGame(BaseGame):
             "sheriff_id": self.sheriff_id,
             "sheriff_candidates": list(self.sheriff_candidates),
             "sheriff_withdrawn": list(self.sheriff_withdrawn),
+            "last_night_deaths": list(self.last_night_deaths),
+            "day_speech_order": list(self.day_speech_order),
+            "speech_direction": self.speech_direction,
+            "sheriff_nomination": self.sheriff_nomination,
             # 明确告诉 AI 它是几号玩家（之前缺失，导致自我指代混乱）
             "your_player_id": player_id,
             "your_role": player.role.value,
@@ -223,7 +233,9 @@ class WerewolfGame(BaseGame):
             GamePhase.SHERIFF_TIEBREAK_SPEECH,
         ):
             # orchestrator 按 alive_players 顺序依次发言
-            if self.state.phase in (GamePhase.DAY, GamePhase.SHERIFF_CAMPAIGN):
+            if self.state.phase == GamePhase.DAY:
+                order = list(self.day_speech_order or alive)
+            elif self.state.phase == GamePhase.SHERIFF_CAMPAIGN:
                 order = list(alive)
             elif self.state.phase == GamePhase.TIEBREAK_SPEECH:
                 order = list(self.tie_candidates)
@@ -290,6 +302,7 @@ class WerewolfGame(BaseGame):
             if (
                 self.state.phase not in (
                     GamePhase.DAY,
+                    GamePhase.SHERIFF_SUMMARY,
                     GamePhase.TIEBREAK_SPEECH,
                     GamePhase.SHERIFF_CAMPAIGN,
                     GamePhase.SHERIFF_TIEBREAK_SPEECH,
@@ -515,6 +528,76 @@ class WerewolfGame(BaseGame):
                     "parameters": {"reasoning": {"type": "string", "description": "弃票理由"}},
                 })
 
+        elif (
+            self.state.phase == GamePhase.SPEECH_ORDER
+            and player_id == self.sheriff_id
+        ):
+            actions.extend([
+                {
+                    "action_type": "order_clockwise",
+                    "description": "指定按座位正序发言",
+                    "target_required": False,
+                    "parameters": {
+                        "reasoning": {
+                            "type": "string",
+                            "description": "选择该方向的公开理由",
+                        }
+                    },
+                },
+                {
+                    "action_type": "order_counterclockwise",
+                    "description": "指定按座位逆序发言",
+                    "target_required": False,
+                    "parameters": {
+                        "reasoning": {
+                            "type": "string",
+                            "description": "选择该方向的公开理由",
+                        }
+                    },
+                },
+            ])
+
+        elif (
+            self.state.phase == GamePhase.SHERIFF_SUMMARY
+            and player_id == self.sheriff_id
+        ):
+            actions.append({
+                "action_type": "speak",
+                "description": "警长总结全场发言并归票",
+                "target_required": True,
+                "valid_targets": [
+                    pid for pid in self.state.alive_players
+                    if pid != player_id
+                ],
+                "parameters": {
+                    "content": {
+                        "type": "string",
+                        "description": "公开总结、站边分析与明确归票理由",
+                    },
+                    "claim_role": {
+                        "type": "string",
+                        "enum": ["none", "villager"] + [
+                            role.value for role in GOD_ROLES
+                            if role in BOARD_PRESETS[self.board_id]["roles"]
+                        ],
+                    },
+                },
+            })
+            if player.role in WOLF_ROLES:
+                is_white_wolf_king = player.role == Role.WHITE_WOLF_KING
+                actions.append({
+                    "action_type": "self_destruct",
+                    "description": "在归票前自爆并立即进入夜晚",
+                    "target_required": is_white_wolf_king,
+                    "valid_targets": (
+                        [p for p in self.state.alive_players if p != player_id]
+                        if is_white_wolf_king else []
+                    ),
+                    "parameters": {
+                        "reasoning": {"type": "string", "description": "自爆理由"}
+                    },
+                })
+
         elif self.state.phase == GamePhase.DAY:
             # 白天发言阶段
             actions.append({
@@ -702,7 +785,34 @@ class WerewolfGame(BaseGame):
 
         events = []
 
-        if action.action_type == ActionType.TRANSFER_BADGE:
+        if action.action_type in (
+            ActionType.ORDER_CLOCKWISE,
+            ActionType.ORDER_COUNTERCLOCKWISE,
+        ):
+            direction = (
+                "clockwise"
+                if action.action_type == ActionType.ORDER_CLOCKWISE
+                else "counterclockwise"
+            )
+            order, anchor, anchor_type = self._build_day_speech_order(direction)
+            self.speech_direction = direction
+            self.day_speech_order = order
+            events.append({
+                "event_type": "speech_order_decided",
+                "data": {
+                    "chooser": action.actor_id,
+                    "direction": direction,
+                    "anchor": anchor,
+                    "anchor_type": anchor_type,
+                    "order": order,
+                    "night_deaths": list(self.last_night_deaths),
+                    "round": self.state.round,
+                    "reasoning": action.parameters.get("reasoning", ""),
+                },
+                "visibility": "public",
+            })
+
+        elif action.action_type == ActionType.TRANSFER_BADGE:
             old_sheriff = self.badge_transfer_actor
             self.sheriff_id = action.target_id
             self.badge_transfer_actor = None
@@ -911,6 +1021,10 @@ class WerewolfGame(BaseGame):
                     self.sheriff_withdrawn.append(action.actor_id)
                 else:
                     self.sheriff_candidates.append(action.actor_id)
+            elif self.state.phase == GamePhase.SHERIFF_SUMMARY:
+                self.sheriff_nomination = action.target_id
+                speech["sheriff_summary"] = True
+                speech["nomination"] = action.target_id
             self.state.speeches.append(speech)
 
             events.append({
@@ -975,6 +1089,7 @@ class WerewolfGame(BaseGame):
             self.day_interrupted
             and self.state.phase in (
                 GamePhase.DAY,
+                GamePhase.SHERIFF_SUMMARY,
                 GamePhase.TIEBREAK_SPEECH,
                 GamePhase.SHERIFF_CAMPAIGN,
                 GamePhase.SHERIFF_TIEBREAK_SPEECH,
@@ -1103,6 +1218,7 @@ class WerewolfGame(BaseGame):
                 if victim not in self.state.alive_players:
                     continue
                 self._kill_player(victim, cause)
+                self.last_night_deaths.append(victim)
                 if cause == "werewolf_kill" and self._edge_completed():
                     # 竞技屠边局采用狼刀在先：狼刀已经完成屠边时，后续毒药
                     # 即使杀光狼人也不反转本轮胜负。
@@ -1120,14 +1236,48 @@ class WerewolfGame(BaseGame):
             from_phase = self.state.phase.value
             self.guard_last_target = self.guarded_target
             self._reset_night_actions()
-            next_phase = GamePhase.DAY
+            next_phase = GamePhase.SPEECH_ORDER
             if self._has_pending_resolution():
                 self.resume_phase = next_phase
                 self._start_next_death_skill_or_resume(events, from_phase)
             else:
                 self._change_phase(events, from_phase, next_phase)
 
+        elif self.state.phase == GamePhase.SPEECH_ORDER:
+            if not self.day_speech_order:
+                direction = self.rng.choice(("clockwise", "counterclockwise"))
+                order, anchor, anchor_type = self._build_day_speech_order(direction)
+                self.speech_direction = direction
+                self.day_speech_order = order
+                events.append({
+                    "event_type": "speech_order_decided",
+                    "data": {
+                        "chooser": "judge",
+                        "direction": direction,
+                        "anchor": anchor,
+                        "anchor_type": anchor_type,
+                        "order": order,
+                        "night_deaths": list(self.last_night_deaths),
+                        "round": self.state.round,
+                    },
+                    "visibility": "public",
+                })
+            self._change_phase(
+                events, self.state.phase.value, GamePhase.DAY
+            )
+
         elif self.state.phase == GamePhase.DAY:
+            from_phase = self.state.phase.value
+            next_phase = (
+                GamePhase.SHERIFF_SUMMARY
+                if self.sheriff_id in self.state.alive_players
+                else GamePhase.VOTING
+            )
+            if next_phase == GamePhase.VOTING:
+                self.current_votes = {}
+            self._change_phase(events, from_phase, next_phase)
+
+        elif self.state.phase == GamePhase.SHERIFF_SUMMARY:
             from_phase = self.state.phase.value
             self.current_votes = {}
             self._change_phase(events, from_phase, GamePhase.VOTING)
@@ -1192,6 +1342,7 @@ class WerewolfGame(BaseGame):
             if victim not in self.state.alive_players:
                 continue
             self._kill_player(victim, cause)
+            self.last_night_deaths.append(victim)
             if cause == "werewolf_kill" and self._edge_completed():
                 self._force_winner("werewolf", "werewolf_kill_completed_edge")
             events.append({
@@ -1278,7 +1429,7 @@ class WerewolfGame(BaseGame):
         self.current_votes = {}
         self.sheriff_tie_candidates = []
         self._resolve_deferred_first_night(
-            events, from_phase, GamePhase.DAY
+            events, from_phase, GamePhase.SPEECH_ORDER
         )
 
     def _finish_voting(self, events: List[Dict], vote_result: Dict) -> None:
@@ -1338,6 +1489,10 @@ class WerewolfGame(BaseGame):
     def _begin_next_night(self, events: List[Dict], from_phase: str) -> None:
         self.state.round += 1
         self.current_votes = {}
+        self.last_night_deaths = []
+        self.day_speech_order = []
+        self.speech_direction = None
+        self.sheriff_nomination = None
         self.night_stage = (
             "guard"
             if Role.GUARD in BOARD_PRESETS[self.board_id]["roles"]
@@ -1364,6 +1519,42 @@ class WerewolfGame(BaseGame):
             self._begin_next_night(events, previous)
         else:
             self._change_phase(events, previous, target_phase)
+
+    def _build_day_speech_order(
+        self, direction: str
+    ) -> tuple[List[str], Optional[str], str]:
+        """按固定座位表生成本轮白天发言顺序。"""
+        alive = set(self.state.alive_players)
+        if not alive:
+            return [], None, "none"
+
+        step = 1 if direction == "clockwise" else -1
+        if len(self.last_night_deaths) == 1:
+            anchor = self.last_night_deaths[0]
+            anchor_type = "single_death"
+            start_offset = step
+        elif self.sheriff_id in alive:
+            anchor = self.sheriff_id
+            anchor_type = "sheriff"
+            start_offset = step
+        else:
+            anchor = self.rng.choice(self.state.alive_players)
+            anchor_type = "judge"
+            start_offset = 0
+
+        anchor_index = self.seat_order.index(anchor)
+        order = []
+        for offset in range(len(self.seat_order)):
+            player_id = self.seat_order[
+                (anchor_index + start_offset + offset * step) % len(self.seat_order)
+            ]
+            if player_id in alive and player_id not in order:
+                order.append(player_id)
+
+        if anchor_type == "sheriff" and anchor in order:
+            order.remove(anchor)
+            order.append(anchor)
+        return order, anchor, anchor_type
 
     def _has_pending_resolution(self) -> bool:
         return bool(self.badge_transfer_actor or self.pending_death_skills)
@@ -1613,6 +1804,7 @@ class WerewolfGame(BaseGame):
                 "sheriff_abstain",
                 "badge_transferred",
                 "badge_destroyed",
+                "speech_order_decided",
             ) and isinstance(d.get("data"), dict):
                 # 深拷贝 data 再删 reasoning,避免污染 state 里的事件原文
                 data = dict(d["data"])

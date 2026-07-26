@@ -16,7 +16,9 @@ class GamePhase(Enum):
     SHERIFF_TIEBREAK_SPEECH = "sheriff_tiebreak_speech"
     SHERIFF_TIEBREAK_VOTING = "sheriff_tiebreak_voting"
     BADGE_TRANSFER = "badge_transfer"
+    SPEECH_ORDER = "speech_order"
     DAY = "day"
+    SHERIFF_SUMMARY = "sheriff_summary"
     VOTING = "voting"
     TIEBREAK_SPEECH = "tiebreak_speech"
     TIEBREAK_VOTING = "tiebreak_voting"
@@ -53,6 +55,8 @@ class ActionType(Enum):
     ABSTAIN = "abstain"
     TRANSFER_BADGE = "transfer_badge"
     DESTROY_BADGE = "destroy_badge"
+    ORDER_CLOCKWISE = "order_clockwise"
+    ORDER_COUNTERCLOCKWISE = "order_counterclockwise"
 
 
 @dataclass

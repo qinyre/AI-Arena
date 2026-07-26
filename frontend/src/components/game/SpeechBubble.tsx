@@ -10,9 +10,10 @@ import type { PlayerSpeechEvent } from '../../types/api';
 interface Props {
   speech: PlayerSpeechEvent;
   roleAssignment?: Record<string, string>;
+  time?: string;
 }
 
-export default function SpeechBubble({ speech, roleAssignment }: Props) {
+export default function SpeechBubble({ speech, roleAssignment, time }: Props) {
   const { speaker, content, claim_role } = speech.data;
   const claim = claimRoleLabel(claim_role);
   const realRole = roleAssignment?.[speaker];
@@ -24,10 +25,10 @@ export default function SpeechBubble({ speech, roleAssignment }: Props) {
   const realRc = realRole ? getRoleConfig(realRole) : null;
 
   return (
-    <div className="flex gap-2.5">
+    <div className="flex gap-2">
       <div
         className={cn(
-          'shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold mt-0.5 ring-2',
+          'shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold mt-0.5 ring-1',
           avatarColor(speaker),
           realRc?.ringClass || 'ring-[#47464b]/40',
         )}
@@ -36,8 +37,8 @@ export default function SpeechBubble({ speech, roleAssignment }: Props) {
       </div>
       <div className="min-w-0 flex-1">
         {/* 头部:名字 + 真实身份 + 身份声明 */}
-        <div className="flex items-center gap-2 flex-wrap mb-1">
-          <span className="font-display text-body-md text-[#d3e4fe]">{speaker}</span>
+        <div className="flex items-center gap-1.5 flex-wrap mb-1">
+          <span className="font-display text-[13px] text-[#d3e4fe]">{speaker}</span>
           {realRc && (
             <span className={cn('text-[10px] px-1.5 py-0.5 rounded font-label uppercase tracking-wider', realRc.badgeClass)}>
               {realRc.icon} {realRc.label}
@@ -58,9 +59,13 @@ export default function SpeechBubble({ speech, roleAssignment }: Props) {
               {claim}
             </span>
           )}
+          {time && (
+            <span className="ml-auto font-label text-[10px] text-[#c8c5cb]/35">
+              {time}
+            </span>
+          )}
         </div>
-        {/* 气泡 */}
-        <div className="font-body text-body-md text-[#d3e4fe] leading-relaxed bg-[#0b1c30]/70 border border-[#47464b]/30 rounded-lg rounded-tl-none px-3 py-2">
+        <div className="rounded-xl rounded-tl-sm border border-[#64748b]/25 bg-[#13263b]/75 px-3 py-2 font-body text-[13px] leading-[1.55] text-[#d3e4fe] shadow-sm">
           {content}
         </div>
       </div>

@@ -3,14 +3,13 @@
  * - 圆点颜色随事件类型:狼人=绯红glow / 预言家=金glow / 其余=中性
  * - event-card 边框按类型着色(wolf-action / seer-action / ...)
  * - 戏剧化斜体叙述
- * - 带 reasoning 的事件可点击「揭开 AI 推理」展开内联面板
+ * - reasoning 常驻显示在动作下方
  */
-import { useState } from 'react';
 import { cn } from '../../utils/cn';
 import SpeechBubble from './SpeechBubble';
 import VoteResult from './VoteResult';
 import AIReasoningPanel from './AIReasoningPanel';
-import { deathCauseLabel } from './roleConfig';
+import { avatarColor, deathCauseLabel, playerInitial } from './roleConfig';
 import {
   isPhaseChange,
   isWerewolfKill,
@@ -21,10 +20,11 @@ import {
   isVoteResult,
   isGameEnd,
 } from '../../types/api';
-import type { GameEvent, RoundData, PlayerVoteEvent } from '../../types/api';
+import type { GameEvent, RoundData, PlayerVoteEvent, WerewolfKillEvent } from '../../types/api';
 
 interface Props {
   event: GameEvent;
+  wolfKillEvents?: WerewolfKillEvent[];
   rounds: RoundData[];
   roleAssignment?: Record<string, string>;
   /** 本事件时间线内的索引(用于 key) */
@@ -152,7 +152,7 @@ function getEventStyle(e: GameEvent): EventStyle | null {
   return null;
 }
 
-/** 提取事件对应的 reasoning(决定是否显示「揭开推理」按钮) */
+/** 提取事件对应的 reasoning */
 function getReasoning(e: GameEvent): string | null {
   if (isWerewolfKill(e)) return e.data.reasoning;
   if (isSeerInvestigate(e)) return e.data.reasoning;
@@ -194,16 +194,27 @@ function formatTime(ts: string): string {
   }
 }
 
-export default function TimelineEvent({ event, rounds, roleAssignment }: Props) {
-  const [showReasoning, setShowReasoning] = useState(false);
-
+export default function TimelineEvent({ event, wolfKillEvents, rounds, roleAssignment }: Props) {
   // phase_change 不渲染为时间线条目(由 EventFeed 单独渲染为分隔条)
   if (isPhaseChange(event)) return null;
+  // 放逐死亡已由票型汇总展示，避免重复。
+  if (isPlayerDeath(event) && event.data.cause === 'voted_out') {
+    return null;
+  }
 
   const style = getEventStyle(event);
   if (!style) return null; // 未知事件不渲染
+  const prominent = (
+    isVoteResult(event)
+    || isPlayerDeath(event)
+    || isGameEnd(event)
+    || !!wolfKillEvents?.length
+    || event.event_type === 'white_wolf_king_self_destruct'
+    || event.event_type === 'wolf_self_destruct'
+  );
+  const isChat = isPlayerSpeech(event) || event.event_type === 'wolf_discussion';
 
-  const reasoning = getReasoning(event);
+  const reasoning = wolfKillEvents?.length ? null : getReasoning(event);
   const reasoningPlayer = getReasoningPlayer(event);
   const time = formatTime(event.timestamp);
   const hasReasoning = !!(reasoning && reasoning.trim());
@@ -216,64 +227,54 @@ export default function TimelineEvent({ event, rounds, roleAssignment }: Props) 
   }
 
   return (
-    <div className="relative pl-12 mb-5 animate-fade-in-up">
+    <div className="relative pl-9 animate-fade-in-up">
       {/* 左侧圆点 */}
       <div
         className={cn(
-          'absolute left-[16px] top-5 w-4 h-4 rounded-full bg-[#102034] border-2 z-10 flex items-center justify-center',
+          'absolute left-[11px] top-3.5 w-3 h-3 rounded-full bg-[#102034] border z-10 flex items-center justify-center',
           style.dotBorder,
         )}
       >
-        <div className={cn('w-1.5 h-1.5 rounded-full', style.dotCore)} />
+        <div className={cn('w-1 h-1 rounded-full', style.dotCore)} />
       </div>
 
-      {/* event-card */}
-      <div className={cn('event-card rounded-xl p-4 flex flex-col gap-3', style.cardClass)}>
-        {/* 卡片头部:icon + label + 时间戳 */}
-        <div className={cn('flex items-center gap-3', style.headColor)}>
-          <span className="material-symbols-outlined text-[20px]">{style.symbol}</span>
-          <span className="font-label text-label-md uppercase tracking-wider font-bold">
-            {style.label}
-          </span>
-          {time && (
-            <span className="text-[11px] text-[#c8c5cb]/50 ml-auto font-label">
-              {time}
+      {/* 常规动作是紧凑时间轴行，关键事件才使用强调卡片。 */}
+      <div className={cn(
+        'flex flex-col gap-1.5',
+        prominent
+          ? 'event-card rounded-lg px-3 py-2.5 my-2'
+          : 'py-2 pr-2 border-b border-[#47464b]/20',
+        prominent && style.cardClass,
+      )}>
+        {!isChat && (
+          <div className={cn('flex items-center gap-2', style.headColor)}>
+            <span className="material-symbols-outlined text-[16px]">{style.symbol}</span>
+            <span className="font-label text-[10px] uppercase tracking-wider font-bold">
+              {style.label}
             </span>
-          )}
-        </div>
+            {time && (
+              <span className="text-[11px] text-[#c8c5cb]/50 ml-auto font-label">
+                {time}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* 事件正文 */}
         <EventBody
           event={event}
+          wolfKillEvents={wolfKillEvents}
           roleAssignment={roleAssignment}
           votesForResult={votesForResult}
+          time={time}
         />
 
-        {/* 揭开推理按钮 */}
         {hasReasoning && reasoningPlayer && (
-          <button
-            onClick={() => setShowReasoning((v) => !v)}
-            className={cn(
-              'self-start px-3 py-1.5 rounded-md font-label text-label-sm uppercase tracking-wider transition-colors flex items-center gap-1.5 border',
-              showReasoning
-                ? 'bg-[#e9c400]/10 text-[#ffe16d] border-[#e9c400]/40'
-                : 'border-[#47464b]/50 text-[#c8c5cb] hover:bg-[#e9c400]/10 hover:text-[#ffe16d] hover:border-[#e9c400]/40',
-            )}
-          >
-            <span className="material-symbols-outlined text-[16px]">
-              {showReasoning ? 'visibility_off' : 'visibility'}
-            </span>
-            {showReasoning ? '隐藏 AI 推理' : '揭开 AI 推理'}
-          </button>
+          <div className={isChat ? 'ml-9' : undefined}>
+            <AIReasoningPanel playerId={reasoningPlayer} reasoning={reasoning!} />
+          </div>
         )}
       </div>
-
-      {/* 内联推理面板 */}
-      {showReasoning && hasReasoning && reasoningPlayer && (
-        <div className="relative mt-2">
-          <AIReasoningPanel playerId={reasoningPlayer} reasoning={reasoning!} />
-        </div>
-      )}
     </div>
   );
 }
@@ -281,13 +282,21 @@ export default function TimelineEvent({ event, rounds, roleAssignment }: Props) 
 /** 事件正文:按类型渲染不同内容 */
 function EventBody({
   event,
+  wolfKillEvents,
   roleAssignment,
   votesForResult,
+  time,
 }: {
   event: GameEvent;
+  wolfKillEvents?: WerewolfKillEvent[];
   roleAssignment?: Record<string, string>;
   votesForResult: PlayerVoteEvent[];
+  time?: string;
 }) {
+  if (wolfKillEvents?.length) {
+    return <WolfKillSummary events={wolfKillEvents} />;
+  }
+
   // 狼人刀
   if (isWerewolfKill(event)) {
     return (
@@ -296,9 +305,8 @@ function EventBody({
           私密
         </span>
         <b className="font-display text-[#ffb3b3]">{event.data.killer}</b>
-        {' '}在黑暗中选择了一个目标 ——
+        {' '}提交刀口：
         {' '}<b className="font-display text-[#ffb3b3]">{event.data.target}</b>
-        {' '}倒下了。
       </p>
     );
   }
@@ -347,14 +355,46 @@ function EventBody({
     </p>;
   }
   if (event.event_type === 'wolf_discussion') {
-    return <p className="font-body text-body-lg text-[#ffb3b3]">
-      <b>{String(event.data.speaker)}</b> 对狼队说：{String(event.data.content)}
-    </p>;
+    const speaker = String(event.data.speaker);
+    return (
+      <div className="flex gap-2">
+        <div className={cn(
+          'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white ring-1 ring-[#eb2445]/60',
+          avatarColor(speaker),
+        )}>
+          {playerInitial(speaker)}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="mb-1 flex items-center gap-1.5">
+            <span className="font-display text-[13px] text-[#ffb3b3]">{speaker}</span>
+            <span className="rounded-full border border-[#eb2445]/30 bg-[#eb2445]/10 px-1.5 py-0.5 font-label text-[9px] tracking-wider text-[#ffb3b3]">
+              狼队私聊
+            </span>
+            {time && (
+              <span className="ml-auto font-label text-[10px] text-[#c8c5cb]/35">{time}</span>
+            )}
+          </div>
+          <div className="rounded-xl rounded-tl-sm border border-[#eb2445]/25 bg-[#321827]/70 px-3 py-2 font-body text-[13px] leading-[1.55] text-[#ffd0d7] shadow-sm">
+            {String(event.data.content)}
+          </div>
+        </div>
+      </div>
+    );
   }
 
   // 发言
   if (isPlayerSpeech(event)) {
-    return <SpeechBubble speech={event} roleAssignment={roleAssignment} />;
+    return <SpeechBubble speech={event} roleAssignment={roleAssignment} time={time} />;
+  }
+
+  if (isPlayerVote(event)) {
+    return (
+      <p className="font-body text-[13px] text-[#d3e4fe]">
+        <b>{event.data.voter}</b>
+        <span className="mx-1.5 text-[#64748b]">→</span>
+        <b>{event.data.target}</b>
+      </p>
+    );
   }
 
   // 投票结果(带本轮所有投票)
@@ -398,4 +438,51 @@ function EventBody({
   }
 
   return null;
+}
+
+function WolfKillSummary({ events }: { events: WerewolfKillEvent[] }) {
+  const counts = events.reduce<Record<string, number>>((result, event) => {
+    result[event.data.target] = (result[event.data.target] || 0) + 1;
+    return result;
+  }, {});
+
+  return (
+    <div className="space-y-2.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="rounded border border-[#eb2445]/30 bg-[#eb2445]/10 px-2 py-1 font-label text-[10px] text-[#ffb3b3]">
+          刀口票型
+        </span>
+        {Object.entries(counts).map(([target, count]) => (
+          <span key={target} className="font-body text-[12px] text-[#ffd0d7]">
+            <b>{target}</b> · {count} 刀
+          </span>
+        ))}
+      </div>
+
+      <div className="flex flex-wrap gap-1.5">
+        {events.map((event) => (
+          <span
+            key={event.data.killer}
+            className="rounded-full border border-[#eb2445]/20 bg-[#321827]/55 px-2 py-1 font-label text-[10px] text-[#ffd0d7]"
+          >
+            {event.data.killer} → {event.data.target}
+          </span>
+        ))}
+      </div>
+
+      <div className="border-l-2 border-[#eb2445]/35 pl-2.5">
+        <div className="mb-1.5 font-label text-[9px] uppercase tracking-wider text-[#ffb3b3]/70">
+          狼队行动推理
+        </div>
+        <div className="space-y-1.5">
+          {events.map((event) => (
+            <div key={event.data.killer} className="grid grid-cols-[42px_1fr] gap-2 text-[11px] leading-[1.45]">
+              <b className="font-display text-[#ffb3b3]">{event.data.killer}</b>
+              <span className="font-body text-[#c8c5cb]/75">{event.data.reasoning}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }

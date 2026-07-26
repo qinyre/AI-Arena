@@ -9,8 +9,8 @@
  */
 import { useEffect, useRef } from 'react';
 import TimelineEvent from './TimelineEvent';
-import { isPhaseChange } from '../../types/api';
-import type { GameEvent, GameStatusResponse, RoundData } from '../../types/api';
+import { isPhaseChange, isWerewolfKill } from '../../types/api';
+import type { GameEvent, GameStatusResponse, RoundData, WerewolfKillEvent } from '../../types/api';
 
 interface Props {
   events: GameEvent[];
@@ -104,7 +104,7 @@ export default function EventFeed({ events, rounds, status }: Props) {
                 return (
                   <div
                     key={idx}
-                    className="relative z-10 flex items-center gap-2 my-4 px-2 flex-wrap"
+                    className="relative z-10 flex items-center gap-2 my-2.5 px-2 flex-wrap"
                   >
                     <span
                       className="material-symbols-outlined text-[16px]"
@@ -132,6 +132,24 @@ export default function EventFeed({ events, rounds, status }: Props) {
                     )}
                     <div className="flex-1 h-px bg-[#47464b]/30 min-w-[20px]" />
                   </div>
+                );
+              }
+
+              if (isWerewolfKill(e)) {
+                if (idx > 0 && isWerewolfKill(events[idx - 1])) return null;
+                const wolfKillEvents: WerewolfKillEvent[] = [];
+                for (let i = idx; i < events.length && isWerewolfKill(events[i]); i += 1) {
+                  wolfKillEvents.push(events[i] as WerewolfKillEvent);
+                }
+                return (
+                  <TimelineEvent
+                    key={idx}
+                    event={e}
+                    wolfKillEvents={wolfKillEvents}
+                    rounds={rounds}
+                    roleAssignment={roleAssignment}
+                    index={idx}
+                  />
                 );
               }
 

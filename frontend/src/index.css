@@ -332,3 +332,11 @@ body::before {
 .cursor-blink {
   animation: cursor-blink 1s step-end infinite;
 }
+
+.cinematic-stage,
+.cinematic-ring,
+.cinematic-icon,
+.cinematic-particle,
+.cinematic-content {
+  will-change: transform, opacity;
+}

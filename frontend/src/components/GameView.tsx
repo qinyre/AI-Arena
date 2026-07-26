@@ -14,6 +14,7 @@ import GameHeader from './game/GameHeader';
 import PlayerTable from './game/PlayerTable';
 import EventFeed from './game/EventFeed';
 import ResultPanel from './game/ResultPanel';
+import ActionCinematics from './game/ActionCinematics';
 
 interface Props {
   gameId: string;
@@ -56,6 +57,8 @@ export default function GameView({ gameId }: Props) {
 
   return (
     <div className="flex flex-col gap-3">
+      <ActionCinematics events={events} completed={isCompleted} />
+
       {/* 顶栏 */}
       <GameHeader gameId={gameId} status={status} />
 

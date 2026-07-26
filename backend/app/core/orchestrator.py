@@ -49,7 +49,11 @@ class GameOrchestrator:
                 {"provider": default_provider, "model": default_model}
             )
             client = self._create_client(model_config, registry)
-            self.agents[player_id] = AIAgent(player_id, client)
+            self.agents[player_id] = AIAgent(
+                player_id,
+                client,
+                personality=model_config.get("personality"),
+            )
 
     def _create_client(self, model_config: Dict, registry):
         """

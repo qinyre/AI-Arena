@@ -2,6 +2,12 @@ import { useState, useEffect } from 'react';
 import { apiClient } from '../api/client';
 import type { PlayerConfig, ProvidersResponse } from '../types/api';
 import { loadModelPresets, type ModelPreset } from '../utils/modelPresets';
+import {
+  REASONING_LABELS,
+  TONE_LABELS,
+  loadAllPersonalityPresets,
+  personalityProfile,
+} from '../utils/personalityPresets';
 
 interface Props {
   onGameCreated: (gameId: string) => void;
@@ -56,6 +62,7 @@ const QUICK_START_PRESETS = [
 export default function CreateGame({ onGameCreated }: Props) {
   const [providersData, setProvidersData] = useState<ProvidersResponse | null>(null);
   const [modelPresets] = useState(loadModelPresets);
+  const [personalityPresets] = useState(loadAllPersonalityPresets);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [playerConfigs, setPlayerConfigs] = useState<PlayerConfig[]>([]);
@@ -99,6 +106,8 @@ export default function CreateGame({ onGameCreated }: Props) {
       if (preset) {
         newConfigs[index] = {
           player_id: newConfigs[index].player_id,
+          personality_id: newConfigs[index].personality_id,
+          personality: newConfigs[index].personality,
           provider: value,
           model: preset.model,
           api_format: preset.apiFormat,
@@ -108,6 +117,8 @@ export default function CreateGame({ onGameCreated }: Props) {
       } else if (value === CUSTOM_PROVIDER) {
         newConfigs[index] = {
           player_id: newConfigs[index].player_id,
+          personality_id: newConfigs[index].personality_id,
+          personality: newConfigs[index].personality,
           provider: CUSTOM_PROVIDER,
           model: '',
           api_format: 'openai',
@@ -117,6 +128,8 @@ export default function CreateGame({ onGameCreated }: Props) {
         const models = providersData?.providers[value]?.models ?? [];
         newConfigs[index] = {
           player_id: newConfigs[index].player_id,
+          personality_id: newConfigs[index].personality_id,
+          personality: newConfigs[index].personality,
           provider: value,
           model: models[0]?.id ?? '',
           // 清空自定义字段
@@ -139,6 +152,8 @@ export default function CreateGame({ onGameCreated }: Props) {
   const applyQuickStart = (preset: typeof QUICK_START_PRESETS[0]) => {
     const newConfigs = Array.from({ length: playerConfigs.length }, (_, i) => ({
       player_id: `AI-${i + 1}`,
+      personality_id: playerConfigs[i]?.personality_id,
+      personality: playerConfigs[i]?.personality,
       provider: preset.provider,
       model: preset.model,
     }));
@@ -150,6 +165,8 @@ export default function CreateGame({ onGameCreated }: Props) {
   const applyModelPreset = (preset: ModelPreset) => {
     setPlayerConfigs(Array.from({ length: playerConfigs.length }, (_, i) => ({
       player_id: `AI-${i + 1}`,
+      personality_id: playerConfigs[i]?.personality_id,
+      personality: playerConfigs[i]?.personality,
       provider: `${PRESET_PROVIDER_PREFIX}${preset.id}`,
       model: preset.model,
       api_format: preset.apiFormat,
@@ -158,6 +175,19 @@ export default function CreateGame({ onGameCreated }: Props) {
     })));
     setValidationErrors({});
     setError(null);
+  };
+
+  const applyPersonality = (index: number, presetId: string) => {
+    const preset = personalityPresets.find((item) => item.id === presetId);
+    setPlayerConfigs((configs) => configs.map((config, configIndex) => (
+      configIndex === index
+        ? {
+            ...config,
+            personality_id: preset?.id,
+            personality: preset ? personalityProfile(preset) : undefined,
+          }
+        : config
+    )));
   };
 
   const changeBoard = (id: string) => {
@@ -169,7 +199,12 @@ export default function CreateGame({ onGameCreated }: Props) {
     };
     setBoardId(id);
     setPlayerConfigs(Array.from({ length: count }, (_, i) => (
-      playerConfigs[i] ?? { ...fallback, player_id: `AI-${i + 1}` }
+      playerConfigs[i] ?? {
+        ...fallback,
+        player_id: `AI-${i + 1}`,
+        personality_id: undefined,
+        personality: undefined,
+      }
     )));
     setValidationErrors({});
   };
@@ -234,12 +269,14 @@ export default function CreateGame({ onGameCreated }: Props) {
             model: c.model,
             ...(c.api_key ? { api_key: c.api_key } : {}),
             ...(c.key_env ? { key_env: c.key_env } : {}),
+            ...(c.personality ? { personality: c.personality } : {}),
           };
         }
         return {
           player_id: c.player_id,
           provider: c.provider,
           model: c.model,
+          ...(c.personality ? { personality: c.personality } : {}),
         };
       });
 
@@ -472,6 +509,43 @@ export default function CreateGame({ onGameCreated }: Props) {
                         </div>
                       </div>
                     )}
+
+                    <div className="flex items-center gap-4 border-t border-gray-600/70 pt-3">
+                      <div className="w-24 shrink-0">
+                        <span className="block text-sm text-gray-400">玩家性格</span>
+                        <span className="text-[10px] text-gray-500">影响表达与倾向</span>
+                      </div>
+                      <select
+                        value={config.personality_id || ''}
+                        onChange={(e) => applyPersonality(index, e.target.value)}
+                        className="select min-w-0 flex-1"
+                        aria-label={`${config.player_id} 的性格`}
+                      >
+                        <option value="">标准平衡</option>
+                        <optgroup label="内置性格">
+                          {personalityPresets.filter((item) => item.builtIn).map((preset) => (
+                            <option key={preset.id} value={preset.id}>{preset.name}</option>
+                          ))}
+                        </optgroup>
+                        {personalityPresets.some((item) => !item.builtIn) && (
+                          <optgroup label="我的性格">
+                            {personalityPresets.filter((item) => !item.builtIn).map((preset) => (
+                              <option key={preset.id} value={preset.id}>{preset.name}</option>
+                            ))}
+                          </optgroup>
+                        )}
+                      </select>
+                      {config.personality && (
+                        <div className="hidden min-w-[180px] text-right sm:block">
+                          <p className="text-xs text-[#c4b5fd]">
+                            {TONE_LABELS[config.personality.tone]} · {REASONING_LABELS[config.personality.reasoning_style]}
+                          </p>
+                          <p className="font-label text-[9px] text-gray-500">
+                            风险 {config.personality.risk_tolerance} · 主导 {config.personality.assertiveness} · 表达 {config.personality.verbosity}
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 );
               })}

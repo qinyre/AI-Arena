@@ -17,7 +17,8 @@ class AIAgent:
     def __init__(
         self,
         agent_id: str,
-        model_client: ModelClient
+        model_client: ModelClient,
+        personality: Optional[Dict] = None,
     ):
         """
         初始化AI智能体
@@ -28,6 +29,7 @@ class AIAgent:
         """
         self.agent_id = agent_id
         self.model_client = model_client
+        self.personality = personality
         self.memory: List[Dict] = []
 
     def update_memory(self, event: Dict):
@@ -311,6 +313,7 @@ class AIAgent:
                     f"本局共有 {wc} 个狼人。你的狼人队友是: {', '.join(teammates)}（若为空则你是独狼）。"
                 )
         identity = "\n".join(identity_lines)
+        personality = self._build_personality_prompt()
 
         # 白天发言顺序提示
         order_hint = ""
@@ -351,6 +354,9 @@ class AIAgent:
 # 你的角色
 {role_descriptions.get(role, "未知角色")}
 
+# 你的性格
+{personality}
+
 # 当前局势
 回合: {round_no} ｜ 阶段: {phase}
 总玩家数: {visible_state.get('total_players', len(alive) + len(dead))}
@@ -368,6 +374,38 @@ class AIAgent:
 
 请基于当前局势做出决策。
 """
+
+    def _build_personality_prompt(self) -> str:
+        if not self.personality:
+            return "采用标准、平衡的表达与决策风格。"
+
+        tone = {
+            "calm": "冷静克制，避免情绪化措辞",
+            "direct": "直接锋利，明确表达怀疑与结论",
+            "diplomatic": "圆融审慎，重视说服与阵营协作",
+            "playful": "轻松机敏，可以适度幽默但不玩梗干扰判断",
+            "dramatic": "富有戏剧张力，但所有判断仍须基于事实",
+        }.get(self.personality.get("tone"), "自然表达")
+        reasoning = {
+            "evidence": "优先引用具体发言、票型和行为证据",
+            "intuition": "允许根据整体表现形成直觉，但要说明可观察依据",
+            "pressure": "善用质询、对比和施压来寻找矛盾",
+            "consensus": "重视多人观点与阵营协作，同时保留独立判断",
+        }.get(self.personality.get("reasoning_style"), "综合分析")
+        risk = int(self.personality.get("risk_tolerance", 3))
+        assertiveness = int(self.personality.get("assertiveness", 3))
+        verbosity = int(self.personality.get("verbosity", 3))
+
+        return (
+            f"性格名称：{self.personality.get('name', '自定义性格')}\n"
+            f"- 表达语气：{tone}。\n"
+            f"- 推理偏好：{reasoning}。\n"
+            f"- 风险偏好：{risk}/5；数值越高越愿意主动跳身份、改变票型或承担策略风险。\n"
+            f"- 主导性：{assertiveness}/5；数值越高越主动给出明确结论，越低越倾向观察和保留。\n"
+            f"- 表达长度：{verbosity}/5；1 表示极简，5 表示较完整，但始终避免重复和空话。\n"
+            "- 性格只影响表达方式与信息不足时的倾向，不得改变角色目标、游戏规则、"
+            "可见信息边界或事实；若性格倾向与规则冲突，必须以规则为准。"
+        )
 
     def _build_action_prompt(
         self,

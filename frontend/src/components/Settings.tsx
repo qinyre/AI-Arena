@@ -5,6 +5,7 @@ import {
   saveModelPresets,
   type ModelPreset,
 } from '../utils/modelPresets';
+import PersonalitySettings from './PersonalitySettings';
 
 const EMPTY_PRESET: Omit<ModelPreset, 'id'> = {
   name: '',
@@ -250,21 +251,9 @@ export default function Settings() {
             )}
           </div>
 
-          <div className="relative overflow-hidden rounded-lg border border-[#47464b]/30 bg-[#0b1c30]/45 p-5 opacity-70">
-            <div className="absolute -right-5 -top-5 h-24 w-24 rounded-full border border-[#c8c5cb]/10" />
-            <div className="flex items-center gap-3">
-              <span className="material-symbols-outlined text-[#c8c5cb]/60">psychology</span>
-              <div>
-                <h3 className="text-lg text-[#d3e4fe]">玩家性格配置</h3>
-                <p className="text-xs text-[#c8c5cb]/50">为 AI 玩家设置表达风格、风险偏好与行为倾向</p>
-              </div>
-              <span className="ml-auto rounded-full border border-[#c8c5cb]/20 px-2 py-1 font-label text-[9px] uppercase tracking-widest text-[#c8c5cb]/55">
-                即将开放
-              </span>
-            </div>
-          </div>
         </div>
       </section>
+      <PersonalitySettings />
     </div>
   );
 }

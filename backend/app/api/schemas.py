@@ -4,12 +4,24 @@ API Schemas (Pydantic) — 严格匹配前端 frontend/src/types/api.ts 的数�
 每个模型的字段名与前端 interface 一一对应，确保前后端无需手动转换。
 """
 from typing import Any, Dict, List, Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ---------------------------------------------------------------------------
 # 请求模型
 # ---------------------------------------------------------------------------
+
+class PersonalityConfig(BaseModel):
+    """结构化玩家性格；禁止注入任意提示词字段。"""
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=30, pattern=r"^[^\r\n]+$")
+    tone: Literal["calm", "direct", "diplomatic", "playful", "dramatic"]
+    reasoning_style: Literal["evidence", "intuition", "pressure", "consensus"]
+    risk_tolerance: int = Field(ge=1, le=5)
+    assertiveness: int = Field(ge=1, le=5)
+    verbosity: int = Field(ge=1, le=5)
+
 
 class PlayerConfig(BaseModel):
     """单个玩家的模型配置（provider 名 或 自定义端点二选一）。"""
@@ -21,6 +33,7 @@ class PlayerConfig(BaseModel):
     base_url: Optional[str] = None
     api_key: Optional[str] = None
     key_env: Optional[str] = None
+    personality: Optional[PersonalityConfig] = None
 
 
 class CreateGameRequest(BaseModel):

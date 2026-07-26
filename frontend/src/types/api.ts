@@ -13,6 +13,17 @@ export interface PlayerConfig {
   base_url?: string;
   api_key?: string;
   key_env?: string;
+  personality_id?: string;
+  personality?: PersonalityProfile;
+}
+
+export interface PersonalityProfile {
+  name: string;
+  tone: 'calm' | 'direct' | 'diplomatic' | 'playful' | 'dramatic';
+  reasoning_style: 'evidence' | 'intuition' | 'pressure' | 'consensus';
+  risk_tolerance: number;
+  assertiveness: number;
+  verbosity: number;
 }
 
 // /api/providers 返回的类型

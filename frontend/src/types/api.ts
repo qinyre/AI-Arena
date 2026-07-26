@@ -36,6 +36,20 @@ export interface ProvidersResponse {
   default_model: string;
 }
 
+export interface ModelConnectionTestRequest {
+  api_format: 'openai' | 'anthropic';
+  base_url: string;
+  model: string;
+  api_key?: string;
+}
+
+export interface ModelConnectionTestResponse {
+  ok: boolean;
+  latency_ms: number;
+  model: string;
+  usage: { total_tokens?: number };
+}
+
 export interface CreateGameRequest {
   player_configs: PlayerConfig[];
   board_id: string;

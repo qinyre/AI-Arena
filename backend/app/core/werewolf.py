@@ -264,15 +264,16 @@ class WerewolfGame(BaseGame):
             if self.night_stage == "wolf_discussion" and player.role in WOLF_ROLES:
                 actions.append({
                     "action_type": "wolf_speak",
-                    "description": "仅向存活狼队友提出本晚刀人意见",
+                    "description": "仅在能补充新目标、新依据或新风险时向存活狼队友发言",
                     "target_required": False,
                     "parameters": {
                         "content": {
                             "type": "string",
-                            "description": "狼队密聊内容，应包含建议刀口及理由",
+                            "description": "不可复述已有意见；应提供新的刀口信息",
                         }
                     },
                 })
+                actions.append(self._pass_action("已有意见足够且没有新信息，保持沉默"))
 
             elif self.night_stage == "guard" and player.role == Role.GUARD:
                 targets = [

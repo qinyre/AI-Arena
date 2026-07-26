@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { apiClient } from '../api/client';
 import type { PlayerConfig, ProvidersResponse } from '../types/api';
+import { loadModelPresets, type ModelPreset } from '../utils/modelPresets';
 
 interface Props {
   onGameCreated: (gameId: string) => void;
@@ -8,6 +9,7 @@ interface Props {
 
 // 特殊 provider 值：用户自定义端点（对应后端"用户直填"路径，绕过 yaml 白名单）
 const CUSTOM_PROVIDER = '__custom__';
+const PRESET_PROVIDER_PREFIX = '__preset__:';
 
 const BOARD_OPTIONS = [
   { id: '5p', name: '5人极简场', count: 5, roles: '1狼 · 预言家 · 3民' },
@@ -53,6 +55,7 @@ const QUICK_START_PRESETS = [
 
 export default function CreateGame({ onGameCreated }: Props) {
   const [providersData, setProvidersData] = useState<ProvidersResponse | null>(null);
+  const [modelPresets] = useState(loadModelPresets);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [playerConfigs, setPlayerConfigs] = useState<PlayerConfig[]>([]);
@@ -90,7 +93,19 @@ export default function CreateGame({ onGameCreated }: Props) {
     const newConfigs = [...playerConfigs];
     if (field === 'provider') {
       // 切换 provider 时重置 model，并清空自定义字段
-      if (value === CUSTOM_PROVIDER) {
+      const preset = value.startsWith(PRESET_PROVIDER_PREFIX)
+        ? modelPresets.find((item) => item.id === value.slice(PRESET_PROVIDER_PREFIX.length))
+        : undefined;
+      if (preset) {
+        newConfigs[index] = {
+          player_id: newConfigs[index].player_id,
+          provider: value,
+          model: preset.model,
+          api_format: preset.apiFormat,
+          base_url: preset.baseUrl,
+          api_key: preset.apiKey,
+        };
+      } else if (value === CUSTOM_PROVIDER) {
         newConfigs[index] = {
           player_id: newConfigs[index].player_id,
           provider: CUSTOM_PROVIDER,
@@ -132,6 +147,19 @@ export default function CreateGame({ onGameCreated }: Props) {
     setError(null);
   };
 
+  const applyModelPreset = (preset: ModelPreset) => {
+    setPlayerConfigs(Array.from({ length: playerConfigs.length }, (_, i) => ({
+      player_id: `AI-${i + 1}`,
+      provider: `${PRESET_PROVIDER_PREFIX}${preset.id}`,
+      model: preset.model,
+      api_format: preset.apiFormat,
+      base_url: preset.baseUrl,
+      api_key: preset.apiKey,
+    })));
+    setValidationErrors({});
+    setError(null);
+  };
+
   const changeBoard = (id: string) => {
     const count = BOARD_OPTIONS.find((board) => board.id === id)?.count ?? 5;
     const fallback = playerConfigs[0] ?? {
@@ -152,7 +180,10 @@ export default function CreateGame({ onGameCreated }: Props) {
     playerConfigs.forEach((config, index) => {
       if (!config.player_id.trim()) {
         errors[index] = '玩家 ID 不能为空';
-      } else if (config.provider === CUSTOM_PROVIDER) {
+      } else if (
+        config.provider === CUSTOM_PROVIDER
+        || config.provider?.startsWith(PRESET_PROVIDER_PREFIX)
+      ) {
         if (!config.base_url?.trim()) {
           errors[index] = 'Base URL 不能为空';
         } else if (!config.base_url.startsWith('http')) {
@@ -195,7 +226,7 @@ export default function CreateGame({ onGameCreated }: Props) {
     try {
       // 自定义 provider 转成后端"用户直填"格式（带 base_url），其余保持 provider 名
       const configsToSend = playerConfigs.map((c) => {
-        if (c.provider === CUSTOM_PROVIDER) {
+        if (c.provider === CUSTOM_PROVIDER || c.provider?.startsWith(PRESET_PROVIDER_PREFIX)) {
           return {
             player_id: c.player_id,
             api_format: c.api_format,
@@ -250,12 +281,36 @@ export default function CreateGame({ onGameCreated }: Props) {
   }
 
   const providerNames = Object.keys(providersData.providers);
-  const isCustom = (p: string) => p === CUSTOM_PROVIDER;
+  const isCustom = (p: string) => (
+    p === CUSTOM_PROVIDER || p.startsWith(PRESET_PROVIDER_PREFIX)
+  );
 
   return (
     <div className="max-w-4xl mx-auto">
       <div className="card">
         <h2 className="text-2xl font-bold mb-6">创建新游戏</h2>
+
+        {modelPresets.length > 0 && (
+          <div className="mb-4 rounded-lg border border-[#e9c400]/35 bg-[#e9c400]/5 p-4">
+            <h3 className="mb-3 flex items-center gap-2 text-sm font-medium text-[#ffe16d]">
+              <span className="material-symbols-outlined text-[17px]">memory</span>
+              我的模型预设
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              {modelPresets.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  onClick={() => applyModelPreset(preset)}
+                  className="rounded border border-[#e9c400]/30 bg-[#102034] px-3 py-2 text-left transition-colors hover:border-[#e9c400]/70 hover:bg-[#1b2b3f]"
+                >
+                  <span className="block font-label text-xs text-[#d3e4fe]">{preset.name}</span>
+                  <span className="block text-[10px] text-[#c8c5cb]/50">{preset.provider} · {preset.model}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* 快速开始预设 */}
         <div className="mb-6 p-4 bg-blue-900/20 border border-blue-700 rounded-lg">
@@ -337,6 +392,18 @@ export default function CreateGame({ onGameCreated }: Props) {
                           {providerNames.map((name) => (
                             <option key={name} value={name}>{name}</option>
                           ))}
+                          {modelPresets.length > 0 && (
+                            <optgroup label="我的预设">
+                              {modelPresets.map((preset) => (
+                                <option
+                                  key={preset.id}
+                                  value={`${PRESET_PROVIDER_PREFIX}${preset.id}`}
+                                >
+                                  {preset.name} · {preset.model}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
                           <option value={CUSTOM_PROVIDER}>自定义端点...</option>
                         </select>
                       </div>

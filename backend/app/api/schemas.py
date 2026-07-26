@@ -3,7 +3,7 @@ API Schemas (Pydantic) — 严格匹配前端 frontend/src/types/api.ts 的数�
 
 每个模型的字段名与前端 interface 一一对应，确保前后端无需手动转换。
 """
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
 
@@ -28,6 +28,14 @@ class CreateGameRequest(BaseModel):
     player_configs: List[PlayerConfig]
     board_id: str = "5p"
     seed: Optional[int] = None
+
+
+class ModelConnectionTestRequest(BaseModel):
+    """测试用户直填模型端点。"""
+    api_format: Literal["openai", "anthropic"] = "openai"
+    base_url: str = Field(min_length=1)
+    model: str = Field(min_length=1)
+    api_key: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

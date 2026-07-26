@@ -151,6 +151,15 @@ class TestClientFactory:
         assert isinstance(client, ClaudeClient)
         assert client.model == "claude-sonnet-5"
 
+    def test_explicit_anthropic_base_url_propagates(self, orchestrator, registry):
+        client = orchestrator._create_client({
+            "api_format": "anthropic",
+            "base_url": "https://anthropic-proxy.example.com",
+            "model": "claude-sonnet-5",
+            "api_key": "fake",
+        }, registry)
+        assert str(client.client.base_url).startswith("https://anthropic-proxy.example.com")
+
     def test_base_url_propagates_from_registry(self, orchestrator, registry):
         """provider 的 base_url 从 registry 正确传给 client"""
         client = orchestrator._create_client(

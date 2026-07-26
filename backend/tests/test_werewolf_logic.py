@@ -108,6 +108,15 @@ def test_wolf_discussion_is_shared_only_with_wolf_team():
         parameters={"content": f"建议刀{good}", "reasoning": "疑似神职"},
     ))
 
+    available = game.get_available_actions(wolves[1])
+    assert {action["action_type"] for action in available} == {"wolf_speak", "pass"}
+    pass_events = game.apply_action(GameAction(
+        ActionType.PASS,
+        wolves[1],
+        parameters={"reasoning": "没有新信息"},
+    ))
+    assert all(event["event_type"] != "wolf_discussion" for event in pass_events)
+
     teammate_view = game.get_visible_state(wolves[1])
     good_view = game.get_visible_state(good)
     assert teammate_view["werewolf_discussion"] == [

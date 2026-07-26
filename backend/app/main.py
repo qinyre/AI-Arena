@@ -2,10 +2,15 @@
 FastAPI Application Main Entry Point
 """
 from fastapi import FastAPI
+from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+import asyncio
 import os
+import time
 from dotenv import load_dotenv
+from app.api.schemas import ModelConnectionTestRequest
+from app.core.orchestrator import GameOrchestrator
 from app.llm.registry import get_registry
 
 # Load environment variables
@@ -109,6 +114,40 @@ async def list_providers():
         "providers": providers,
         "default_provider": registry.default_provider,
         "default_model": registry.default_model,
+    }
+
+
+@app.post("/api/model-connection/test")
+async def test_model_connection(request: ModelConnectionTestRequest):
+    """用极短生成请求验证自定义模型端点、鉴权和模型名。"""
+    if not request.base_url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=422, detail="Base URL 必须以 http:// 或 https:// 开头")
+
+    started = time.perf_counter()
+    try:
+        client = GameOrchestrator._create_client_from_explicit(request.model_dump())
+        result = await asyncio.wait_for(
+            client.generate(
+                "仅回复 OK",
+                json_mode=False,
+                temperature=0,
+                max_tokens=8,
+            ),
+            timeout=20,
+        )
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(status_code=504, detail="连接超时（20 秒）") from exc
+    except Exception as exc:
+        detail = str(exc)
+        if request.api_key:
+            detail = detail.replace(request.api_key, "***")
+        raise HTTPException(status_code=502, detail=detail[:400]) from exc
+
+    return {
+        "ok": True,
+        "latency_ms": round((time.perf_counter() - started) * 1000),
+        "model": result.get("model", request.model),
+        "usage": result.get("usage", {}),
     }
 
 

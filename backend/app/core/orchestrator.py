@@ -79,7 +79,8 @@ class GameOrchestrator:
         # ---- 路径 2：provider 名兜底（查 yaml）----
         return self._create_client_from_registry(model_config, registry)
 
-    def _create_client_from_explicit(self, model_config: Dict):
+    @staticmethod
+    def _create_client_from_explicit(model_config: Dict):
         """用户直填路径：完全按用户给的 api_format/base_url/model 构造 client。"""
         api_format = model_config.get("api_format", "openai")
         base_url = model_config["base_url"]
@@ -109,7 +110,7 @@ class GameOrchestrator:
             )
         elif api_format == "anthropic":
             return ClaudeClient(
-                api_key=api_key, model=model_name,
+                api_key=api_key, model=model_name, base_url=base_url,
                 cost_per_1m_input=cost_in, cost_per_1m_output=cost_out,
             )
         else:

@@ -18,6 +18,7 @@ class ClaudeClient(ModelClient):
         self,
         api_key: str,
         model: str = "claude-sonnet-5",
+        base_url: Optional[str] = None,
         cost_per_1m_input: float = 3.0,
         cost_per_1m_output: float = 15.0
     ):
@@ -30,8 +31,9 @@ class ClaudeClient(ModelClient):
             cost_per_1m_input: 每 1M 输入 token 成本（美元）
             cost_per_1m_output: 每 1M 输出 token 成本（美元）
         """
-        self.client = anthropic.AsyncAnthropic(api_key=api_key)
+        self.client = anthropic.AsyncAnthropic(api_key=api_key, base_url=base_url)
         self.model = model
+        self.base_url = base_url
         # 成本单位统一为每 1M token（与 config/models.yaml 一致）
         self.cost_per_1m_input = cost_per_1m_input
         self.cost_per_1m_output = cost_per_1m_output

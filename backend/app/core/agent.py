@@ -422,6 +422,19 @@ class AIAgent:
                 "现在是白狼王的【即时自爆窗口】。你可以立刻自爆带人，"
                 "也可以选择 pass 继续观察；不能公开发言或投票。"
             )
+        elif phase == "night" and "wolf_speak" in allowed_types:
+            discussion = visible_state.get("werewolf_discussion", [])
+            if discussion:
+                guide += (
+                    " 队友此前的密聊已列在 werewolf_discussion。"
+                    "禁止复述、改写或只表示同意；只有能提出新目标、新依据或新风险时才选择 wolf_speak，"
+                    "否则必须选择 pass。"
+                )
+            else:
+                guide += (
+                    " 本晚尚无队友发言。你可以用 wolf_speak 提出新目标或判断，"
+                    "也可以选择 pass，把提议机会留给后续队友；不要为了发言而发言。"
+                )
         elif phase == "day" and "self_destruct" in allowed_types:
             guide += " 狼人还可以选择 self_destruct 自爆并立即进入夜晚。"
 

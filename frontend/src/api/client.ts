@@ -9,6 +9,8 @@ import type {
   ListGamesResponse,
   StatsResponse,
   ProvidersResponse,
+  ModelConnectionTestRequest,
+  ModelConnectionTestResponse,
   GameEventResponse
 } from '../types/api';
 
@@ -88,6 +90,13 @@ class APIClient {
   // Get available providers & models (from backend yaml, single source of truth)
   async getProviders(): Promise<ProvidersResponse> {
     return this.request<ProvidersResponse>('/api/providers');
+  }
+
+  async testModelConnection(request: ModelConnectionTestRequest): Promise<ModelConnectionTestResponse> {
+    return this.request<ModelConnectionTestResponse>('/api/model-connection/test', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
   }
 
   // Get game events (full event stream with AI reasoning)

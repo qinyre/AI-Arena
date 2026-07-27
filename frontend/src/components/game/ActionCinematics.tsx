@@ -15,7 +15,7 @@ interface SceneMeta {
   role: string;
   chapter: string;
   mark: string;
-  image: string;
+  image?: string;
   color: string;
   wash: string;
   position?: string;
@@ -112,34 +112,117 @@ const META: Record<CinematicKind, SceneMeta> = {
     wash: 'rgba(102, 48, 58, .4)',
     position: '67% center',
   },
+  'sheriff-opening': {
+    role: '警长竞选',
+    chapter: '秩序争夺',
+    mark: '竞',
+    color: '#c9a65b',
+    wash: 'rgba(137, 99, 31, .42)',
+  },
+  sheriff: {
+    role: '警长',
+    chapter: '警徽裁决',
+    mark: '警',
+    color: '#d0ad61',
+    wash: 'rgba(137, 99, 31, .46)',
+  },
+  badge: {
+    role: '警徽流',
+    chapter: '权柄易手',
+    mark: '徽',
+    color: '#c9a65b',
+    wash: 'rgba(111, 79, 25, .44)',
+  },
+  exile: {
+    role: '放逐审判',
+    chapter: '票型落定',
+    mark: '逐',
+    color: '#c7473d',
+    wash: 'rgba(117, 20, 22, .46)',
+  },
+  tie: {
+    role: '平票裁决',
+    chapter: '审判悬停',
+    mark: '平',
+    color: '#9870a8',
+    wash: 'rgba(82, 43, 91, .42)',
+  },
+  'last-words': {
+    role: '遗言',
+    chapter: '最后陈词',
+    mark: '言',
+    color: '#8fa0a8',
+    wash: 'rgba(54, 70, 78, .42)',
+  },
+  'victory-good': {
+    role: '终局',
+    chapter: '黎明已至',
+    mark: '胜',
+    color: '#d0ad61',
+    wash: 'rgba(126, 97, 35, .48)',
+  },
+  'victory-wolf': {
+    role: '终局',
+    chapter: '长夜无明',
+    mark: '夜',
+    color: '#c7473d',
+    wash: 'rgba(117, 20, 22, .5)',
+  },
 };
 
 interface Props {
   events: GameEvent[];
-  completed: boolean;
+  suppressInitial: boolean;
+  replayMode: boolean;
+  enabled: boolean;
+  roleAssignment?: Record<string, string>;
+  onActiveChange?: (active: boolean) => void;
 }
 
-export default function ActionCinematics({ events, completed }: Props) {
+export default function ActionCinematics({
+  events,
+  suppressInitial,
+  replayMode,
+  enabled,
+  roleAssignment,
+  onActiveChange,
+}: Props) {
   const cursor = useRef<number | null>(null);
   const [queue, setQueue] = useState<CinematicAction[]>([]);
   const [current, setCurrent] = useState<CinematicAction | null>(null);
   const finishCurrent = useCallback(() => setCurrent(null), []);
 
   useEffect(() => {
+    if (!enabled) {
+      cursor.current = events.length;
+      setQueue([]);
+      setCurrent(null);
+      return;
+    }
     if (cursor.current === null) {
       cursor.current = events.length;
-      if (!completed) {
+      if (!suppressInitial) {
         const recent = events.filter((event) => (
           Date.now() - new Date(event.timestamp).getTime() < 5000
         ));
-        setQueue(buildCinematics(recent));
+        setQueue(buildCinematics(recent, roleAssignment));
       }
+      return;
+    }
+    if (events.length < cursor.current) {
+      cursor.current = events.length;
+      setQueue([]);
+      setCurrent(null);
       return;
     }
     const added = events.slice(cursor.current);
     cursor.current = events.length;
-    if (added.length) setQueue((items) => [...items, ...buildCinematics(added)]);
-  }, [events, completed]);
+    if (added.length) {
+      const actions = buildCinematics(added, roleAssignment);
+      const next = replayMode && added.length > 1 ? actions.slice(-1) : actions;
+      if (next.length) setQueue((items) => [...items, ...next]);
+    }
+  }, [enabled, events, replayMode, roleAssignment, suppressInitial]);
 
   useEffect(() => {
     if (!current && queue.length) {
@@ -151,9 +234,16 @@ export default function ActionCinematics({ events, completed }: Props) {
   useEffect(() => {
     const next = current ?? queue[0];
     if (!next) return;
+    const source = META[next.kind].image;
+    if (!source) return;
     const image = new Image();
-    image.src = META[next.kind].image;
+    image.src = source;
   }, [current, queue]);
+
+  useEffect(() => {
+    onActiveChange?.(Boolean(current));
+    return () => onActiveChange?.(false);
+  }, [current, onActiveChange]);
 
   return current ? (
     <CinematicScene action={current} onComplete={finishCurrent} />
@@ -213,8 +303,10 @@ function CinematicScene({
         timeline
           .set(root.current, { autoAlpha: 0 })
           .set('.cinematic-progress', { scaleX: 0, transformOrigin: 'left center' })
-          .to(root.current, { autoAlpha: 1, duration: 0.14 })
-          .fromTo(
+          .to(root.current, { autoAlpha: 1, duration: 0.14 });
+
+        if (meta.image) {
+          timeline.fromTo(
             '.cinematic-art',
             { autoAlpha: 0, xPercent: 10, scale: 1.12 },
             { autoAlpha: 1, xPercent: 0, scale: 1.025, duration: 0.82 },
@@ -225,7 +317,28 @@ function CinematicScene({
             { xPercent: 0 },
             { xPercent: 105, duration: 0.72, ease: 'power4.inOut' },
             0.08,
-          )
+          );
+        } else {
+          timeline
+            .fromTo(
+              '.cinematic-tribunal-field',
+              { autoAlpha: 0, scale: 1.08 },
+              { autoAlpha: 1, scale: 1, duration: 0.82 },
+              0.08,
+            )
+            .from(
+              '.cinematic-tribunal-glyph',
+              { scale: 1.5, rotation: -8, autoAlpha: 0, duration: 0.72 },
+              0.12,
+            )
+            .from(
+              '.cinematic-tally > i',
+              { scaleX: 0, transformOrigin: 'left center', stagger: 0.045, duration: 0.35 },
+              0.28,
+            );
+        }
+
+        timeline
           .from(
             '.cinematic-rule',
             { scaleX: 0, transformOrigin: 'left center', duration: 0.45 },
@@ -261,10 +374,29 @@ function CinematicScene({
             { scale: 0.3, autoAlpha: 0, stagger: 0.045, duration: 0.32 },
             0.48,
           )
-          .to('.cinematic-progress', { scaleX: 1, duration: 2.4, ease: 'none' }, 0.5)
-          .to('.cinematic-art', { scale: 1.07, xPercent: -1.5, duration: 2.45, ease: 'sine.inOut' }, 0.72)
+          .to('.cinematic-progress', { scaleX: 1, duration: 2.4, ease: 'none' }, 0.5);
+
+        if (meta.image) {
+          timeline.to(
+            '.cinematic-art',
+            { scale: 1.07, xPercent: -1.5, duration: 2.45, ease: 'sine.inOut' },
+            0.72,
+          );
+        } else {
+          timeline.to(
+            '.cinematic-tribunal-field',
+            { scale: 1.025, rotation: 0.3, duration: 2.45, ease: 'sine.inOut' },
+            0.72,
+          );
+        }
+
+        timeline
           .to('.cinematic-copy', { x: -18, autoAlpha: 0, duration: 0.32 }, 2.78)
-          .to('.cinematic-art', { xPercent: 4, autoAlpha: 0, duration: 0.36 }, 2.76)
+          .to(
+            meta.image ? '.cinematic-art' : '.cinematic-tribunal-field',
+            { xPercent: 4, autoAlpha: 0, duration: 0.36 },
+            2.76,
+          )
           .to(root.current, { autoAlpha: 0, duration: 0.22 }, 3.02);
 
         return () => timeline.kill();
@@ -297,16 +429,20 @@ function CinematicScene({
         '--cinematic-wash': meta.wash,
       } as React.CSSProperties}
     >
-      <div className="cinematic-art-shell absolute inset-0 md:left-[30%]">
-        <img
-          className="cinematic-art h-full w-full object-cover"
-          src={meta.image}
-          alt=""
-          style={{ objectPosition: meta.position }}
-        />
-        <div className="cinematic-art-grade absolute inset-0" />
-        <div className="cinematic-art-veil absolute inset-0 bg-[#090b0d]" />
-      </div>
+      {meta.image ? (
+        <div className="cinematic-art-shell absolute inset-0 md:left-[30%]">
+          <img
+            className="cinematic-art h-full w-full object-cover"
+            src={meta.image}
+            alt=""
+            style={{ objectPosition: meta.position }}
+          />
+          <div className="cinematic-art-grade absolute inset-0" />
+          <div className="cinematic-art-veil absolute inset-0 bg-[#090b0d]" />
+        </div>
+      ) : (
+        <TribunalBackdrop action={action} meta={meta} />
+      )}
 
       <div className="cinematic-paper absolute inset-0" aria-hidden="true" />
       <div className="cinematic-vignette absolute inset-0" aria-hidden="true" />
@@ -421,11 +557,13 @@ function CastMember({
 }
 
 function SceneMotif({ kind }: { kind: CinematicKind }) {
-  const isSeer = kind === 'seer';
+  const isSeer = ['seer', 'sheriff-opening', 'sheriff', 'badge', 'victory-good'].includes(kind);
   const isGuard = kind === 'guard';
   const isWitch = kind === 'witch-heal' || kind === 'witch-poison';
   const isShot = kind === 'hunter-shot' || kind === 'wolf-king';
-  const isReveal = kind === 'white-wolf' || kind === 'wolf-explode' || kind === 'idiot';
+  const isReveal = [
+    'white-wolf', 'wolf-explode', 'idiot', 'exile', 'tie', 'last-words',
+  ].includes(kind);
 
   return (
     <div
@@ -445,6 +583,35 @@ function SceneMotif({ kind }: { kind: CinematicKind }) {
       <i />
       <i />
       <i />
+    </div>
+  );
+}
+
+function TribunalBackdrop({
+  action,
+  meta,
+}: {
+  action: CinematicAction;
+  meta: SceneMeta;
+}) {
+  return (
+    <div
+      className="cinematic-tribunal-field absolute inset-0 overflow-hidden"
+      style={{ '--cinematic-wash': meta.wash } as React.CSSProperties}
+      aria-hidden="true"
+    >
+      <div className="cinematic-tribunal-grid absolute inset-0" />
+      <div className="cinematic-tribunal-ring absolute" />
+      <div className="cinematic-tribunal-glyph absolute font-display" style={{ color: meta.color }}>
+        {meta.mark}
+      </div>
+      <div className="cinematic-tally absolute">
+        {Array.from({ length: 9 }, (_, index) => <i key={index} />)}
+      </div>
+      <div className="cinematic-tribunal-names absolute font-label">
+        <span>{action.actor}</span>
+        {action.target && <span>{action.target}</span>}
+      </div>
     </div>
   );
 }

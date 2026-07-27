@@ -2,12 +2,14 @@ import { cn } from '../../utils/cn';
 import { REASONING_LABELS, TONE_LABELS } from '../../utils/personalityPresets';
 import { avatarColor, deathCauseLabel, getRoleConfig, playerInitial } from './roleConfig';
 import type { PersonalityProfile, PlayerWithRole } from '../../types/api';
+import type { PlayerAttention } from './gameDirector';
 
 interface Props {
   players: PlayerWithRole[];
   currentSpeaker: string | null;
   selectedPlayer: string | null;
   onSelectPlayer: (id: string) => void;
+  attention?: Record<string, PlayerAttention[]>;
   side?: 'left' | 'right';
 }
 
@@ -16,6 +18,7 @@ export default function PlayerTable({
   currentSpeaker,
   selectedPlayer,
   onSelectPlayer,
+  attention = {},
   side = 'left',
 }: Props) {
   if (players.length === 0) {
@@ -51,18 +54,43 @@ export default function PlayerTable({
           const isSpeaking = player.id === currentSpeaker;
           const isSelected = player.id === selectedPlayer;
           const isDead = !player.alive;
+          const states = attention[player.id] || [];
+          const isWatching = states.includes('watching');
+          const isVoting = states.includes('voting');
+          const isTargeted = states.includes('targeted');
+          const isProtected = states.includes('protected');
+          const isFallen = states.includes('fallen');
+          const stageLabel = isFallen
+            ? '倒下'
+            : isTargeted
+              ? '焦点'
+              : isProtected
+                ? '受护'
+                : isVoting
+                  ? '落票'
+                  : isWatching
+                    ? '注视'
+                    : isSpeaking
+                      ? '发言'
+                      : '在场';
 
           return (
             <div key={player.id} className="space-y-2">
               <button
                 type="button"
                 onClick={() => onSelectPlayer(player.id)}
+                data-player-id={player.id}
                 aria-expanded={isSelected}
                 aria-controls={`personality-${player.id}`}
                 className={cn(
                   'player-card flex w-full items-center gap-3 rounded-sm p-2.5 text-left',
                   role.cardClass,
                   isSpeaking && 'is-speaking',
+                  isWatching && 'is-watching',
+                  isVoting && 'is-voting',
+                  isTargeted && 'is-targeted',
+                  isProtected && 'is-protected',
+                  isFallen && 'is-fallen',
                   isSelected && 'is-selected',
                   isDead && 'dead',
                 )}
@@ -136,7 +164,7 @@ export default function PlayerTable({
                       : 'border-[#343b3d]/70 bg-[#12181c] text-[#aaa79f]/70',
                   )}
                 >
-                  {isDead ? '出局' : '在场'}
+                  {isDead ? '出局' : stageLabel}
                 </span>
               </button>
 

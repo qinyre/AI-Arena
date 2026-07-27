@@ -21,6 +21,7 @@ import {
   isGameEnd,
 } from '../../types/api';
 import type { GameEvent, RoundData, PlayerVoteEvent, WerewolfKillEvent } from '../../types/api';
+import { directorTier } from './gameDirector';
 
 interface Props {
   event: GameEvent;
@@ -271,6 +272,7 @@ export default function TimelineEvent({ event, wolfKillEvents, rounds, roleAssig
 
   const style = getEventStyle(event);
   if (!style) return null; // 未知事件不渲染
+  const tier = directorTier(event);
   const prominent = (
     isVoteResult(event)
     || isPlayerDeath(event)
@@ -297,7 +299,14 @@ export default function TimelineEvent({ event, wolfKillEvents, rounds, roleAssig
   }
 
   return (
-    <div className="relative pl-9 animate-fade-in-up">
+    <div
+      className={cn(
+        'relative pl-9 animate-fade-in-up',
+        tier === 'climax' && 'director-climax',
+        tier === 'notable' && 'director-notable',
+      )}
+      data-director-tier={tier}
+    >
       {/* 左侧圆点 */}
       <div
         className={cn(

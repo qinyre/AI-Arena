@@ -8,7 +8,7 @@
  * 数据由单一 hook useGameStream 提供(合并 status+events 轮询 + 聚合 derived)。
  * 上帝视角:开局即从 status.role_assignment 显示所有人身份。
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGameStream } from '../hooks/useGameStream';
 import GameHeader from './game/GameHeader';
 import PlayerTable from './game/PlayerTable';
@@ -16,7 +16,15 @@ import EventFeed from './game/EventFeed';
 import ResultPanel from './game/ResultPanel';
 import ActionCinematics from './game/ActionCinematics';
 import ReplayControls from './game/ReplayControls';
-import { isPhaseChange, isPlayerDeath, isPlayerSpeech } from '../types/api';
+import TheatreControls from './game/TheatreControls';
+import VoteFlowOverlay from './game/VoteFlowOverlay';
+import { useArenaAudio } from './game/useArenaAudio';
+import {
+  activeVoteDetail,
+  currentSpeaker as speakerAt,
+  playerAttention,
+} from './game/gameDirector';
+import { isPhaseChange, isPlayerDeath } from '../types/api';
 import type { GameEvent, GameReview, GameStatusResponse, RoundData } from '../types/api';
 import { cn } from '../utils/cn';
 
@@ -25,11 +33,16 @@ interface Props {
 }
 
 export default function GameView({ gameId }: Props) {
-  const { status, result, events, players, rounds, currentSpeaker, loading, error } =
+  const { status, result, events, players, rounds, loading, error } =
     useGameStream(gameId);
+  const stageRef = useRef<HTMLDivElement>(null);
   const [selectedPlayer, setSelectedPlayer] = useState<string | null>(null);
   const [replayCursor, setReplayCursor] = useState<number | null>(null);
   const [generatedReview, setGeneratedReview] = useState<GameReview>();
+  const [cinematicActive, setCinematicActive] = useState(false);
+  const [directorEnabled, setDirectorEnabled] = useState(
+    () => localStorage.getItem('ai-arena:director') !== '0',
+  );
   const isCompleted = status?.status === 'completed';
 
   useEffect(() => {
@@ -73,18 +86,26 @@ export default function GameView({ gameId }: Props) {
     () => isCompleted ? filterRounds(rounds, new Set(displayEvents)) : rounds,
     [displayEvents, isCompleted, rounds],
   );
-  const displaySpeaker = useMemo(() => {
-    if (!isCompleted) return currentSpeaker;
-    for (let index = displayEvents.length - 1; index >= 0; index--) {
-      const event = displayEvents[index];
-      if (isPlayerSpeech(event)) return event.data.speaker;
-    }
-    return null;
-  }, [currentSpeaker, displayEvents, isCompleted]);
+  const displaySpeaker = useMemo(() => speakerAt(displayEvents), [displayEvents]);
   const displayStatus = useMemo(
     () => replayStatus(status, displayEvents, isCompleted && cursor < events.length),
     [cursor, displayEvents, events.length, isCompleted, status],
   );
+  const attention = useMemo(() => playerAttention(displayEvents), [displayEvents]);
+  const voteDetail = useMemo(() => activeVoteDetail(displayEvents), [displayEvents]);
+  const voteEventKey = displayEvents.length
+    ? `${displayEvents.length}-${displayEvents[displayEvents.length - 1].timestamp}`
+    : 'empty';
+  const audio = useArenaAudio(
+    displayEvents,
+    displayStatus?.current_phase,
+    status?.status === 'running' || (isCompleted && replayCursor !== null),
+  );
+
+  const changeDirector = (enabled: boolean) => {
+    localStorage.setItem('ai-arena:director', enabled ? '1' : '0');
+    setDirectorEnabled(enabled);
+  };
 
   // 首次加载
   if (loading && !status) {
@@ -116,10 +137,31 @@ export default function GameView({ gameId }: Props) {
 
   return (
     <div className="flex flex-col gap-3.5">
-      <ActionCinematics events={events} completed={isCompleted} />
+      <ActionCinematics
+        events={displayEvents}
+        suppressInitial={isCompleted && replayCursor === null}
+        replayMode={isCompleted}
+        enabled={directorEnabled}
+        roleAssignment={displayStatus?.role_assignment}
+        onActiveChange={setCinematicActive}
+      />
 
       {/* 顶栏 */}
-      <GameHeader gameId={gameId} status={displayStatus} />
+      <GameHeader
+        gameId={gameId}
+        status={displayStatus}
+        controls={(
+          <TheatreControls
+            directorEnabled={directorEnabled}
+            onDirectorChange={changeDirector}
+            soundEnabled={audio.enabled}
+            soundReady={audio.ready}
+            volume={audio.volume}
+            onSoundChange={audio.setEnabled}
+            onVolumeChange={audio.setVolume}
+          />
+        )}
+      />
 
       {isCompleted && (
         <ReplayControls
@@ -127,15 +169,23 @@ export default function GameView({ gameId }: Props) {
           cursor={cursor}
           onCursorChange={setReplayCursor}
           turningPoints={activeReview?.turning_points ?? []}
+          directorEnabled={directorEnabled}
+          blocked={cinematicActive}
         />
       )}
 
       {/* 剧场环绕:左玩家栏 | 中央时间线 | 右玩家栏
           三栏固定高度、各自内部滚动,不被下方复盘挤压 */}
-      <div className={cn(
-        'grid min-h-[480px] grid-cols-1 gap-3 lg:grid-cols-[minmax(230px,.82fr)_minmax(0,2.3fr)_minmax(230px,.82fr)]',
+      <div ref={stageRef} className={cn(
+        'relative grid min-h-[480px] grid-cols-1 gap-3 lg:grid-cols-[minmax(230px,.82fr)_minmax(0,2.3fr)_minmax(230px,.82fr)]',
         isCompleted ? 'h-[calc(100vh-330px)]' : 'h-[calc(100vh-180px)]',
       )}>
+        <VoteFlowOverlay
+          containerRef={stageRef}
+          detail={voteDetail}
+          eventKey={voteEventKey}
+        />
+
         {/* 左栏:参与者(前一半) */}
         <aside className="arena-rail hidden overflow-hidden rounded-sm p-3 lg:flex lg:flex-col">
           <PlayerTable
@@ -143,6 +193,7 @@ export default function GameView({ gameId }: Props) {
             currentSpeaker={displaySpeaker}
             selectedPlayer={selectedPlayer}
             onSelectPlayer={(id) => setSelectedPlayer((current) => current === id ? null : id)}
+            attention={attention}
             side="left"
           />
         </aside>
@@ -164,6 +215,7 @@ export default function GameView({ gameId }: Props) {
             currentSpeaker={displaySpeaker}
             selectedPlayer={selectedPlayer}
             onSelectPlayer={(id) => setSelectedPlayer((current) => current === id ? null : id)}
+            attention={attention}
             side="right"
           />
         </aside>

@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { GameEvent, GameReview } from '../../types/api';
 import { cn } from '../../utils/cn';
+import { directorDelay, nextDirectorCursor } from './gameDirector';
 
 interface Props {
   events: GameEvent[];
   cursor: number;
   onCursorChange: (cursor: number) => void;
   turningPoints: GameReview['turning_points'];
+  directorEnabled: boolean;
+  blocked?: boolean;
 }
 
 const SPEEDS = [0.5, 1, 2, 4];
@@ -17,6 +20,8 @@ export default function ReplayControls({
   cursor,
   onCursorChange,
   turningPoints,
+  directorEnabled,
+  blocked = false,
 }: Props) {
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
@@ -27,17 +32,17 @@ export default function ReplayControls({
   );
 
   useEffect(() => {
-    if (!playing) return;
+    if (!playing || blocked) return;
     if (cursor >= total) {
       setPlaying(false);
       return;
     }
     const timer = window.setTimeout(
-      () => onCursorChange(Math.min(cursor + 1, total)),
-      900 / speed,
+      () => onCursorChange(Math.min(nextDirectorCursor(events, cursor, directorEnabled), total)),
+      directorDelay(events[cursor], speed, directorEnabled),
     );
     return () => window.clearTimeout(timer);
-  }, [cursor, onCursorChange, playing, speed, total]);
+  }, [blocked, cursor, directorEnabled, events, onCursorChange, playing, speed, total]);
 
   const togglePlayback = () => {
     if (cursor >= total) onCursorChange(0);

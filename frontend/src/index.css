@@ -219,6 +219,146 @@ h3,
   background: rgba(24, 33, 38, 0.96);
 }
 
+.player-card.is-watching {
+  border-color: rgba(111, 156, 165, 0.5);
+  background: linear-gradient(90deg, rgba(60, 103, 111, 0.1), rgba(18, 24, 28, 0.92) 48%);
+}
+
+.player-card.is-voting {
+  transform: translateX(3px);
+  border-color: rgba(185, 151, 88, 0.48);
+}
+
+.player-card.is-targeted {
+  border-color: rgba(184, 70, 61, 0.72);
+  background:
+    radial-gradient(circle at 86% 50%, rgba(184, 70, 61, 0.18), transparent 42%),
+    rgba(18, 24, 28, 0.92);
+  box-shadow: inset -2px 0 0 rgba(184, 70, 61, 0.8), 0 0 18px rgba(184, 70, 61, 0.08);
+}
+
+.player-card.is-protected {
+  border-color: rgba(91, 148, 155, 0.72);
+  box-shadow: inset 0 0 0 1px rgba(91, 148, 155, 0.16), 0 0 18px rgba(91, 148, 155, 0.09);
+}
+
+.player-card.is-speaking::after,
+.player-card.is-protected::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border: 1px solid rgba(185, 151, 88, 0.34);
+  animation: player-attention-pulse 1.35s ease-in-out infinite;
+}
+
+.player-card.is-protected::after {
+  border-color: rgba(91, 148, 155, 0.42);
+}
+
+.player-card.is-fallen {
+  transform-origin: center;
+  animation: player-fall 650ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.theatre-controls {
+  min-height: 2.25rem;
+}
+
+.theatre-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 0;
+  padding: 0.25rem 0.4rem;
+  color: rgba(170, 167, 159, 0.62);
+  background: transparent;
+  font-family: 'Noto Sans SC', sans-serif;
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+  transition: color 150ms ease, background-color 150ms ease;
+}
+
+.theatre-toggle > span:first-child {
+  display: grid;
+  width: 1.35rem;
+  height: 1.35rem;
+  place-items: center;
+  border: 1px solid rgba(230, 223, 210, 0.14);
+  color: rgba(230, 223, 210, 0.48);
+  font-family: 'Noto Serif SC', serif;
+  font-size: 0.66rem;
+}
+
+.theatre-toggle:hover,
+.theatre-toggle.is-on {
+  color: #d7bd8b;
+  background: rgba(185, 151, 88, 0.045);
+}
+
+.theatre-toggle.is-on > span:first-child {
+  border-color: rgba(185, 151, 88, 0.55);
+  color: #d7bd8b;
+}
+
+.theatre-volume {
+  display: flex;
+  align-items: center;
+  width: 3.8rem;
+  padding-inline: 0.25rem;
+  opacity: 0.78;
+}
+
+.theatre-volume.is-disabled {
+  opacity: 0.25;
+}
+
+.theatre-volume input {
+  width: 100%;
+  height: 2px;
+  cursor: pointer;
+  accent-color: var(--truth-gold);
+}
+
+.vote-flow-overlay {
+  filter: drop-shadow(0 0 5px rgba(185, 151, 88, 0.24));
+}
+
+.vote-flow-path {
+  fill: none;
+  stroke: rgba(201, 166, 91, 0.74);
+  stroke-width: 1.35;
+  vector-effect: non-scaling-stroke;
+}
+
+.vote-flow-target {
+  fill: rgba(184, 70, 61, 0.2);
+  stroke: rgba(201, 166, 91, 0.82);
+  stroke-width: 1.4;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.director-notable .event-card {
+  box-shadow: inset 2px 0 0 rgba(185, 151, 88, 0.28);
+}
+
+.director-climax .event-card {
+  box-shadow: inset 3px 0 0 rgba(184, 70, 61, 0.54), 0 12px 30px rgba(0, 0, 0, 0.18);
+}
+
+@keyframes player-attention-pulse {
+  0%,
+  100% { opacity: 0.25; transform: scale(0.985); }
+  50% { opacity: 0.9; transform: scale(1); }
+}
+
+@keyframes player-fall {
+  0% { opacity: 1; transform: scale(1); filter: grayscale(0); }
+  35% { transform: scale(1.025); }
+  100% { opacity: 0.48; transform: scale(0.97); filter: grayscale(0.9); }
+}
+
 .timeline-line {
   position: absolute;
   top: 0;
@@ -399,6 +539,84 @@ h3,
 .cinematic-art {
   filter: saturate(0.84) contrast(1.06);
   will-change: transform, opacity;
+}
+
+.cinematic-tribunal-field {
+  will-change: transform, opacity;
+  background:
+    radial-gradient(circle at 72% 50%, var(--cinematic-wash), transparent 28rem),
+    linear-gradient(115deg, #090b0d 0%, #0d1114 45%, #080a0c 100%);
+}
+
+.cinematic-tribunal-grid {
+  opacity: 0.25;
+  background-image:
+    linear-gradient(rgba(230, 223, 210, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(230, 223, 210, 0.025) 1px, transparent 1px);
+  background-size: 4.5rem 4.5rem;
+  mask-image: linear-gradient(90deg, transparent 18%, black 72%);
+}
+
+.cinematic-tribunal-ring {
+  top: 50%;
+  right: 8%;
+  width: min(58vw, 48rem);
+  aspect-ratio: 1;
+  border: 1px solid color-mix(in srgb, var(--cinematic-color) 35%, transparent);
+  border-radius: 50%;
+  transform: translateY(-50%);
+  box-shadow:
+    inset 0 0 0 4rem rgba(0, 0, 0, 0.08),
+    inset 0 0 0 8rem rgba(0, 0, 0, 0.06),
+    0 0 8rem color-mix(in srgb, var(--cinematic-color) 9%, transparent);
+}
+
+.cinematic-tribunal-glyph {
+  top: 50%;
+  right: 9%;
+  width: min(56vw, 46rem);
+  color: var(--cinematic-color);
+  font-size: min(40vw, 37rem);
+  line-height: 0.72;
+  text-align: center;
+  opacity: 0.1;
+  transform: translateY(-50%);
+  text-shadow: 0 0 5rem color-mix(in srgb, var(--cinematic-color) 22%, transparent);
+  will-change: transform, opacity;
+}
+
+.cinematic-tally {
+  top: 18%;
+  right: 4%;
+  display: grid;
+  width: min(44vw, 36rem);
+  gap: 1.15rem;
+  opacity: 0.2;
+  transform: rotate(-8deg);
+}
+
+.cinematic-tally > i {
+  display: block;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--cinematic-color), transparent);
+  will-change: transform, opacity;
+}
+
+.cinematic-tally > i:nth-child(3n) { width: 68%; margin-left: auto; }
+.cinematic-tally > i:nth-child(3n + 2) { width: 84%; margin-left: 8%; }
+
+.cinematic-tribunal-names {
+  right: 5%;
+  bottom: 8%;
+  display: flex;
+  max-width: 48vw;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem 1.5rem;
+  color: rgba(230, 223, 210, 0.11);
+  font-size: clamp(1.3rem, 3vw, 3rem);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
 }
 
 .cinematic-art-grade {
@@ -608,6 +826,12 @@ h3,
   }
 
   .cursor-blink {
+    animation: none;
+  }
+
+  .player-card.is-speaking::after,
+  .player-card.is-protected::after,
+  .player-card.is-fallen {
     animation: none;
   }
 }

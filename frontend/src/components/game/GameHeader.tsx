@@ -1,9 +1,11 @@
 import { cn } from '../../utils/cn';
 import type { GameStatusResponse } from '../../types/api';
+import type { ReactNode } from 'react';
 
 interface Props {
   gameId: string;
   status: GameStatusResponse | null;
+  controls?: ReactNode;
 }
 
 const PHASE_LABEL: Record<string, string> = {
@@ -32,7 +34,7 @@ const STATUS_META: Record<GameStatusResponse['status'], { label: string; classNa
   error: { label: '异常', className: 'text-crimson' },
 };
 
-export default function GameHeader({ gameId, status }: Props) {
+export default function GameHeader({ gameId, status, controls }: Props) {
   if (!status) {
     return <div className="glass-panel px-4 py-3 text-sm text-ink-muted">正在翻开本局记录…</div>;
   }
@@ -54,6 +56,8 @@ export default function GameHeader({ gameId, status }: Props) {
       </div>
 
       <div className="flex shrink-0 items-center gap-3">
+        {controls}
+
         {status.sheriff_enabled && (
           <div className="hidden border-l border-white/10 pl-3 text-right sm:block">
             <div className="font-label text-[9px] tracking-[0.12em] text-ink-muted">警徽</div>

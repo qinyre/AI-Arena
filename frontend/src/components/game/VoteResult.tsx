@@ -19,9 +19,13 @@ export default function VoteResult({ votes, result }: Props) {
     : Object.fromEntries(votes.map((v) => [v.data.voter, v.data.target]));
 
   // 票数汇总（只统计有效投票，弃票不计入得票数）
-  const counts: Record<string, number> = {};
-  for (const target of Object.values(detail)) {
-    if (target && target !== 'abstain') counts[target] = (counts[target] || 0) + 1;
+  const counts: Record<string, number> = result?.data.votes
+    ? { ...result.data.votes }
+    : {};
+  if (!result?.data.votes) {
+    for (const target of Object.values(detail)) {
+      if (target && target !== 'abstain') counts[target] = (counts[target] || 0) + 1;
+    }
   }
   const maxVotes = Math.max(1, ...Object.values(counts));
   const eliminated = result?.data.result === 'eliminated' ? result.data.eliminated : undefined;

@@ -331,6 +331,17 @@ class AIAgent:
             )
         identity = "\n".join(identity_lines)
         personality = self._build_personality_prompt()
+        memory = self.get_recent_memory() or "暂无个人行动记录。"
+        role_status = ""
+        if role == "witch":
+            antidote = "可用" if visible_state.get("antidote_available") else "已使用"
+            poison = "可用" if visible_state.get("poison_available") else "已使用"
+            role_status = (
+                "\n# 当前角色资源（权威状态）\n"
+                f"解药：{antidote} ｜ 毒药：{poison}\n"
+                "发言和推理必须与此状态及个人行动记录一致；已使用的药不能再次使用，"
+                "也不能声称本夜使用了未出现在个人行动记录中的药。\n"
+            )
 
         # 白天发言顺序提示
         order_hint = ""
@@ -375,6 +386,12 @@ class AIAgent:
 
 # 你的角色
 {role_descriptions.get(role, "未知角色")}
+{role_status}
+
+# 公共硬规则
+- 守卫与女巫同时保护狼队刀口时属于“同守同救”，两种保护互相抵消，目标仍然死亡。
+- 女巫的解药和毒药各只有一瓶，每晚至多使用一瓶。
+- 夜间守护、用药等私密行动只有行动者本人知道；没有对应私密信息时不得假定具体目标。
 
 # 你的性格
 {personality}
@@ -388,6 +405,8 @@ class AIAgent:
 {order_hint}
 
 # 你的记忆
+{memory}
+
 # 行为准则
 1. 你是 {your_id}。发言/推理中提到"我"指的就是 {your_id}，不要用第三人称称呼自己。
 2. 严格按照你的角色行事，不要泄露隐藏信息（如狼人身份）。
@@ -593,5 +612,11 @@ parameters 里通常只需 reasoning（如需），不要硬塞 content。
                 return f"[结果] 平票，无人出局"
         elif event_type == "seer_investigate":
             return f"[查验] 你查验了 {data.get('target')}，结果: {data.get('result')}"
+        elif event_type == "witch_heal":
+            return f"[用药] 你已使用解药救助 {data.get('target')}"
+        elif event_type == "witch_poison":
+            return f"[用药] 你已使用毒药毒杀 {data.get('target')}"
+        elif event_type == "guard_action":
+            return f"[守护] 你守护了 {data.get('target')}"
         else:
             return f"[{event_type}] {json.dumps(data, ensure_ascii=False)}"

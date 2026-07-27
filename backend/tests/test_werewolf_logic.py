@@ -324,6 +324,30 @@ def test_agent_personality_is_structured_and_subordinate_to_rules():
     assert "若性格倾向与规则冲突，必须以规则为准" in prompt
 
 
+def test_agent_prompt_keeps_public_rules_and_private_witch_ledger():
+    agent = AIAgent("AI-11", FailingClient())
+    agent.update_memory({
+        "event_type": "witch_heal",
+        "data": {"witch": "AI-11", "target": "AI-11"},
+    })
+    witch_prompt = agent._build_system_prompt({
+        "your_player_id": "AI-11",
+        "your_role": "witch",
+        "alive_players": PLAYERS,
+        "antidote_available": False,
+        "poison_available": True,
+    })
+    villager_prompt = AIAgent("AI-1", FailingClient())._build_system_prompt({
+        "your_player_id": "AI-1",
+        "your_role": "villager",
+        "alive_players": PLAYERS,
+    })
+
+    assert "解药：已使用 ｜ 毒药：可用" in witch_prompt
+    assert "[用药] 你已使用解药救助 AI-11" in witch_prompt
+    assert "同守同救" in villager_prompt
+
+
 def test_personality_schema_rejects_prompt_injection_fields():
     with pytest.raises(ValidationError):
         PersonalityConfig(

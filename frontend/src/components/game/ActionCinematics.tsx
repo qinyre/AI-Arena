@@ -31,6 +31,15 @@ const META: Record<CinematicKind, SceneMeta> = {
     wash: 'rgba(117, 20, 22, .44)',
     position: '64% center',
   },
+  'wolf-kill': {
+    role: '夜间遇袭',
+    chapter: '月下追猎',
+    mark: '袭',
+    image: '/assets/roles/werewolf-hunt.jpg',
+    color: '#b84037',
+    wash: 'rgba(90, 13, 18, .5)',
+    position: '54% center',
+  },
   seer: {
     role: '预言家',
     chapter: '真相显形',
@@ -116,57 +125,82 @@ const META: Record<CinematicKind, SceneMeta> = {
     role: '警长竞选',
     chapter: '秩序争夺',
     mark: '竞',
+    image: '/assets/roles/sheriff-campaign.jpg',
     color: '#c9a65b',
     wash: 'rgba(137, 99, 31, .42)',
+    position: '62% center',
   },
   sheriff: {
     role: '警长',
     chapter: '警徽裁决',
     mark: '警',
+    image: '/assets/roles/sheriff-elected.jpg',
     color: '#d0ad61',
     wash: 'rgba(137, 99, 31, .46)',
+    position: '68% center',
   },
   badge: {
     role: '警徽流',
     chapter: '权柄易手',
     mark: '徽',
+    image: '/assets/roles/badge-transfer.jpg',
     color: '#c9a65b',
     wash: 'rgba(111, 79, 25, .44)',
+    position: '64% center',
+  },
+  'badge-destroyed': {
+    role: '警徽流',
+    chapter: '权柄终结',
+    mark: '裂',
+    image: '/assets/roles/badge-destroyed.jpg',
+    color: '#a88c59',
+    wash: 'rgba(91, 57, 31, .48)',
+    position: '66% center',
   },
   exile: {
     role: '放逐审判',
     chapter: '票型落定',
     mark: '逐',
+    image: '/assets/roles/exile-action.jpg',
     color: '#c7473d',
     wash: 'rgba(117, 20, 22, .46)',
+    position: '66% center',
   },
   tie: {
     role: '平票裁决',
     chapter: '审判悬停',
     mark: '平',
+    image: '/assets/roles/tie-vote.jpg',
     color: '#9870a8',
     wash: 'rgba(82, 43, 91, .42)',
+    position: '68% center',
   },
   'last-words': {
     role: '遗言',
     chapter: '最后陈词',
     mark: '言',
+    image: '/assets/roles/last-words.jpg',
     color: '#8fa0a8',
     wash: 'rgba(54, 70, 78, .42)',
+    position: '67% center',
   },
   'victory-good': {
     role: '终局',
     chapter: '黎明已至',
     mark: '胜',
+    image: '/assets/roles/victory-good.jpg',
     color: '#d0ad61',
     wash: 'rgba(126, 97, 35, .48)',
+    position: '70% center',
   },
   'victory-wolf': {
     role: '终局',
     chapter: '长夜无明',
     mark: '夜',
+    image: '/assets/roles/victory-wolf.jpg',
     color: '#c7473d',
     wash: 'rgba(117, 20, 22, .5)',
+    position: '68% center',
   },
 };
 
@@ -562,7 +596,7 @@ function SceneMotif({ kind }: { kind: CinematicKind }) {
   const isWitch = kind === 'witch-heal' || kind === 'witch-poison';
   const isShot = kind === 'hunter-shot' || kind === 'wolf-king';
   const isReveal = [
-    'white-wolf', 'wolf-explode', 'idiot', 'exile', 'tie', 'last-words',
+    'white-wolf', 'wolf-explode', 'idiot', 'badge-destroyed', 'exile', 'tie', 'last-words',
   ].includes(kind);
 
   return (

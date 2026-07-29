@@ -33,10 +33,12 @@ const actions = buildCinematics([
   event('wolf_self_destruct', { player: 'AI-1' }),
   event('player_death', { player: 'AI-2', shooter: 'AI-7', cause: 'hunter_shot' }),
   event('player_death', { player: 'AI-7', shooter: 'AI-8', cause: 'wolf_king_shot' }),
+  event('player_death', { player: 'AI-8', cause: 'werewolf_kill' }),
   event('vote_result', { player: 'AI-9', result: 'idiot_revealed' }),
   event('phase_change', { to: 'sheriff_campaign', round: 1 }),
   event('sheriff_election_result', { result: 'elected', sheriff: 'AI-3' }),
   event('badge_transferred', { from: 'AI-3', to: 'AI-4' }),
+  event('badge_destroyed', { player: 'AI-4' }),
   event('player_speech', { speaker: 'AI-4', phase: 'last_words', content: '请相信我的判断。' }),
   event('vote_result', { result: 'eliminated', eliminated: 'AI-10' }),
   event('vote_result', { result: 'tie', candidates: ['AI-5', 'AI-6'] }),
@@ -47,8 +49,8 @@ assert.deepEqual(
   actions.map(({ kind }) => kind),
   [
     'wolf', 'seer', 'guard', 'witch-heal', 'witch-poison', 'white-wolf',
-    'wolf-explode', 'hunter-shot', 'wolf-king', 'idiot', 'sheriff-opening',
-    'sheriff', 'badge', 'last-words', 'exile', 'tie', 'victory-good',
+    'wolf-explode', 'hunter-shot', 'wolf-king', 'wolf-kill', 'idiot', 'sheriff-opening',
+    'sheriff', 'badge', 'badge-destroyed', 'last-words', 'exile', 'tie', 'victory-good',
   ],
 );
 assert.equal(actions[0].target, 'AI-8');

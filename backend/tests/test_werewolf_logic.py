@@ -661,6 +661,64 @@ class ScriptedDayAgent:
         pass
 
 
+class CampaignPassAgent:
+    def __init__(self, agent_id):
+        self.agent_id = agent_id
+        self.calls = 0
+
+    async def decide(self, _state, _actions):
+        self.calls += 1
+        return GameAction(
+            ActionType.PASS,
+            self.agent_id,
+            parameters={"reasoning": "不上警"},
+        )
+
+    def update_memory(self, _event):
+        pass
+
+
+def test_white_wolf_interrupt_pass_does_not_repeat_campaign_pass():
+    players = [f"AI-{i}" for i in range(1, 13)]
+    game = WerewolfGame()
+    game.initialize(players, {
+        "game_id": "campaign-interrupt",
+        "board_id": "12p_white_wolf_guard",
+        "seed": 8,
+    })
+    white_wolf = next(
+        pid for pid, player in game.state.players.items()
+        if player.role == Role.WHITE_WOLF_KING
+    )
+    game.state.phase = GamePhase.SHERIFF_CAMPAIGN
+    game.acted_players = set()
+
+    orchestrator = GameOrchestrator("campaign-interrupt", {})
+    orchestrator.game = game
+    orchestrator.agents = {
+        player_id: CampaignPassAgent(player_id)
+        for player_id in players
+    }
+    asyncio.run(orchestrator.execute_day_phase())
+
+    campaign_passes = [
+        event.data["player"]
+        for event in game.state.events
+        if event.event_type == "sheriff_campaign_pass"
+    ]
+    assert campaign_passes == players
+    assert orchestrator.agents[white_wolf].calls == 1
+
+    game.day_interrupt_window = True
+    game.acted_players = set()
+    events = game.apply_action(GameAction(
+        ActionType.PASS,
+        white_wolf,
+        parameters={"reasoning": "暂不自爆"},
+    ))
+    assert [event["event_type"] for event in events] == ["player_pass"]
+
+
 def test_white_wolf_king_can_interrupt_another_players_speech():
     players = [f"AI-{i}" for i in range(1, 13)]
     game = WerewolfGame()

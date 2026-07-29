@@ -987,7 +987,10 @@ class WerewolfGame(BaseGame):
             )
 
         elif action.action_type == ActionType.PASS:
-            if self.state.phase == GamePhase.SHERIFF_CAMPAIGN:
+            if (
+                self.state.phase == GamePhase.SHERIFF_CAMPAIGN
+                and not self.day_interrupt_window
+            ):
                 events.append({
                     "event_type": "sheriff_campaign_pass",
                     "data": {"player": action.actor_id, "round": self.state.round},

@@ -1,9 +1,9 @@
 import type { GameEvent, WerewolfKillEvent } from '../../types/api';
 
 export type CinematicKind =
-  | 'wolf' | 'seer' | 'witch-heal' | 'witch-poison' | 'guard'
+  | 'wolf' | 'wolf-kill' | 'seer' | 'witch-heal' | 'witch-poison' | 'guard'
   | 'hunter-shot' | 'wolf-king' | 'white-wolf' | 'wolf-explode' | 'idiot'
-  | 'sheriff-opening' | 'sheriff' | 'badge' | 'exile' | 'tie'
+  | 'sheriff-opening' | 'sheriff' | 'badge' | 'badge-destroyed' | 'exile' | 'tie'
   | 'last-words' | 'victory-good' | 'victory-wolf';
 
 export interface CinematicAction {
@@ -120,6 +120,11 @@ export function buildCinematics(
         event, index, 'wolf-king', data.shooter, data.player,
         '狼王发动遗令', '最后的命令仍须执行',
       ));
+    } else if (event.event_type === 'player_death' && data.cause === 'werewolf_kill') {
+      result.push(action(
+        event, index, 'wolf-kill', '狼人阵营', data.player,
+        '逃亡止于长夜', '月光被云层吞没，狼群追上了最后的脚步',
+      ));
     } else if (event.event_type === 'phase_change' && data.to === 'sheriff_campaign') {
       result.push(action(
         event, index, 'sheriff-opening', '全体玩家', undefined,
@@ -139,7 +144,7 @@ export function buildCinematics(
         ));
       } else {
         result.push(action(
-          event, index, 'sheriff', '全体玩家', undefined,
+          event, index, 'tie', '全体玩家', undefined,
           '警徽空悬',
           electionResult === 'cancelled_by_self_destruct'
             ? '自爆打断竞选，本局不再产生警长'
@@ -153,7 +158,7 @@ export function buildCinematics(
       ));
     } else if (event.event_type === 'badge_destroyed') {
       result.push(action(
-        event, index, 'badge', data.player, undefined,
+        event, index, 'badge-destroyed', data.player, undefined,
         '警徽被撕毁', '本局余下时间不再拥有警长',
       ));
     } else if (

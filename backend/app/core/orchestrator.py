@@ -7,7 +7,7 @@ import os
 from typing import Dict, List
 from app.core.werewolf import WerewolfGame
 from app.core.agent import AIAgent
-from app.core.models import GamePhase, GameResult
+from app.core.models import ActionType, GamePhase, GameResult
 from app.llm.registry import get_registry
 from app.llm.openai_client import OpenAICompatibleClient, OllamaClient
 from app.llm.claude_client import ClaudeClient
@@ -306,12 +306,15 @@ class GameOrchestrator:
             visible_state = self.game.get_visible_state(player_id)
             available_actions = self.game.get_available_actions(player_id)
 
+            action = None
             if available_actions:
-                await self._agent_act(agent, visible_state, available_actions)
+                action = await self._agent_act(agent, visible_state, available_actions)
             if self.game.day_interrupted:
                 break
             if (
-                self.game.state.players[player_id].role.value != "white_wolf_king"
+                action
+                and action.action_type == ActionType.SPEAK
+                and self.game.state.players[player_id].role.value != "white_wolf_king"
                 and await self._offer_white_wolf_interrupt()
             ):
                 break
@@ -435,11 +438,13 @@ class GameOrchestrator:
 
             # 打印动作（调试）
             print(f"  {agent.agent_id}: {action.action_type.value} -> {action.target_id}")
+            return action
 
         except Exception as e:
             import traceback
             print(f"  [DIAG] {agent.agent_id} 动作失败: {type(e).__name__}: {e}", flush=True)
             traceback.print_exc()
+            return None
 
     def _broadcast_events(self, events: List[Dict]):
         """广播事件（更新所有智能体的记忆）"""

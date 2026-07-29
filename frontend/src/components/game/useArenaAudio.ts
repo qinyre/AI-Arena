@@ -94,6 +94,14 @@ class ArenaAudioEngine {
       tone(95, 38, 0.72, 0.12, 0, 'sine');
       this.noise(0.16, 0.055, 420, now);
     }
+    if (sound === 'wolf') {
+      // 利刃锁定：中高频金属摩擦下行 + 低吼尾音。
+      // 故意避开夜晚 ambient 的低频段（<210Hz），确保能被听见。
+      tone(680, 240, 0.28, 0.07, 0, 'sawtooth');
+      tone(520, 180, 0.34, 0.045, 0.04, 'triangle');
+      this.noise(0.22, 0.03, 3200, now + 0.02);
+      tone(140, 70, 0.5, 0.05, 0.12, 'sine');
+    }
     if (sound === 'gunshot') {
       this.noise(0.32, 0.22, 1800, now);
       tone(82, 32, 0.62, 0.15, 0, 'square');

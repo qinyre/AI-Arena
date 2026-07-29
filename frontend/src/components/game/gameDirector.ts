@@ -4,7 +4,8 @@ export type DirectorTier = 'routine' | 'notable' | 'climax';
 export type ArenaSound =
   | 'night' | 'day' | 'speech' | 'vote' | 'gavel' | 'tie'
   | 'death' | 'gunshot' | 'seer' | 'potion' | 'shield'
-  | 'sheriff' | 'explosion' | 'victory-good' | 'victory-wolf';
+  | 'sheriff' | 'explosion' | 'victory-good' | 'victory-wolf'
+  | 'wolf';
 export type PlayerAttention = 'speaking' | 'watching' | 'voting' | 'targeted' | 'protected' | 'fallen';
 
 const CLIMAX_EVENTS = new Set([
@@ -78,6 +79,8 @@ export function soundForEvent(event: GameEvent): ArenaSound | null {
     return ['tie', 'no_elimination'].includes(String(data.result)) ? 'tie' : 'gavel';
   }
   if (['sheriff_election_result', 'badge_transferred', 'badge_destroyed'].includes(event.event_type)) return 'sheriff';
+  // 狼人选定击杀目标 → 专属利刃锁定音（中高频，能穿透夜晚 ambient 被听见）
+  if (event.event_type === 'werewolf_kill') return 'wolf';
   if (event.event_type === 'seer_investigate') return 'seer';
   if (event.event_type === 'guard_action') return 'shield';
   if (event.event_type === 'witch_heal' || event.event_type === 'witch_poison') return 'potion';

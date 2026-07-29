@@ -167,6 +167,84 @@ def build_scenarios() -> list[dict]:
     return scenarios
 
 
+def build_personality_pair() -> dict:
+    """同一公开局面下对比两个极端性格。"""
+    game = make_game("9p", 25)
+    actor = next(
+        pid for pid, player in game.state.players.items()
+        if player.role == Role.VILLAGER
+    )
+    speakers = [pid for pid in game.state.alive_players if pid != actor][:2]
+    suspect = next(
+        pid for pid in game.state.alive_players
+        if pid not in {actor, *speakers}
+    )
+    game.state.phase = GamePhase.DAY
+    game.day_speech_order = list(game.state.alive_players)
+    game.acted_players = set()
+    game.apply_action(GameAction(
+        ActionType.SPEAK,
+        speakers[0],
+        parameters={
+            "content": f"我怀疑{suspect}，他上轮的站边没有给出具体依据。",
+            "claim_role": "none",
+            "reasoning": "制造中性争议局面",
+        },
+    ))
+    game.apply_action(GameAction(
+        ActionType.SPEAK,
+        speakers[1],
+        parameters={
+            "content": f"我暂时不认同直接打{suspect}，还需要听他的解释。",
+            "claim_role": "none",
+            "reasoning": "制造中性争议局面",
+        },
+    ))
+    visible = game.get_visible_state(actor)
+    actions = game.get_available_actions(actor)
+    return {
+        "game": game,
+        "visible": visible,
+        "actions": actions,
+        "suspect": suspect,
+        "compact": AIAgent(actor, None, personality={
+            "name": "极简观察者",
+            "tone": "calm",
+            "reasoning_style": "evidence",
+            "risk_tolerance": 1,
+            "assertiveness": 1,
+            "verbosity": 1,
+        }),
+        "forceful": AIAgent(actor, None, personality={
+            "name": "高调领袖",
+            "tone": "direct",
+            "reasoning_style": "pressure",
+            "risk_tolerance": 5,
+            "assertiveness": 5,
+            "verbosity": 5,
+        }),
+    }
+
+
+def personality_pair_errors(pair: dict) -> list[str]:
+    compact_prompt = pair["compact"]._build_action_prompt(
+        pair["visible"], pair["actions"]
+    )
+    forceful_prompt = pair["forceful"]._build_action_prompt(
+        pair["visible"], pair["actions"]
+    )
+    checks = (
+        ("谨慎型温度不是 0.45", pair["compact"]._decision_temperature() == 0.45),
+        ("冒险型温度不是 0.85", pair["forceful"]._decision_temperature() == 0.85),
+        ("极简型没有 25–60 字约束", "25–60 个汉字" in compact_prompt),
+        ("高表达型没有 160–260 字约束", "160–260 个汉字" in forceful_prompt),
+        ("谨慎型没有保留策略", "优先保留一次性能力和隐藏身份" in compact_prompt),
+        ("高主导型没有唯一目标要求", "给出唯一优先目标" in forceful_prompt),
+        ("施压型没有质询要求", "进行质询" in forceful_prompt),
+    )
+    return [message for message, passed in checks if not passed]
+
+
 def prompt_errors(scenario: dict) -> list[str]:
     agent = scenario["agent"]
     system = agent._build_system_prompt(scenario["visible"])
@@ -194,6 +272,12 @@ def run_offline() -> list[dict]:
             "status": "ok" if not errors else "error",
             "errors": errors,
         })
+    errors = personality_pair_errors(build_personality_pair())
+    results.append({
+        "name": "同局面性格行为契约产生差异",
+        "status": "ok" if not errors else "error",
+        "errors": errors,
+    })
     return results
 
 
@@ -226,6 +310,45 @@ async def run_live(client: ClaudeClient, timeout: float) -> list[dict]:
             "status": "ok" if not errors else "error",
             "errors": errors,
         })
+
+    pair = build_personality_pair()
+    errors = personality_pair_errors(pair)
+    contents = {}
+    for label in ("compact", "forceful"):
+        agent = pair[label]
+        agent.model_client = client
+        try:
+            action = await asyncio.wait_for(
+                agent.decide(pair["visible"], pair["actions"]),
+                timeout=timeout,
+            )
+            if not pair["game"].is_valid_action(action):
+                errors.append(f"{label} 返回非法动作")
+            elif action.action_type != ActionType.SPEAK:
+                errors.append(f"{label} 没有执行公开发言")
+            else:
+                contents[label] = action.parameters.get("content", "")
+        except Exception as exc:
+            errors.append(f"{label}: {type(exc).__name__}: {exc}")
+    if len(contents) == 2:
+        if contents["compact"] == contents["forceful"]:
+            errors.append("两个极端性格生成了完全相同的发言")
+        if len(contents["forceful"]) <= len(contents["compact"]):
+            errors.append(
+                f"高表达发言没有更长（{len(contents['forceful'])}"
+                f" <= {len(contents['compact'])}）"
+            )
+        if not any(
+            pid in contents["forceful"]
+            for pid in pair["game"].state.alive_players
+            if pid != pair["forceful"].agent_id
+        ):
+            errors.append("高主导型没有点名任何玩家")
+    results.append({
+        "name": "同局面极简观察者 vs 高调领袖",
+        "status": "ok" if not errors else "error",
+        "errors": errors,
+    })
     return results
 
 

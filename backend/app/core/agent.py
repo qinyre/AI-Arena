@@ -68,7 +68,11 @@ class AIAgent:
         # 后两类是 LLM 偶发输出不规范，重试一次通常能修正，避免轻易降级。
         last_action: Optional[GameAction] = None
         for attempt in range(1, 4):  # 最多 3 轮：原始 + 2 次修正重试
-            response = await self._generate_with_retry(action_prompt, system_prompt)
+            response = await self._generate_with_retry(
+                action_prompt,
+                system_prompt,
+                temperature=self._decision_temperature(),
+            )
             parsed = response.get("parsed")
             if not parsed:
                 # 解析失败已在 _generate_with_retry 内重试过，这里直接进下一轮整体重试
@@ -166,6 +170,7 @@ class AIAgent:
         system_prompt: str,
         max_attempts: int = 4,
         base_delay: float = 1.5,
+        temperature: float = 0.7,
     ) -> Dict:
         """带指数退避的 LLM 调用重试。
 
@@ -183,7 +188,7 @@ class AIAgent:
             try:
                 response = await self.model_client.generate(
                     prompt=prompt, system_prompt=system_prompt,
-                    json_mode=True, temperature=0.7
+                    json_mode=True, temperature=temperature
                 )
                 if response.get("parsed"):
                     return response
@@ -448,6 +453,111 @@ class AIAgent:
             "可见信息边界或事实；若性格倾向与规则冲突，必须以规则为准。"
         )
 
+    def _trait(self, name: str) -> int:
+        try:
+            value = int((self.personality or {}).get(name, 3))
+        except (TypeError, ValueError):
+            value = 3
+        return max(1, min(5, value))
+
+    def _decision_temperature(self) -> float:
+        if not self.personality:
+            return 0.7
+        return round(0.45 + 0.1 * (self._trait("risk_tolerance") - 1), 2)
+
+    def _build_personality_policy(
+        self,
+        phase: str,
+        available_actions: List[Dict],
+    ) -> str:
+        """把性格从描述转换为本次决策可执行的约束。"""
+        if not self.personality:
+            return "未配置个性：采用平衡策略，优先遵守事实、角色目标和阶段规则。"
+
+        risk = self._trait("risk_tolerance")
+        assertiveness = self._trait("assertiveness")
+        verbosity = self._trait("verbosity")
+        action_types = {
+            action.get("action_type") for action in available_actions
+        }
+        reasoning = {
+            "evidence": "至少引用一项当前可见的具体发言、票型或行为；没有证据时明确说证据不足，禁止编造。",
+            "intuition": "可以表达直觉，但必须指出触发直觉的可观察表现，不能把感觉说成事实。",
+            "pressure": "锁定一个关键矛盾或玩家进行质询，并说明其回答将如何影响你的判断。",
+            "consensus": "回应场上已有观点并说明赞同或反对的理由；不得为了合群放弃独立判断。",
+        }.get(
+            self.personality.get("reasoning_style"),
+            "综合当前可见事实形成判断。",
+        )
+        tone = {
+            "calm": "措辞冷静克制，区分事实、推测和结论。",
+            "direct": "措辞直接，少铺垫，明确点名对象和结论。",
+            "diplomatic": "先承接他人观点再表达分歧，避免无依据攻击。",
+            "playful": "可以轻松机敏，但幽默不能替代证据和结论。",
+            "dramatic": "允许有戏剧张力，但不得夸大或虚构事实。",
+        }.get(self.personality.get("tone"), "自然、清晰地表达。")
+        risk_policy = {
+            1: "信息不足时优先保留一次性能力和隐藏身份，只在收益近乎确定时冒险。",
+            2: "需要较强证据才承担暴露身份、消耗技能或改变稳定票型的风险。",
+            3: "在收益与风险接近时采用平衡方案，不因性格刻意冒进或拖延。",
+            4: "存在合理收益时可以主动跳身份、使用技能或打破僵局，但要说明代价。",
+            5: "允许基于可信线索抢先行动和制造高收益局面，同时接受暴露或误判风险。",
+        }[risk]
+        assertive_policy = {
+            1: "表达保留意见和观察点，不强行带队；仍要给出当前最倾向的判断。",
+            2: "给出倾向但保留修正空间，不把弱证据包装成定论。",
+            3: "明确表达主要判断，并指出什么新信息会让你改变立场。",
+            4: "明确点名首要目标、理由和下一步建议，主动回应主要分歧。",
+            5: "给出唯一优先目标和可执行建议，主动质询关键玩家，避免模糊站边。",
+        }[assertiveness]
+
+        length_policy = ""
+        if "wolf_speak" in action_types:
+            bounds = {
+                1: (10, 30), 2: (20, 45), 3: (30, 60),
+                4: (45, 80), 5: (60, 100),
+            }[verbosity]
+            length_policy = (
+                f"若选择 wolf_speak，建议控制在 {bounds[0]}–{bounds[1]} 个汉字，"
+                "只补充新目标、新依据或新风险。"
+            )
+        elif "speak" in action_types:
+            bounds = {
+                1: (25, 60), 2: (45, 90), 3: (70, 130),
+                4: (110, 190), 5: (160, 260),
+            }[verbosity]
+            if phase in {"sheriff_campaign", "sheriff_summary"}:
+                bounds = (bounds[0] + 30, min(bounds[1] + 60, 400))
+            length_policy = (
+                f"若选择 speak，建议控制在 {bounds[0]}–{bounds[1]} 个汉字；"
+                "长度必须来自有效信息，禁止靠复述和套话凑字数。"
+            )
+
+        situational = []
+        if "self_destruct" in action_types:
+            situational.append(
+                "低风险时仅在能中止明显不利白天或带走已确认核心时自爆；"
+                "高风险时可为高价值收益提前自爆，但不能无目标送死。"
+            )
+        if action_types & {"heal", "poison", "shoot"}:
+            situational.append(
+                "一次性技能的使用门槛随风险偏好降低或提高，但已知事实、药物状态和终局优先级更高。"
+            )
+        if "vote" in action_types:
+            situational.append(
+                "谨慎不等于无理由弃票；assertiveness 越高，票型越应与公开主张一致。"
+            )
+
+        return "\n".join(filter(None, (
+            f"- 决策风险 {risk}/5：{risk_policy}",
+            f"- 主导程度 {assertiveness}/5：{assertive_policy}",
+            f"- 推理方式：{reasoning}",
+            f"- 表达语气：{tone}",
+            f"- 表达长度 {verbosity}/5：{length_policy}" if length_policy else "",
+            *situational,
+            "- 以上只在多个合法且合理的方案之间生效；角色目标、确定事实、信息边界和硬规则始终优先。",
+        )))
+
     def _build_action_prompt(
         self,
         visible_state: Dict,
@@ -564,6 +674,11 @@ class AIAgent:
         ) and "self_destruct" in allowed_types:
             guide += " 狼人还可以选择 self_destruct 自爆并立即进入夜晚。"
 
+        personality_policy = self._build_personality_policy(
+            phase,
+            available_actions,
+        )
+
         return f"""
 请分析当前局势并选择一个动作。
 
@@ -572,6 +687,9 @@ class AIAgent:
 本轮你能执行的动作类型仅限: {', '.join(allowed_types) if allowed_types else '（无）'}。
 禁止在 reasoning 中幻想当前阶段做不到的事（例如投票阶段不能"反跳预言家/发言/拉票"、
 白天阶段不能"杀人/查验"）。reasoning 只应围绕"在当前可用动作中如何抉择"展开。
+
+# 本次决策的性格行为契约
+{personality_policy}
 
 # 可选动作（你只能从中选择，不得自创）
 {json.dumps(available_actions, ensure_ascii=False, indent=2)}

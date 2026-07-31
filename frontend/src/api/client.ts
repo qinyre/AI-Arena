@@ -67,6 +67,18 @@ class APIClient {
     return this.request<GameResultResponse>(`/api/games/${gameId}/result`);
   }
 
+  async pauseGame(gameId: string): Promise<{ status: 'paused' }> {
+    return this.request<{ status: 'paused' }>(`/api/games/${gameId}/pause`, {
+      method: 'POST',
+    });
+  }
+
+  async resumeGame(gameId: string): Promise<{ status: 'running' }> {
+    return this.request<{ status: 'running' }>(`/api/games/${gameId}/resume`, {
+      method: 'POST',
+    });
+  }
+
   async generateGameReview(gameId: string, request: GameReviewRequest): Promise<GameReview> {
     return this.request<GameReview>(`/api/games/${gameId}/review`, {
       method: 'POST',

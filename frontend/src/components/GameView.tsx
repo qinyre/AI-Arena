@@ -10,6 +10,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGameStream } from '../hooks/useGameStream';
+import { apiClient } from '../api/client';
 import GameHeader from './game/GameHeader';
 import PlayerTable from './game/PlayerTable';
 import EventFeed from './game/EventFeed';
@@ -33,17 +34,20 @@ interface Props {
 }
 
 export default function GameView({ gameId }: Props) {
-  const { status, result, events, players, rounds, loading, error } =
+  const { status, result, events, players, rounds, loading, error, refetch } =
     useGameStream(gameId);
   const stageRef = useRef<HTMLDivElement>(null);
   const [selectedPlayer, setSelectedPlayer] = useState<string | null>(null);
   const [replayCursor, setReplayCursor] = useState<number | null>(null);
   const [generatedReview, setGeneratedReview] = useState<GameReview>();
   const [cinematicActive, setCinematicActive] = useState(false);
+  const [pausePending, setPausePending] = useState(false);
+  const [pauseError, setPauseError] = useState('');
   const [directorEnabled, setDirectorEnabled] = useState(
     () => localStorage.getItem('ai-arena:director') !== '0',
   );
   const isCompleted = status?.status === 'completed';
+  const isPaused = status?.status === 'paused';
 
   useEffect(() => {
     if (!isCompleted) setReplayCursor(null);
@@ -107,6 +111,20 @@ export default function GameView({ gameId }: Props) {
     setDirectorEnabled(enabled);
   };
 
+  const togglePause = async () => {
+    setPausePending(true);
+    setPauseError('');
+    try {
+      if (isPaused) await apiClient.resumeGame(gameId);
+      else await apiClient.pauseGame(gameId);
+      refetch();
+    } catch (requestError) {
+      setPauseError(requestError instanceof Error ? requestError.message : '暂停操作失败');
+    } finally {
+      setPausePending(false);
+    }
+  };
+
   // 首次加载
   if (loading && !status) {
     return (
@@ -151,17 +169,44 @@ export default function GameView({ gameId }: Props) {
         gameId={gameId}
         status={displayStatus}
         controls={(
-          <TheatreControls
-            directorEnabled={directorEnabled}
-            onDirectorChange={changeDirector}
-            soundEnabled={audio.enabled}
-            soundReady={audio.ready}
-            volume={audio.volume}
-            onSoundChange={audio.setEnabled}
-            onVolumeChange={audio.setVolume}
-          />
+          <>
+            {(status?.status === 'running' || isPaused) && (
+              <button
+                type="button"
+                className={cn('theatre-toggle', isPaused && 'is-on')}
+                disabled={pausePending}
+                aria-pressed={isPaused}
+                onClick={togglePause}
+                title={isPaused ? '恢复对局' : '暂停对局'}
+              >
+                <span aria-hidden="true">{pausePending ? '…' : isPaused ? '续' : '停'}</span>
+                <span>{pausePending ? '处理中' : isPaused ? '继续' : '暂停'}</span>
+              </button>
+            )}
+            <TheatreControls
+              directorEnabled={directorEnabled}
+              onDirectorChange={changeDirector}
+              soundEnabled={audio.enabled}
+              soundReady={audio.ready}
+              volume={audio.volume}
+              onSoundChange={audio.setEnabled}
+              onVolumeChange={audio.setVolume}
+            />
+          </>
         )}
       />
+
+      {isPaused && (
+        <div className="flex items-center justify-center gap-2 border border-amber-300/25 bg-amber-300/[0.06] px-3 py-2 font-label text-[10px] tracking-[0.16em] text-amber-200">
+          <span className="h-1.5 w-1.5 rounded-full bg-amber-300 shadow-[0_0_10px_rgba(252,211,77,.8)]" />
+          时间凝固 · 对局将在恢复后从当前行动继续
+        </div>
+      )}
+      {pauseError && (
+        <div className="border border-[#b8463d]/35 bg-[#b8463d]/10 px-3 py-2 text-xs text-[#d28c85]">
+          {pauseError}
+        </div>
+      )}
 
       {isCompleted && (
         <ReplayControls

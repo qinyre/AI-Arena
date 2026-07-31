@@ -32,6 +32,9 @@ export default function Stats() {
     ['已落幕', stats.completed],
     ['进行中', stats.running],
     ['累计成本', `$${stats.total_cost.toFixed(4)}`],
+    ...(stats.custom_tokens > 0
+      ? [['自定义用量', `${stats.custom_tokens.toLocaleString()} tokens`]]
+      : []),
   ];
 
   return (

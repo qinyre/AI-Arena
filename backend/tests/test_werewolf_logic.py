@@ -32,6 +32,51 @@ def make_sheriff_game():
     return game
 
 
+def test_billed_invalid_responses_retry_once_and_record_fallback():
+    class InvalidClient:
+        def __init__(self):
+            self.calls = 0
+
+        async def generate(self, **_kwargs):
+            self.calls += 1
+            return {
+                "content": "这不是 JSON",
+                "parsed": None,
+                "parse_error": "Expecting value",
+                "finish_reason": "stop",
+            }
+
+        def get_total_usage(self):
+            return {
+                "total_input_tokens": self.calls * 10,
+                "total_output_tokens": self.calls * 2,
+                "total_tokens": self.calls * 12,
+                "estimated_cost": self.calls * 0.001,
+            }
+
+    game = make_game()
+    game.state.phase = GamePhase.DAY
+    game.acted_players = set()
+    player_id = game.state.alive_players[0]
+    client = InvalidClient()
+    agent = AIAgent(player_id, client)
+    orchestrator = GameOrchestrator("test", {})
+    orchestrator.game = game
+
+    asyncio.run(orchestrator._agent_act(
+        agent,
+        game.get_visible_state(player_id),
+        game.get_available_actions(player_id),
+    ))
+
+    diagnostics = [event for event in game.state.events if event.event_type == "agent_fallback"]
+    assert client.calls == 2
+    assert len(diagnostics) == 1
+    assert diagnostics[0].data["attempts"] == 2
+    assert diagnostics[0].data["usage"]["total_tokens"] == 24
+    assert diagnostics[0].data["response_excerpt"] == "这不是 JSON"
+
+
 def test_required_target_and_duplicate_action_are_rejected():
     game = make_game()
     wolf = next(pid for pid, player in game.state.players.items() if player.role.value == "werewolf")
@@ -293,6 +338,31 @@ def test_tie_break_revote_and_abstain_end_without_elimination():
     assert game.state.round == 2
 
 
+def test_voting_out_last_wolf_ends_in_current_round():
+    game = make_game()
+    wolf = next(
+        player_id for player_id, player in game.state.players.items()
+        if player.role == Role.WEREWOLF
+    )
+    fallback_target = next(player_id for player_id in PLAYERS if player_id != wolf)
+    game.state.phase = GamePhase.VOTING
+    for player_id in PLAYERS:
+        target = fallback_target if player_id == wolf else wolf
+        game.apply_action(GameAction(ActionType.VOTE, player_id, target, {}))
+
+    events = game.advance_phase()
+    result = game.check_win_condition()
+
+    assert result and result.winner == "good"
+    assert result.final_round == 1
+    assert game.state.round == 1
+    assert game.state.phase == GamePhase.VOTING
+    assert not any(
+        event["event_type"] == "phase_change" and event["data"].get("to") == "night"
+        for event in events
+    )
+
+
 class FailingClient:
     async def generate(self, **_):
         raise RuntimeError("offline")
@@ -379,6 +449,38 @@ def test_game_status_keeps_personality_for_spectators(tmp_path, monkeypatch):
     }))
 
     assert manager.get_status("personality-view")["personality_assignment"]["AI-1"] == personality
+
+
+def test_custom_model_usage_is_reported_as_tokens():
+    class UsageClient:
+        def get_total_usage(self):
+            return {"total_tokens": 1234, "estimated_cost": 0.0}
+
+    manager = GameManager()
+    orchestrator = GameOrchestrator("usage-test", {})
+    orchestrator.agents = {"AI-1": AIAgent("AI-1", UsageClient())}
+
+    assert manager._collect_tokens(orchestrator) == {"AI-1": 1234}
+
+
+def test_running_game_can_pause_and_resume(tmp_path, monkeypatch):
+    monkeypatch.setattr(game_manager_module, "_STORAGE_PATH", tmp_path / "games.json")
+
+    async def scenario():
+        manager = GameManager()
+        orchestrator = GameOrchestrator("pause-test", {})
+        manager._orchestrators["pause-test"] = orchestrator
+        await manager._save_record({"game_id": "pause-test", "status": "running"})
+
+        assert await manager.pause_game("pause-test") == {"status": "paused"}
+        waiter = asyncio.create_task(orchestrator.wait_if_paused())
+        await asyncio.sleep(0)
+        assert not waiter.done()
+
+        assert await manager.resume_game("pause-test") == {"status": "running"}
+        await asyncio.wait_for(waiter, timeout=0.1)
+
+    asyncio.run(scenario())
 
 
 def test_game_review_validates_all_players_and_persists(tmp_path, monkeypatch):

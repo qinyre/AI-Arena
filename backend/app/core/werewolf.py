@@ -1490,6 +1490,8 @@ class WerewolfGame(BaseGame):
         })
 
     def _begin_next_night(self, events: List[Dict], from_phase: str) -> None:
+        if self.check_win_condition():
+            return
         self.state.round += 1
         self.current_votes = {}
         self.last_night_deaths = []

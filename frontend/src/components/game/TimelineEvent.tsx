@@ -49,6 +49,16 @@ interface EventStyle {
 }
 
 function getEventStyle(e: GameEvent): EventStyle | null {
+  if (e.event_type === 'agent_fallback') {
+    return {
+      dotBorder: 'border-amber-400',
+      dotCore: 'bg-amber-400 shadow-[0_0_5px_rgba(251,191,36,0.9)]',
+      cardClass: 'border-amber-400/40 bg-amber-400/5',
+      headColor: 'text-amber-200',
+      symbol: 'warning',
+      label: '模型降级',
+    };
+  }
   if (isWerewolfKill(e)) {
     return {
       dotBorder: 'border-[#eb2445]',
@@ -283,6 +293,7 @@ export default function TimelineEvent({ event, wolfKillEvents, rounds, roleAssig
     || event.event_type === 'sheriff_election_result'
     || event.event_type === 'badge_transferred'
     || event.event_type === 'badge_destroyed'
+    || event.event_type === 'agent_fallback'
   );
   const isChat = isPlayerSpeech(event) || event.event_type === 'wolf_discussion';
 
@@ -374,6 +385,28 @@ function EventBody({
 }) {
   if (wolfKillEvents?.length) {
     return <WolfKillSummary events={wolfKillEvents} />;
+  }
+
+  if (event.event_type === 'agent_fallback') {
+    const usage = event.data.usage as Record<string, number> | undefined;
+    return (
+      <div className="space-y-1 font-body text-[12px] leading-relaxed text-amber-100/90">
+        <p>
+          <b>{String(event.data.player)}</b> 的模型响应未被采用，已执行合法默认动作。
+          共请求 {String(event.data.attempts)} 次
+          {usage?.total_tokens ? `，消耗 ${usage.total_tokens} tokens` : ''}。
+        </p>
+        <p className="text-amber-200/70">{String(event.data.message)}</p>
+        {!!event.data.response_excerpt && (
+          <details className="text-[#c8c5cb]/60">
+            <summary className="cursor-pointer">查看原始响应片段</summary>
+            <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[10px]">
+              {String(event.data.response_excerpt)}
+            </pre>
+          </details>
+        )}
+      </div>
+    );
   }
 
   // 狼人刀

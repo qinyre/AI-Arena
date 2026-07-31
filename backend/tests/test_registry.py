@@ -9,8 +9,10 @@ Registry & multi-provider 单元测试 — 不依赖真实 API。
 5. 错误配置（未知 provider / 未配模型 / 缺 key）能给出清晰报错
 6. 向后兼容：OpenAIClient 别名仍可用
 """
+import asyncio
 import sys
 import os
+from types import SimpleNamespace
 import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -108,6 +110,29 @@ class TestCostCalculation:
         """OllamaClient 成本恒为 0"""
         client = OllamaClient(model="llama3.3")
         assert client.estimate_cost(10_000_000, 10_000_000) == 0.0
+
+    def test_longcat_only_skips_native_json_mode(self, monkeypatch):
+        captured = []
+
+        async def fake_create(**kwargs):
+            captured.append(kwargs)
+            return SimpleNamespace(
+                usage=SimpleNamespace(prompt_tokens=2, completion_tokens=3, total_tokens=5),
+                choices=[SimpleNamespace(
+                    message=SimpleNamespace(content='{"ok": true}'),
+                    finish_reason="stop",
+                )],
+                model="test",
+            )
+
+        client = OpenAICompatibleClient(api_key="fake", model="LongCat-2.0")
+        monkeypatch.setattr(client.client.chat.completions, "create", fake_create)
+        asyncio.run(client.generate("test", json_mode=True))
+        client.model = "gpt-5-mini"
+        asyncio.run(client.generate("test", json_mode=True))
+
+        assert "response_format" not in captured[0]
+        assert captured[1]["response_format"] == {"type": "json_object"}
 
 
 class TestClientFactory:

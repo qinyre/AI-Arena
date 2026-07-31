@@ -10,6 +10,18 @@ export interface ModelPreset {
 
 const STORAGE_KEY = 'ai-arena:model-presets';
 
+export function requiresApiKey(
+  apiFormat: ModelPreset['apiFormat'] | undefined,
+  baseUrl: string | undefined,
+) {
+  if (apiFormat !== 'anthropic') return false;
+  try {
+    return !['localhost', '127.0.0.1', '::1'].includes(new URL(baseUrl || '').hostname);
+  } catch {
+    return true;
+  }
+}
+
 export function loadModelPresets(): ModelPreset[] {
   try {
     const value = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');

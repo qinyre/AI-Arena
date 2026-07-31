@@ -97,13 +97,15 @@ export interface CreateGameResponse {
 
 export interface GameStatusResponse {
   game_id: string;
-  status: 'pending' | 'initialized' | 'running' | 'completed' | 'error';
+  status: 'pending' | 'initialized' | 'running' | 'paused' | 'completed' | 'error';
   current_phase?: string;
   current_round?: number;
   alive_players: string[];
   dead_players: string[];
   winner?: string;
   total_cost?: number;
+  custom_model_players?: string[];
+  custom_tokens?: number;
   role_assignment: Record<string, string>;  // 玩家角色分配
   personality_assignment: Record<string, PersonalityProfile>;
   sheriff_enabled: boolean;
@@ -118,6 +120,9 @@ export interface GameResultResponse {
   duration_seconds: number;
   total_cost: number;
   player_costs: Record<string, number>;
+  custom_model_players: string[];
+  custom_tokens: number;
+  player_tokens: Record<string, number>;
   summary: any;
   ai_review?: GameReview;
 }
@@ -141,6 +146,7 @@ export interface StatsResponse {
   running: number;
   error: number;
   total_cost: number;
+  custom_tokens: number;
 }
 
 // ---- 事件类型(按 event_type 判别的联合类型)----

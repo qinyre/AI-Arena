@@ -30,6 +30,8 @@ export default function ResultPanel({ result, status, onReviewGenerated }: Props
 
   const winnerGood = result.winner === 'good';
   const roleAssignment = status?.role_assignment || {};
+  const customPlayers = new Set(result.custom_model_players);
+  const hasCustomModels = customPlayers.size > 0;
 
   return (
     <div className="glass-panel rounded-lg p-6 animate-fade-in">
@@ -75,9 +77,13 @@ export default function ResultPanel({ result, status, onReviewGenerated }: Props
             </div>
           </div>
           <div className="bg-[#0b1c30]/60 border border-[#47464b]/30 p-3 rounded-lg text-center">
-            <div className="font-label text-label-sm text-[#c8c5cb]/60 mb-1 uppercase tracking-wider">总成本</div>
+            <div className="font-label text-label-sm text-[#c8c5cb]/60 mb-1 uppercase tracking-wider">
+              {hasCustomModels ? '模型用量' : '总成本'}
+            </div>
             <div className="font-display text-title-md text-[#ffe16d]">
-              ${result.total_cost.toFixed(4)}
+              {result.total_cost > 0 && `$${result.total_cost.toFixed(4)}`}
+              {result.total_cost > 0 && hasCustomModels && ' · '}
+              {hasCustomModels && `${result.custom_tokens.toLocaleString()} tokens`}
             </div>
           </div>
         </div>
@@ -85,7 +91,7 @@ export default function ResultPanel({ result, status, onReviewGenerated }: Props
         {/* 各玩家成本 + 身份 */}
         <div>
           <h4 className="font-label text-label-sm text-[#c8c5cb]/60 mb-2 uppercase tracking-wider">
-            玩家成本与身份
+            玩家用量与身份
           </h4>
           <div className="flex flex-col gap-1.5">
             {Object.entries(result.player_costs)
@@ -112,8 +118,10 @@ export default function ResultPanel({ result, status, onReviewGenerated }: Props
                         {rc.icon} {rc.label}
                       </span>
                     )}
-                    <span className="font-label text-body-md text-[#ffe16d] w-16 text-right">
-                      ${cost.toFixed(4)}
+                    <span className="font-label text-body-md text-[#ffe16d] min-w-20 text-right">
+                      {customPlayers.has(player)
+                        ? `${(result.player_tokens[player] || 0).toLocaleString()} tokens`
+                        : `$${cost.toFixed(4)}`}
                     </span>
                   </div>
                 );

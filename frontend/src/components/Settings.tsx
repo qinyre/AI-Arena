@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { apiClient } from '../api/client';
 import {
   loadModelPresets,
+  requiresApiKey,
   saveModelPresets,
   type ModelPreset,
 } from '../utils/modelPresets';
@@ -36,13 +37,17 @@ export default function Settings() {
       setTestResult({ state: 'error', message: '请先填写模型和 Base URL' });
       return;
     }
+    if (requiresApiKey(form.apiFormat, form.baseUrl) && !form.apiKey.trim()) {
+      setTestResult({ state: 'error', message: 'Anthropic 远程接口必须填写 API Key' });
+      return;
+    }
     setTestResult({ state: 'testing' });
     try {
       const result = await apiClient.testModelConnection({
         api_format: form.apiFormat,
         base_url: form.baseUrl,
         model: form.model,
-        ...(form.apiKey ? { api_key: form.apiKey } : {}),
+        ...(form.apiKey.trim() ? { api_key: form.apiKey.trim() } : {}),
       });
       setTestResult({
         state: 'success',
@@ -65,7 +70,15 @@ export default function Settings() {
       setError('URL 必须是有效的 http:// 或 https:// 地址');
       return;
     }
-    const next = [...presets, { ...form, id: crypto.randomUUID() }];
+    if (requiresApiKey(form.apiFormat, form.baseUrl) && !form.apiKey.trim()) {
+      setError('Anthropic 远程接口必须填写 API Key');
+      return;
+    }
+    const next = [...presets, {
+      ...form,
+      apiKey: form.apiKey.trim(),
+      id: crypto.randomUUID(),
+    }];
     saveModelPresets(next);
     setPresets(next);
     setForm(EMPTY_PRESET);
@@ -158,9 +171,14 @@ export default function Settings() {
             />
           </label>
           <label className="mt-4 block text-xs text-[#c8c5cb]">
-            API Key <span className="text-[#64748b]">（可选）</span>
+            API Key <span className="text-[#64748b]">
+              {requiresApiKey(form.apiFormat, form.baseUrl)
+                ? '（Anthropic 远程接口必填）'
+                : '（可选）'}
+            </span>
             <input
               type="password"
+              required={requiresApiKey(form.apiFormat, form.baseUrl)}
               autoComplete="off"
               value={form.apiKey}
               onChange={(e) => update('apiKey', e.target.value)}

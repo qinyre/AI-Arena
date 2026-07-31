@@ -30,6 +30,7 @@ const STATUS_META: Record<GameStatusResponse['status'], { label: string; classNa
   pending: { label: '等待', className: 'text-ink-muted' },
   initialized: { label: '已就绪', className: 'text-paper/75' },
   running: { label: '进行中', className: 'text-antique-gold' },
+  paused: { label: '已暂停', className: 'text-amber-300' },
   completed: { label: '已落幕', className: 'text-paper/75' },
   error: { label: '异常', className: 'text-crimson' },
 };
@@ -41,6 +42,7 @@ export default function GameHeader({ gameId, status, controls }: Props) {
 
   const phaseLabel = PHASE_LABEL[status.current_phase || ''] || status.current_phase || '准备中';
   const statusMeta = STATUS_META[status.status];
+  const customModelPlayers = status.custom_model_players ?? [];
 
   return (
     <header className="glass-panel flex items-center justify-between gap-4 px-4 py-3">
@@ -65,10 +67,17 @@ export default function GameHeader({ gameId, status, controls }: Props) {
           </div>
         )}
 
-        {status.total_cost != null && (
+        {status.total_cost != null && (!customModelPlayers.length || status.total_cost > 0) && (
           <div className="border-l border-white/10 pl-3 text-right">
             <div className="font-label text-[9px] tracking-[0.12em] text-ink-muted">成本</div>
             <div className="font-label text-xs text-paper/80">${status.total_cost.toFixed(4)}</div>
+          </div>
+        )}
+
+        {customModelPlayers.length > 0 && (
+          <div className="border-l border-white/10 pl-3 text-right">
+            <div className="font-label text-[9px] tracking-[0.12em] text-ink-muted">自定义用量</div>
+            <div className="font-label text-xs text-paper/80">{(status.custom_tokens ?? 0).toLocaleString()} tokens</div>
           </div>
         )}
 

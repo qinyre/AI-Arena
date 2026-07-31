@@ -5,9 +5,10 @@ Manages game lifecycle and coordinates AI agents
 import asyncio
 import os
 from typing import Dict, List
+from urllib.parse import urlparse
 from app.core.werewolf import WerewolfGame
 from app.core.agent import AIAgent
-from app.core.models import ActionType, GamePhase, GameResult
+from app.core.models import ActionType, GameEvent, GamePhase, GameResult
 from app.llm.registry import get_registry
 from app.llm.openai_client import OpenAICompatibleClient, OllamaClient
 from app.llm.claude_client import ClaudeClient
@@ -31,6 +32,17 @@ class GameOrchestrator:
         self.agents: Dict[str, AIAgent] = {}
         self.start_time = None
         self.end_time = None
+        self._run_gate = asyncio.Event()
+        self._run_gate.set()
+
+    def pause(self):
+        self._run_gate.clear()
+
+    def resume(self):
+        self._run_gate.set()
+
+    async def wait_if_paused(self):
+        await self._run_gate.wait()
 
     async def initialize(self):
         """初始化游戏和AI智能体"""
@@ -91,15 +103,24 @@ class GameOrchestrator:
         model_name = model_config["model"]
 
         # api_key：优先用户在配置里直接给的；否则按 key_env 取环境变量；都没有用占位符
-        api_key = model_config.get("api_key")
+        api_key = (model_config.get("api_key") or "").strip() or None
         if not api_key:
             key_env = model_config.get("key_env")
             if key_env:
-                api_key = os.getenv(key_env)
+                api_key = (os.getenv(key_env) or "").strip() or None
                 if not api_key:
                     raise ValueError(
                         f"配置了 key_env={key_env!r}，但该环境变量未设置。"
                     )
+            elif (
+                api_format == "anthropic"
+                and (urlparse(base_url).hostname or "").lower()
+                not in {"localhost", "127.0.0.1", "::1"}
+            ):
+                raise ValueError(
+                    "Anthropic 远程端点必须填写 API Key；"
+                    "请在模型预设中补充 Key 后重试。"
+                )
             else:
                 api_key = "dummy"  # 本地端点（如 Ollama）可能不需要 key
 
@@ -182,6 +203,7 @@ class GameOrchestrator:
             result = None
             max_rounds = int(self.config.get("max_rounds", 20))
             while not self.game.is_ended():
+                await self.wait_if_paused()
                 if self.game.state.round > max_rounds:
                     result = GameResult(self.game_id, "draw", self.game.state.round - 1,
                                         "max_rounds_reached", 0.0)
@@ -426,11 +448,32 @@ class GameOrchestrator:
     ):
         """AI智能体执行动作"""
         try:
+            await self.wait_if_paused()
             # AI决策
             action = await agent.decide(visible_state, available_actions)
 
             # 应用动作
             events = self.game.apply_action(action)
+            diagnostic_data = getattr(agent, "last_decision_error", None)
+            if diagnostic_data:
+                diagnostic = GameEvent(
+                    event_type="agent_fallback",
+                    data={
+                        "player": agent.agent_id,
+                        "round": self.game.state.round,
+                        "phase": self.game.state.phase.value,
+                        "message": diagnostic_data["reason"],
+                        "attempts": diagnostic_data["attempts"],
+                        "usage": diagnostic_data["usage"],
+                        "response_excerpt": diagnostic_data["response_excerpt"],
+                        "finish_reason": diagnostic_data["finish_reason"],
+                        "fallback_action": action.action_type.value,
+                    },
+                    visibility="private",
+                    visible_to=["admin"],
+                )
+                self.game.state.events.append(diagnostic)
+                print(f"  [FALLBACK] {agent.agent_id}: {diagnostic_data['reason']}", flush=True)
 
             # 更新智能体记忆
             for event in events:

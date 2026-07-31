@@ -40,7 +40,8 @@ class OpenAICompatibleClient(ModelClient):
         """
         self.client = AsyncOpenAI(
             api_key=api_key,
-            base_url=base_url
+            base_url=base_url,
+            max_retries=0,
         )
         self.model = model
         self.base_url = base_url
@@ -74,7 +75,7 @@ class OpenAICompatibleClient(ModelClient):
 
         # JSON 模式（部分兼容 provider 可能不支持 response_format，
         # 失败时由调用方/解析层降级到正则抽取 JSON）
-        if json_mode:
+        if json_mode and self.model.casefold() != "longcat-2.0":
             kwargs["response_format"] = {"type": "json_object"}
 
         try:

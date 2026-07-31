@@ -31,7 +31,7 @@ class ClaudeClient(ModelClient):
             cost_per_1m_input: 每 1M 输入 token 成本（美元）
             cost_per_1m_output: 每 1M 输出 token 成本（美元）
         """
-        self.client = anthropic.AsyncAnthropic(api_key=api_key, base_url=base_url)
+        self.client = anthropic.AsyncAnthropic(api_key=api_key, base_url=base_url, max_retries=0)
         self.model = model
         self.base_url = base_url
         # 成本单位统一为每 1M token（与 config/models.yaml 一致）

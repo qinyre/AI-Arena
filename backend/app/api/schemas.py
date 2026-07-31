@@ -81,6 +81,8 @@ class GameStatusResponse(BaseModel):
     dead_players: List[str] = Field(default_factory=list)
     winner: Optional[str] = None
     total_cost: Optional[float] = None
+    custom_model_players: List[str] = Field(default_factory=list)
+    custom_tokens: int = 0
     role_assignment: Dict[str, str] = Field(default_factory=dict)  # 玩家角色分配
     personality_assignment: Dict[str, PersonalityConfig] = Field(default_factory=dict)
     sheriff_enabled: bool = False
@@ -136,6 +138,9 @@ class GameResultResponse(BaseModel):
     duration_seconds: float
     total_cost: float
     player_costs: Dict[str, float]
+    custom_model_players: List[str] = Field(default_factory=list)
+    custom_tokens: int = 0
+    player_tokens: Dict[str, int] = Field(default_factory=dict)
     summary: Any = None
     ai_review: Optional[GameReview] = None
 
@@ -159,6 +164,7 @@ class StatsResponse(BaseModel):
     running: int
     error: int
     total_cost: float
+    custom_tokens: int = 0
 
 
 class DeleteResponse(BaseModel):

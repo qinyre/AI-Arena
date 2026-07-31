@@ -31,6 +31,7 @@ class AIAgent:
         self.model_client = model_client
         self.personality = personality
         self.memory: List[Dict] = []
+        self.last_decision_error: Optional[Dict] = None
 
     def update_memory(self, event: Dict):
         """更新记忆"""
@@ -63,36 +64,57 @@ class AIAgent:
             available_actions
         )
 
-        # 调用LLM（带重试）。重试覆盖三类失败：网络异常、JSON 解析失败、
-        # 以及语义校验失败（action_type 非法 / target 越界 / content 为空等）。
-        # 后两类是 LLM 偶发输出不规范，重试一次通常能修正，避免轻易降级。
-        last_action: Optional[GameAction] = None
-        for attempt in range(1, 4):  # 最多 3 轮：原始 + 2 次修正重试
+        self.last_decision_error = None
+        usage_before = self._usage_snapshot()
+        last_reason = "模型未返回有效动作"
+        last_response: Dict = {}
+        request_attempts = 0
+        for attempt in range(1, 3):
             response = await self._generate_with_retry(
                 action_prompt,
                 system_prompt,
                 temperature=self._decision_temperature(),
             )
+            last_response = response
+            request_attempts += int(response.get("_request_attempts", 1))
+            if response.get("_last_error"):
+                last_reason = response["_last_error"]
+                break
             parsed = response.get("parsed")
             if not parsed:
-                # 解析失败已在 _generate_with_retry 内重试过，这里直接进下一轮整体重试
-                if attempt < 3:
-                    await asyncio.sleep(1.0)
-                    continue
-                break
+                last_reason = response.get("parse_error") or "模型响应不是有效 JSON"
+                logger.warning("[%s] LLM 响应未解析成功（attempt %d）: %s",
+                               self.agent_id, attempt, last_reason)
+            elif not isinstance(parsed, dict):
+                last_reason = "模型响应的 JSON 顶层不是对象"
+                logger.warning("[%s] LLM 响应结构无效（attempt %d）", self.agent_id, attempt)
+            else:
+                action, ok, reason = self._build_action(parsed, available_actions)
+                if ok and action is not None:
+                    return action
+                last_reason = reason
+                logger.warning("[%s] 动作语义校验失败（attempt %d）: %s",
+                               self.agent_id, attempt, reason)
 
-            action, ok, reason = self._build_action(parsed, available_actions)
-            if ok and action is not None:
-                last_action = action
-                break
-            # 语义校验失败：带提示重试，让 LLM 修正
-            logger.warning("[%s] 动作语义校验失败（attempt %d）: %s", self.agent_id, attempt, reason)
-            if attempt < 3:
-                await asyncio.sleep(1.0)
+            if attempt == 1:
+                action_prompt += (
+                    f"\n\n上次响应无效：{last_reason}。"
+                    "请严格按上述 JSON 结构重新作答，只返回一个 JSON 对象。"
+                )
 
-        if last_action is not None:
-            return last_action
-        return self._fallback_action(available_actions)
+        action = self._fallback_action(available_actions)
+        usage_after = self._usage_snapshot()
+        self.last_decision_error = {
+            "reason": last_reason,
+            "attempts": request_attempts,
+            "usage": {
+                key: max(0, usage_after.get(key, 0) - usage_before.get(key, 0))
+                for key in ("total_input_tokens", "total_output_tokens", "total_tokens", "estimated_cost")
+            },
+            "response_excerpt": str(last_response.get("content") or "")[:300],
+            "finish_reason": last_response.get("finish_reason"),
+        }
+        return action
 
     def _build_action(
         self,
@@ -168,21 +190,11 @@ class AIAgent:
         self,
         prompt: str,
         system_prompt: str,
-        max_attempts: int = 4,
+        max_attempts: int = 2,
         base_delay: float = 1.5,
         temperature: float = 0.7,
     ) -> Dict:
-        """带指数退避的 LLM 调用重试。
-
-        策略：
-        - 可重试错误（网络/超时/限流 429/服务端 5xx）：指数退避重试，
-          delay = base_delay * 2^(attempt-1)（1.5s → 3s → 6s → 12s），
-          上限约 12s，配合 jitter 抖动避免雪崩。
-        - 不可重试错误（鉴权 401 / 模型不存在 404 / 请求 400）：立即失败，
-          不浪费配额与时间。
-        - 解析失败（LLM 返回了但 JSON 解析不出）：重试 1 次（偶发格式问题），
-          仍失败则返回 parsed=None 由调用方降级。
-        """
+        """仅重试网络类错误；格式和语义修正由 decide 统一控制。"""
         last_error: Optional[Exception] = None
         for attempt in range(1, max_attempts + 1):
             try:
@@ -190,46 +202,41 @@ class AIAgent:
                     prompt=prompt, system_prompt=system_prompt,
                     json_mode=True, temperature=temperature
                 )
-                if response.get("parsed"):
-                    return response
-                # 解析失败诊断：记录原始返回，便于定位是 LLM 没返回 JSON 还是格式问题
-                raw = (response.get("content") or "")[:500]
-                parse_err = response.get("parse_error", "")
-                logger.warning("[%s] LLM 响应未解析成功 (attempt %d). parse_error=%s content=%s",
-                               self.agent_id, attempt, parse_err, repr(raw))
-                # 解析失败：首次重试一次（偶发），后续不再因解析失败重试
-                if attempt == 1:
-                    last_error = RuntimeError("LLM 响应 JSON 解析失败")
-                    await asyncio.sleep(base_delay)
-                    continue
-                logger.warning("[%s] LLM 响应解析失败（attempt %d），降级", self.agent_id, attempt)
-                return response  # parsed=None
+                response["_request_attempts"] = attempt
+                return response
 
             except NonRetryableError as e:
-                # 鉴权/模型不存在/请求格式错——重试无意义，立即失败
                 logger.error("[%s] LLM 不可重试错误，放弃: %s", self.agent_id, e)
-                raise
+                return {"parsed": None, "_last_error": str(e), "_request_attempts": attempt}
             except RetryableError as e:
                 last_error = e
                 if attempt >= max_attempts:
                     logger.error("[%s] LLM 重试 %d 次仍失败，降级: %s", self.agent_id, max_attempts, e)
                     break
-                # 指数退避 + jitter
                 delay = min(base_delay * (2 ** (attempt - 1)), 15.0)
                 import random as _r
-                delay = delay * (0.5 + _r.random() * 0.5)  # 50%~100% 抖动
+                delay = delay * (0.5 + _r.random() * 0.5)
                 logger.warning("[%s] LLM 可重试错误（attempt %d/%d），%.1fs 后重试: %s",
                                self.agent_id, attempt, max_attempts, delay, e)
                 await asyncio.sleep(delay)
             except Exception as e:
-                # 未知异常：保守当作可重试，但只重试一次
                 last_error = e
                 logger.warning("[%s] LLM 未知错误（attempt %d）: %s", self.agent_id, attempt, e)
                 if attempt >= max_attempts:
                     break
                 await asyncio.sleep(base_delay)
 
-        return {"parsed": None, "_last_error": str(last_error) if last_error else "unknown"}
+        return {
+            "parsed": None,
+            "_last_error": str(last_error) if last_error else "unknown",
+            "_request_attempts": max_attempts,
+        }
+
+    def _usage_snapshot(self) -> Dict:
+        try:
+            return self.model_client.get_total_usage()
+        except (AttributeError, NotImplementedError):
+            return {}
 
     def _fallback_action(self, available_actions: List[Dict]) -> GameAction:
         chosen = next((a for a in available_actions if a["action_type"] != "abstain"), available_actions[0])

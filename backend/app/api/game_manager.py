@@ -111,6 +111,12 @@ class GameManager:
             "duration_seconds": None,
             "total_cost": 0.0,
             "player_costs": {},
+            "custom_model_players": [
+                config["player_id"] for config in player_configs
+                if config.get("base_url")
+            ],
+            "custom_tokens": 0,
+            "player_tokens": {},
             "sheriff_enabled": enable_sheriff,
             "sheriff_id": None,
             "personality_assignment": {
@@ -145,6 +151,13 @@ class GameManager:
             # 合成成本
             player_costs = self._collect_costs(orch)
             total_cost = sum(player_costs.values())
+            player_tokens = self._collect_tokens(orch)
+            custom_model_players = [
+                player_id
+                for player_id, config in orch.config.get("model_configs", {}).items()
+                if config.get("base_url")
+            ]
+            custom_tokens = sum(player_tokens.get(player_id, 0) for player_id in custom_model_players)
 
             # 持久化完整事件流（包含 AI 推理）
             await self._save_events(game_id, orch)
@@ -171,6 +184,9 @@ class GameManager:
                 "duration_seconds": result.get("duration_seconds"),
                 "total_cost": total_cost,
                 "player_costs": player_costs,
+                "custom_model_players": custom_model_players,
+                "custom_tokens": custom_tokens,
+                "player_tokens": player_tokens,
                 "summary": result.get("summary"),  # 原本漏存，导致 get_result() 永远返回 null
                 # 终局玩家状态(复盘用)
                 "role_assignment": final_role_assignment,
@@ -194,6 +210,34 @@ class GameManager:
     # ------------------------------------------------------------------
     # 状态查询
     # ------------------------------------------------------------------
+    async def pause_game(self, game_id: str) -> Dict:
+        record = self._load_record(game_id)
+        if record is None:
+            raise LookupError(f"游戏 {game_id} 不存在")
+        if record.get("status") == "paused":
+            return {"status": "paused"}
+        if record.get("status") not in {"initialized", "running"}:
+            raise ValueError("只有进行中的对局可以暂停")
+        orchestrator = self._orchestrators.get(game_id)
+        if not orchestrator:
+            raise ValueError("对局进程已丢失，无法暂停")
+        orchestrator.pause()
+        await self._update_status(game_id, status="paused")
+        return {"status": "paused"}
+
+    async def resume_game(self, game_id: str) -> Dict:
+        record = self._load_record(game_id)
+        if record is None:
+            raise LookupError(f"游戏 {game_id} 不存在")
+        if record.get("status") != "paused":
+            raise ValueError("该对局当前未暂停")
+        orchestrator = self._orchestrators.get(game_id)
+        if not orchestrator:
+            raise ValueError("对局进程已丢失，无法恢复")
+        orchestrator.resume()
+        await self._update_status(game_id, status="running")
+        return {"status": "running"}
+
     def get_status(self, game_id: str) -> Optional[Dict]:
         """
         构建 GameStatusResponse 数据。
@@ -215,6 +259,8 @@ class GameManager:
             "dead_players": record.get("dead_players", []),
             "winner": record.get("winner"),
             "total_cost": record.get("total_cost", 0.0),
+            "custom_model_players": record.get("custom_model_players", []),
+            "custom_tokens": record.get("custom_tokens", 0),
             "role_assignment": record.get("role_assignment", {}),
             "personality_assignment": record.get("personality_assignment", {}),
             "sheriff_enabled": record.get("sheriff_enabled", False),
@@ -223,7 +269,7 @@ class GameManager:
 
         # 运行中且有内存 orchestrator: 实时读 state(覆盖持久化的初始值)
         orch = self._orchestrators.get(game_id)
-        if record["status"] in ("initialized", "running") and orch and orch.game.state:
+        if record["status"] in ("initialized", "running", "paused") and orch and orch.game.state:
             state = orch.game.state
             status_data["current_phase"] = _PHASE_MAP.get(
                 state.phase.value, state.phase.value
@@ -235,6 +281,16 @@ class GameManager:
             status_data["sheriff_id"] = orch.game.sheriff_id
             # 运行中实时成本
             status_data["total_cost"] = sum(self._collect_costs(orch).values())
+            custom_players = [
+                player_id
+                for player_id, config in orch.config.get("model_configs", {}).items()
+                if config.get("base_url")
+            ]
+            player_tokens = self._collect_tokens(orch)
+            status_data["custom_model_players"] = custom_players
+            status_data["custom_tokens"] = sum(
+                player_tokens.get(player_id, 0) for player_id in custom_players
+            )
 
             # 获取角色分配信息（从 game.state.players）
             if state.players:
@@ -258,6 +314,9 @@ class GameManager:
             "duration_seconds": record.get("duration_seconds") or 0.0,
             "total_cost": record.get("total_cost", 0.0),
             "player_costs": record.get("player_costs", {}),
+            "custom_model_players": record.get("custom_model_players", []),
+            "custom_tokens": record.get("custom_tokens", 0),
+            "player_tokens": record.get("player_tokens", {}),
             "summary": record.get("summary"),
             "ai_review": record.get("ai_review"),
         }
@@ -384,6 +443,7 @@ class GameManager:
             ),
             "error": sum(1 for r in records if r["status"] == "error"),
             "total_cost": sum(r.get("total_cost", 0.0) for r in records),
+            "custom_tokens": sum(r.get("custom_tokens", 0) for r in records),
         }
 
     # ------------------------------------------------------------------
@@ -451,6 +511,16 @@ class GameManager:
             except Exception:
                 costs[agent_id] = 0.0
         return costs
+
+    def _collect_tokens(self, orch: GameOrchestrator) -> Dict[str, int]:
+        """从各 agent 的 model_client 聚合每个玩家 Token 用量。"""
+        tokens = {}
+        for agent_id, agent in orch.agents.items():
+            try:
+                tokens[agent_id] = int(agent.model_client.get_total_usage().get("total_tokens", 0))
+            except Exception:
+                tokens[agent_id] = 0
+        return tokens
 
     # ------------------------------------------------------------------
     # JSON 持久化(简单实现,数据量小)

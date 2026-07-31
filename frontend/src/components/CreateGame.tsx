@@ -1,7 +1,11 @@
 import { useState, useEffect } from 'react';
 import { apiClient } from '../api/client';
 import type { PlayerConfig, ProvidersResponse } from '../types/api';
-import { loadModelPresets, type ModelPreset } from '../utils/modelPresets';
+import {
+  loadModelPresets,
+  requiresApiKey,
+  type ModelPreset,
+} from '../utils/modelPresets';
 import {
   REASONING_LABELS,
   TONE_LABELS,
@@ -244,6 +248,13 @@ export default function CreateGame({ onGameCreated }: Props) {
         }
         if (!config.model?.trim()) {
           errors[index] = (errors[index] || '') + (errors[index] ? '；' : '') + '模型名称不能为空';
+        }
+        if (
+          requiresApiKey(config.api_format, config.base_url)
+          && !config.api_key?.trim()
+        ) {
+          errors[index] = (errors[index] || '') + (errors[index] ? '；' : '')
+            + 'Anthropic 远程接口缺少 API Key，请在设置中删除并重新添加预设';
         }
       } else if (!config.model) {
         errors[index] = '请选择模型';

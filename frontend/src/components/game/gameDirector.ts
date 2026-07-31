@@ -24,6 +24,7 @@ const NOTABLE_EVENTS = new Set([
   'badge_transferred',
   'badge_destroyed',
   'speech_order_decided',
+  'agent_fallback',
 ]);
 
 function dataOf(event: GameEvent): Record<string, unknown> {

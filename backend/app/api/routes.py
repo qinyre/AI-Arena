@@ -73,6 +73,26 @@ async def get_game_result(game_id: str):
     return result
 
 
+@router.post("/{game_id}/pause")
+async def pause_game(game_id: str):
+    try:
+        return await game_manager.pause_game(game_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/{game_id}/resume")
+async def resume_game(game_id: str):
+    try:
+        return await game_manager.resume_game(game_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @router.post("/{game_id}/review", response_model=GameReview)
 async def generate_game_review(game_id: str, request: GameReviewRequest):
     """调用用户选择的模型生成并保存终局复盘。"""

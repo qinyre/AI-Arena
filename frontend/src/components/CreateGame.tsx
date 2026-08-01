@@ -12,6 +12,7 @@ import {
   loadAllPersonalityPresets,
   personalityProfile,
 } from '../utils/personalityPresets';
+import { AvatarPicker, LobeAvatar } from './LobeAvatar';
 
 interface Props {
   onGameCreated: (gameId: string) => void;
@@ -35,31 +36,55 @@ const QUICK_START_PRESETS = [
     name: 'DeepSeek V4 Flash · 经济',
     provider: 'deepseek',
     model: 'deepseek-v4-flash',
-    description: '极低成本 $0.28/1M，国内直连',
+    description: '官方低价模型 $0.14/$0.28',
   },
   {
-    name: 'GPT-5 Nano · 快速',
+    name: 'GPT-5.6 Luna · 经济',
     provider: 'openai',
-    model: 'gpt-5-nano',
-    description: 'OpenAI 最快模型 $0.05/1M',
+    model: 'gpt-5.6-luna',
+    description: 'GPT-5.6 经济档 $0.20/$1.20',
   },
   {
     name: 'Claude Haiku 4.5 · 均衡',
     provider: 'anthropic',
     model: 'claude-haiku-4-5',
-    description: 'Anthropic 快速模型 $0.8/1M',
+    description: 'Anthropic 快速模型 $1/$5',
   },
   {
     name: 'Gemini 3.6 Flash · 长文本',
     provider: 'gemini',
     model: 'gemini-3.6-flash',
-    description: '1M 上下文 $0.3/1M',
+    description: '最新稳定版，1M 上下文',
   },
   {
-    name: 'Ollama DeepSeek-R1 · 本地',
-    provider: 'ollama',
-    model: 'deepseek-r1',
-    description: '完全免费，需本地运行 Ollama',
+    name: 'Qwen3.7 Flash · 经济',
+    provider: 'qwen',
+    model: 'qwen3.7-flash',
+    description: '国内直连，适合批量对局',
+  },
+  {
+    name: 'Kimi K2.6 · 通用',
+    provider: 'kimi',
+    model: 'kimi-k2.6',
+    description: '多模态与推理，256K 上下文',
+  },
+  {
+    name: 'MiMo V2.5 · 经济',
+    provider: 'mimo',
+    model: 'mimo-v2.5',
+    description: '全模态模型 $0.14/$0.28',
+  },
+  {
+    name: 'MiniMax M3 · 长文本',
+    provider: 'minimax',
+    model: 'MiniMax-M3',
+    description: 'Agent 模型，1M 上下文',
+  },
+  {
+    name: 'GLM-4.7 Flash · 免费',
+    provider: 'glm',
+    model: 'glm-4.7-flash',
+    description: '官方免费模型，200K 上下文',
   },
 ];
 
@@ -76,6 +101,8 @@ export default function CreateGame({ onGameCreated }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<Record<number, string>>({});
+  const [avatarPickerIndex, setAvatarPickerIndex] = useState<number | null>(null);
+  const [expandedPlayerIndex, setExpandedPlayerIndex] = useState<number | null>(0);
 
   // 启动时从后端拉取 provider 列表（单一数据源：后端 config/models.yaml）
   useEffect(() => {
@@ -111,6 +138,7 @@ export default function CreateGame({ onGameCreated }: Props) {
       if (preset) {
         newConfigs[index] = {
           player_id: newConfigs[index].player_id,
+          avatar_id: newConfigs[index].avatar_id,
           personality_id: newConfigs[index].personality_id,
           personality: newConfigs[index].personality,
           provider: value,
@@ -122,6 +150,7 @@ export default function CreateGame({ onGameCreated }: Props) {
       } else if (value === CUSTOM_PROVIDER) {
         newConfigs[index] = {
           player_id: newConfigs[index].player_id,
+          avatar_id: newConfigs[index].avatar_id,
           personality_id: newConfigs[index].personality_id,
           personality: newConfigs[index].personality,
           provider: CUSTOM_PROVIDER,
@@ -133,6 +162,7 @@ export default function CreateGame({ onGameCreated }: Props) {
         const models = providersData?.providers[value]?.models ?? [];
         newConfigs[index] = {
           player_id: newConfigs[index].player_id,
+          avatar_id: newConfigs[index].avatar_id,
           personality_id: newConfigs[index].personality_id,
           personality: newConfigs[index].personality,
           provider: value,
@@ -157,6 +187,7 @@ export default function CreateGame({ onGameCreated }: Props) {
   const applyQuickStart = (preset: typeof QUICK_START_PRESETS[0]) => {
     const newConfigs = Array.from({ length: playerConfigs.length }, (_, i) => ({
       player_id: `AI-${i + 1}`,
+      avatar_id: playerConfigs[i]?.avatar_id,
       personality_id: playerConfigs[i]?.personality_id,
       personality: playerConfigs[i]?.personality,
       provider: preset.provider,
@@ -170,6 +201,7 @@ export default function CreateGame({ onGameCreated }: Props) {
   const applyModelPreset = (preset: ModelPreset) => {
     setPlayerConfigs(Array.from({ length: playerConfigs.length }, (_, i) => ({
       player_id: `AI-${i + 1}`,
+      avatar_id: playerConfigs[i]?.avatar_id,
       personality_id: playerConfigs[i]?.personality_id,
       personality: playerConfigs[i]?.personality,
       provider: `${PRESET_PROVIDER_PREFIX}${preset.id}`,
@@ -273,6 +305,8 @@ export default function CreateGame({ onGameCreated }: Props) {
     }
 
     setValidationErrors(errors);
+    const firstInvalid = Object.keys(errors)[0];
+    if (firstInvalid !== undefined) setExpandedPlayerIndex(Number(firstInvalid));
     return Object.keys(errors).length === 0;
   };
 
@@ -293,6 +327,7 @@ export default function CreateGame({ onGameCreated }: Props) {
         if (c.provider === CUSTOM_PROVIDER || c.provider?.startsWith(PRESET_PROVIDER_PREFIX)) {
           return {
             player_id: c.player_id,
+            ...(c.avatar_id ? { avatar_id: c.avatar_id } : {}),
             api_format: c.api_format,
             base_url: c.base_url,
             model: c.model,
@@ -303,6 +338,7 @@ export default function CreateGame({ onGameCreated }: Props) {
         }
         return {
           player_id: c.player_id,
+          ...(c.avatar_id ? { avatar_id: c.avatar_id } : {}),
           provider: c.provider,
           model: c.model,
           ...(c.personality ? { personality: c.personality } : {}),
@@ -383,13 +419,13 @@ export default function CreateGame({ onGameCreated }: Props) {
         {/* 快速开始预设 */}
         <div className="mb-6 border border-white/10 bg-black/10 p-4">
           <h3 className="mb-3 font-display text-sm text-paper/85">快速布置席位</h3>
-          <div className="flex flex-wrap gap-px">
+          <div className="custom-scrollbar grid auto-cols-[minmax(175px,72vw)] grid-flow-col gap-px overflow-x-auto pb-2 sm:grid-flow-row sm:grid-cols-2 sm:overflow-visible sm:pb-0 lg:grid-cols-3 xl:grid-cols-5">
             {QUICK_START_PRESETS.map((preset) => (
               <button
                 key={preset.model}
                 type="button"
                 onClick={() => applyQuickStart(preset)}
-                className="min-w-[155px] flex-1 bg-stage-deep px-3 py-2.5 text-left transition-colors hover:bg-antique-gold/[0.07]"
+                className="snap-start bg-stage-deep px-3 py-2.5 text-left transition-colors hover:bg-antique-gold/[0.07]"
               >
                 <span className="block font-label text-xs text-paper/85">{preset.name}</span>
                 <span className="mt-0.5 block text-[10px] text-ink-muted">{preset.description}</span>
@@ -400,8 +436,9 @@ export default function CreateGame({ onGameCreated }: Props) {
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">板型</label>
+            <label htmlFor="game-board" className="block text-sm font-medium text-gray-300 mb-2">板型</label>
             <select
+              id="game-board"
               value={boardId}
               onChange={(e) => changeBoard(e.target.value)}
               className="select w-full"
@@ -440,18 +477,19 @@ export default function CreateGame({ onGameCreated }: Props) {
               <button
                 type="button"
                 onClick={() => randomizePersonalities()}
-                className="inline-flex items-center gap-1.5 border border-white/15 px-3 py-1.5 font-label text-[10px] text-paper/65 transition-colors hover:border-antique-gold/45 hover:text-antique-gold"
+                className="inline-flex min-h-11 items-center gap-1.5 border border-white/15 px-3 py-1.5 font-label text-[10px] text-paper/65 transition-colors hover:border-antique-gold/45 hover:text-antique-gold"
               >
                 随机分配性格
               </button>
             </div>
-            <div className="grid gap-4 xl:grid-cols-2">
+            <div className="grid gap-4 lg:grid-cols-2">
               {playerConfigs.map((config, index) => {
                 const provider = config.provider!;
                 const provInfo = isCustom(provider)
                   ? null
                   : providersData.providers[provider];
                 const hasError = validationErrors[index];
+                const inputPrefix = `player-${index}`;
                 return (
                   <div
                     key={index}
@@ -459,15 +497,57 @@ export default function CreateGame({ onGameCreated }: Props) {
                       hasError ? 'border-crimson' : 'border-white/[0.08]'
                     }`}
                   >
+                    <button
+                      type="button"
+                      onClick={() => setExpandedPlayerIndex((current) => current === index ? null : index)}
+                      className="flex min-h-11 w-full items-center gap-3 text-left lg:hidden"
+                      aria-expanded={expandedPlayerIndex === index}
+                    >
+                      <LobeAvatar
+                        avatarId={config.avatar_id}
+                        playerId={config.player_id}
+                        className="h-9 w-9 rounded-md"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <b className="block truncate font-display text-paper">{config.player_id}</b>
+                        <span className="block truncate text-xs text-ink-muted">{config.model}</span>
+                      </span>
+                      {hasError && <span className="text-xs text-crimson">需修正</span>}
+                      <span className="material-symbols-outlined text-[18px] text-ink-muted">
+                        {expandedPlayerIndex === index ? 'expand_less' : 'expand_more'}
+                      </span>
+                    </button>
+                    <div className={`${expandedPlayerIndex === index ? 'block' : 'hidden'} space-y-3 lg:block`}>
                     {hasError && (
                       <div className="text-sm text-red-400 bg-red-900/30 px-3 py-2 rounded">
                         {hasError}
                       </div>
                     )}
-                    <div className="grid items-end gap-3 sm:grid-cols-[6rem_minmax(0,1fr)_minmax(0,1fr)]">
+                    <div className="grid items-end gap-3 sm:grid-cols-[4rem_6rem_minmax(0,1fr)_minmax(0,1fr)]">
                       <div>
-                        <label className="block text-sm text-gray-400 mb-1">玩家</label>
+                        <span className="mb-1 block text-sm text-gray-400">头像</span>
+                        <button
+                          type="button"
+                          onClick={() => setAvatarPickerIndex(index)}
+                          className="group relative grid h-11 w-11 place-items-center border border-white/15 bg-black/20 transition-colors hover:border-antique-gold/55"
+                          aria-label={`选择 ${config.player_id} 的头像`}
+                          title="选择头像"
+                        >
+                          <LobeAvatar
+                            avatarId={config.avatar_id}
+                            playerId={config.player_id}
+                            className="h-8 w-8 rounded-md"
+                          />
+                          <span className="material-symbols-outlined absolute -bottom-1.5 -right-1.5 grid h-4 w-4 place-items-center rounded-full bg-antique-gold text-[10px] text-stage-deep">
+                            edit
+                          </span>
+                        </button>
+                      </div>
+
+                      <div>
+                        <label htmlFor={`${inputPrefix}-id`} className="block text-sm text-gray-400 mb-1">玩家</label>
                         <input
+                          id={`${inputPrefix}-id`}
                           type="text"
                           value={config.player_id}
                           onChange={(e) => updatePlayer(index, 'player_id', e.target.value)}
@@ -477,14 +557,17 @@ export default function CreateGame({ onGameCreated }: Props) {
                       </div>
 
                       <div className="flex-1">
-                        <label className="block text-sm text-gray-400 mb-1">提供商</label>
+                        <label htmlFor={`${inputPrefix}-provider`} className="block text-sm text-gray-400 mb-1">提供商</label>
                         <select
+                          id={`${inputPrefix}-provider`}
                           value={provider}
                           onChange={(e) => updatePlayer(index, 'provider', e.target.value)}
                           className="select w-full"
                         >
                           {providerNames.map((name) => (
-                            <option key={name} value={name}>{name}</option>
+                            <option key={name} value={name}>
+                              {providersData.providers[name].display_name || name}
+                            </option>
                           ))}
                           {modelPresets.length > 0 && (
                             <optgroup label="我的预设">
@@ -503,9 +586,10 @@ export default function CreateGame({ onGameCreated }: Props) {
                       </div>
 
                       <div className="flex-1">
-                        <label className="block text-sm text-gray-400 mb-1">模型</label>
+                        <label htmlFor={`${inputPrefix}-model`} className="block text-sm text-gray-400 mb-1">模型</label>
                         {isCustom(provider) ? (
                           <input
+                            id={`${inputPrefix}-model`}
                             type="text"
                             value={config.model}
                             onChange={(e) => updatePlayer(index, 'model', e.target.value)}
@@ -515,6 +599,7 @@ export default function CreateGame({ onGameCreated }: Props) {
                           />
                         ) : (
                           <select
+                            id={`${inputPrefix}-model`}
                             value={config.model}
                             onChange={(e) => updatePlayer(index, 'model', e.target.value)}
                             className="select w-full"
@@ -531,8 +616,9 @@ export default function CreateGame({ onGameCreated }: Props) {
                     {isCustom(provider) && (
                       <div className="grid gap-3 border-t border-gray-600 pt-2 sm:grid-cols-2">
                         <div>
-                          <label className="block text-sm text-gray-400 mb-1">接口格式</label>
+                          <label htmlFor={`${inputPrefix}-format`} className="block text-sm text-gray-400 mb-1">接口格式</label>
                           <select
+                            id={`${inputPrefix}-format`}
                             value={config.api_format || 'openai'}
                             onChange={(e) => updatePlayer(index, 'api_format', e.target.value)}
                             className="select w-full"
@@ -542,8 +628,9 @@ export default function CreateGame({ onGameCreated }: Props) {
                           </select>
                         </div>
                         <div className="flex-1">
-                          <label className="block text-sm text-gray-400 mb-1">Base URL</label>
+                          <label htmlFor={`${inputPrefix}-url`} className="block text-sm text-gray-400 mb-1">Base URL</label>
                           <input
+                            id={`${inputPrefix}-url`}
                             type="text"
                             value={config.base_url || ''}
                             onChange={(e) => updatePlayer(index, 'base_url', e.target.value)}
@@ -553,10 +640,11 @@ export default function CreateGame({ onGameCreated }: Props) {
                           />
                         </div>
                         <div className="flex-1">
-                          <label className="block text-sm text-gray-400 mb-1">
+                          <label htmlFor={`${inputPrefix}-key`} className="block text-sm text-gray-400 mb-1">
                             API Key <span className="text-gray-500">(可选)</span>
                           </label>
                           <input
+                            id={`${inputPrefix}-key`}
                             type="password"
                             value={config.api_key || ''}
                             onChange={(e) => updatePlayer(index, 'api_key', e.target.value)}
@@ -569,11 +657,12 @@ export default function CreateGame({ onGameCreated }: Props) {
 
                     <div className="grid grid-cols-[6rem_minmax(0,1fr)_2.25rem] items-center gap-3 border-t border-gray-600/70 pt-3">
                       <div>
-                        <span className="block text-sm text-gray-400">玩家性格</span>
+                        <label htmlFor={`${inputPrefix}-personality`} className="block text-sm text-gray-400">玩家性格</label>
                         <span className="text-[10px] text-gray-500">影响表达与倾向</span>
                       </div>
                       <div className="min-w-0">
                         <select
+                          id={`${inputPrefix}-personality`}
                           value={config.personality_id || ''}
                           onChange={(e) => applyPersonality(index, e.target.value)}
                           className="select w-full"
@@ -605,23 +694,36 @@ export default function CreateGame({ onGameCreated }: Props) {
                         onClick={() => randomizePersonalities(index)}
                         aria-label={`随机设置 ${config.player_id} 的性格`}
                         title="随机性格"
-                        className="grid h-9 w-9 shrink-0 place-items-center rounded border border-[#c4b5fd]/25 text-[#c4b5fd]/65 transition-colors hover:border-[#c4b5fd]/60 hover:bg-[#c4b5fd]/10 hover:text-[#e7e0ff]"
+                        className="grid h-11 w-11 shrink-0 place-items-center rounded border border-[#c4b5fd]/25 text-[#c4b5fd]/65 transition-colors hover:border-[#c4b5fd]/60 hover:bg-[#c4b5fd]/10 hover:text-[#e7e0ff]"
                       >
                         <span className="material-symbols-outlined text-[17px]">casino</span>
                       </button>
+                    </div>
                     </div>
                   </div>
                 );
               })}
             </div>
+            {avatarPickerIndex !== null && playerConfigs[avatarPickerIndex] && (
+              <AvatarPicker
+                value={playerConfigs[avatarPickerIndex].avatar_id}
+                playerId={playerConfigs[avatarPickerIndex].player_id}
+                onSelect={(avatarId) => {
+                  updatePlayer(avatarPickerIndex, 'avatar_id', avatarId);
+                  setAvatarPickerIndex(null);
+                }}
+                onClose={() => setAvatarPickerIndex(null)}
+              />
+            )}
           </div>
 
           {/* Seed */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label htmlFor="game-seed" className="block text-sm font-medium text-gray-300 mb-2">
               随机种子（可选，用于可复现）
             </label>
             <input
+              id="game-seed"
               type="number"
               value={seed || ''}
               onChange={(e) => setSeed(e.target.value ? parseInt(e.target.value) : undefined)}

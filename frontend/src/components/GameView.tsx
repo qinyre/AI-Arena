@@ -104,6 +104,7 @@ export default function GameView({ gameId }: Props) {
     displayEvents,
     displayStatus?.current_phase,
     status?.status === 'running' || (isCompleted && replayCursor !== null),
+    directorEnabled,
   );
 
   const changeDirector = (enabled: boolean) => {
@@ -162,6 +163,7 @@ export default function GameView({ gameId }: Props) {
         enabled={directorEnabled}
         roleAssignment={displayStatus?.role_assignment}
         onActiveChange={setCinematicActive}
+        onActionStart={audio.playCinematicVoice}
       />
 
       {/* 顶栏 */}
@@ -219,10 +221,22 @@ export default function GameView({ gameId }: Props) {
         />
       )}
 
+      <aside className="arena-rail overflow-hidden rounded-sm p-3 xl:hidden">
+        <PlayerTable
+          players={displayPlayers}
+          currentSpeaker={displaySpeaker}
+          selectedPlayer={selectedPlayer}
+          onSelectPlayer={(id) => setSelectedPlayer((current) => current === id ? null : id)}
+          attention={attention}
+          compact
+          detailsIdPrefix="mobile-personality"
+        />
+      </aside>
+
       {/* 剧场环绕:左玩家栏 | 中央时间线 | 右玩家栏
           三栏固定高度、各自内部滚动,不被下方复盘挤压 */}
       <div ref={stageRef} className={cn(
-        'relative grid min-h-[480px] grid-cols-1 gap-3 lg:grid-cols-[minmax(230px,.82fr)_minmax(0,2.3fr)_minmax(230px,.82fr)]',
+        'relative grid min-h-[480px] grid-cols-1 gap-3 xl:grid-cols-[220px_minmax(0,1fr)_220px] 2xl:grid-cols-[240px_minmax(0,1fr)_240px]',
         isCompleted ? 'h-[calc(100vh-330px)]' : 'h-[calc(100vh-180px)]',
       )}>
         <VoteFlowOverlay
@@ -232,7 +246,7 @@ export default function GameView({ gameId }: Props) {
         />
 
         {/* 左栏:参与者(前一半) */}
-        <aside className="arena-rail hidden overflow-hidden rounded-sm p-3 lg:flex lg:flex-col">
+        <aside className="arena-rail hidden overflow-hidden rounded-sm p-3 xl:flex xl:flex-col">
           <PlayerTable
             players={leftPlayers}
             currentSpeaker={displaySpeaker}
@@ -254,7 +268,7 @@ export default function GameView({ gameId }: Props) {
         </main>
 
         {/* 右栏:参与者(后一半) */}
-        <aside className="arena-rail hidden overflow-hidden rounded-sm p-3 lg:flex lg:flex-col">
+        <aside className="arena-rail hidden overflow-hidden rounded-sm p-3 xl:flex xl:flex-col">
           <PlayerTable
             players={rightPlayers}
             currentSpeaker={displaySpeaker}

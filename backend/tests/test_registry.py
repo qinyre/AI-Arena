@@ -2,7 +2,7 @@
 Registry & multi-provider 单元测试 — 不依赖真实 API。
 
 验证：
-1. registry 能从 yaml 正确加载 7 个 provider
+1. registry 能从 yaml 正确加载 10 个 provider
 2. 每个 provider 的 protocol / api_base / 模型元数据正确
 3. 成本计算用 per_1m 单位正确
 4. orchestrator 的 client 工厂能正确路由所有 provider
@@ -18,7 +18,7 @@ import pytest
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from app.llm.registry import load_registry, get_registry, get_model_info
-from app.llm.openai_client import OpenAICompatibleClient, OpenAIClient, OllamaClient
+from app.llm.openai_client import OpenAICompatibleClient, OpenAIClient
 from app.llm.claude_client import ClaudeClient
 
 
@@ -31,9 +31,12 @@ def registry():
 class TestRegistryLoading:
     """registry 加载"""
 
-    def test_all_seven_providers_loaded(self, registry):
-        """7 个 provider 全部加载"""
-        expected = {"deepseek", "openai", "anthropic", "gemini", "qwen", "siliconflow", "ollama"}
+    def test_all_ten_providers_loaded(self, registry):
+        """10 个 provider 全部加载"""
+        expected = {
+            "deepseek", "openai", "anthropic", "gemini", "qwen", "kimi",
+            "mimo", "minimax", "glm", "siliconflow",
+        }
         assert set(registry.providers.keys()) == expected
 
     def test_default_is_deepseek(self, registry):
@@ -54,6 +57,16 @@ class TestRegistryLoading:
         assert registry["gemini"].api_base.endswith("/"), \
             "Gemini base_url 必须以 / 结尾，否则 OpenAI SDK 会报错"
 
+    def test_supplier_names_and_current_model_lines(self, registry):
+        assert registry["kimi"].display_name == "Moonshot AI（月之暗面）"
+        assert "kimi-k2.7-code" in registry["kimi"].models
+        assert {"MiniMax-M2.7", "MiniMax-M2.7-highspeed"} <= registry["minimax"].models.keys()
+        assert registry["glm"].display_name == "Zhipu AI（智谱）"
+        assert {
+            "glm-5.1", "glm-5-turbo", "glm-5", "glm-4.7",
+            "glm-4.7-flashx", "glm-4.5-air",
+        } <= registry["glm"].models.keys()
+
 
 class TestModelInfo:
     """模型元数据查询"""
@@ -61,9 +74,9 @@ class TestModelInfo:
     def test_get_model_info_returns_correct_costs(self, registry):
         """成本字段正确（每 1M token）"""
         info = get_model_info("deepseek", "deepseek-v4-flash")
-        assert info.cost_in == 0.28
-        assert info.cost_out == 0.42
-        assert info.context == 64000
+        assert info.cost_in == 0.14
+        assert info.cost_out == 0.28
+        assert info.context == 1000000
 
     def test_get_model_info_nonexistent_returns_none(self, registry):
         """查询不存在的模型返回 None"""
@@ -75,26 +88,19 @@ class TestModelInfo:
         for name, prov in registry.providers.items():
             assert len(prov.models) > 0, f"{name} 没有配置任何模型"
 
-    def test_ollama_has_zero_cost(self, registry):
-        """Ollama 本地模型成本为 0"""
-        info = get_model_info("ollama", "llama3.3")
-        assert info.cost_in == 0.0
-        assert info.cost_out == 0.0
-
-
 class TestCostCalculation:
     """成本计算（per 1M token 单位）"""
 
     def test_openai_compatible_cost(self):
         """OpenAICompatibleClient 成本按 1M token 计算"""
         client = OpenAICompatibleClient(
-            api_key="fake", model="gpt-5-mini",
-            cost_per_1m_input=0.25, cost_per_1m_output=2.0
+            api_key="fake", model="gpt-5.6-luna",
+            cost_per_1m_input=0.2, cost_per_1m_output=1.2
         )
         # 1000 input + 500 output tokens
-        # = 0.25 * 1000/1e6 + 2.0 * 500/1e6 = 0.00025 + 0.001 = 0.00125
+        # = 0.2 * 1000/1e6 + 1.2 * 500/1e6 = 0.0002 + 0.0006 = 0.0008
         cost = client.estimate_cost(1000, 500)
-        assert abs(cost - 0.00125) < 1e-9
+        assert abs(cost - 0.0008) < 1e-9
 
     def test_claude_cost(self):
         """ClaudeClient 成本按 1M token 计算"""
@@ -106,12 +112,7 @@ class TestCostCalculation:
         cost = client.estimate_cost(1_000_000, 1_000_000)
         assert abs(cost - 18.0) < 1e-6
 
-    def test_ollama_client_is_free(self):
-        """OllamaClient 成本恒为 0"""
-        client = OllamaClient(model="llama3.3")
-        assert client.estimate_cost(10_000_000, 10_000_000) == 0.0
-
-    def test_longcat_only_skips_native_json_mode(self, monkeypatch):
+    def test_provider_specific_compatibility(self, monkeypatch):
         captured = []
 
         async def fake_create(**kwargs):
@@ -128,11 +129,19 @@ class TestCostCalculation:
         client = OpenAICompatibleClient(api_key="fake", model="LongCat-2.0")
         monkeypatch.setattr(client.client.chat.completions, "create", fake_create)
         asyncio.run(client.generate("test", json_mode=True))
-        client.model = "gpt-5-mini"
+        client.model = "MiniMax-M3"
         asyncio.run(client.generate("test", json_mode=True))
+        client.model = "kimi-k3"
+        asyncio.run(client.generate("test", temperature=0.3))
+        client.model = "mimo-v2.5"
+        asyncio.run(client.generate("test"))
 
         assert "response_format" not in captured[0]
-        assert captured[1]["response_format"] == {"type": "json_object"}
+        assert "response_format" not in captured[1]
+        assert captured[1]["extra_body"] == {"reasoning_split": True}
+        assert captured[2]["temperature"] == 1.0
+        assert "max_completion_tokens" in captured[3]
+        assert "max_tokens" not in captured[3]
 
 
 class TestClientFactory:
@@ -149,18 +158,23 @@ class TestClientFactory:
     def _fake_keys(self, monkeypatch):
         """为所有 provider 注入 fake key，避免缺 key 报错"""
         for env in ["DEEPSEEK_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
-                    "GEMINI_API_KEY", "DASHSCOPE_API_KEY", "SILICONFLOW_API_KEY"]:
+                    "GEMINI_API_KEY", "DASHSCOPE_API_KEY", "MOONSHOT_API_KEY",
+                    "MIMO_API_KEY", "MINIMAX_API_KEY", "ZHIPU_API_KEY",
+                    "SILICONFLOW_API_KEY"]:
             monkeypatch.setenv(env, f"fake-{env.lower()}")
 
     def test_all_openai_compatible_providers_route_correctly(self, orchestrator, registry):
-        """6 个 openai 协议 provider 都路由到 OpenAICompatibleClient"""
+        """9 个 openai 协议 provider 都路由到 OpenAICompatibleClient"""
         cases = [
             ("deepseek", "deepseek-v4-flash"),
-            ("openai", "gpt-5-mini"),
+            ("openai", "gpt-5.6-luna"),
             ("gemini", "gemini-3.6-flash"),
-            ("qwen", "qwen-plus"),
-            ("siliconflow", "Qwen/Qwen3-235B-A22B"),
-            ("ollama", "llama3.3"),
+            ("qwen", "qwen3.7-flash"),
+            ("kimi", "kimi-k2.6"),
+            ("mimo", "mimo-v2.5"),
+            ("minimax", "MiniMax-M3"),
+            ("glm", "glm-4.7-flash"),
+            ("siliconflow", "Qwen/Qwen3.6-35B-A3B"),
         ]
         for prov, model in cases:
             client = orchestrator._create_client({"provider": prov, "model": model}, registry)
@@ -222,14 +236,6 @@ class TestClientFactory:
             orchestrator._create_client(
                 {"provider": "deepseek", "model": "deepseek-v4-flash"}, registry
             )
-
-    def test_ollama_works_without_key(self, orchestrator, registry):
-        """Ollama 无需 key 也能创建 client"""
-        client = orchestrator._create_client(
-            {"provider": "ollama", "model": "llama3.3"}, registry
-        )
-        assert isinstance(client, OpenAICompatibleClient)
-
 
 class TestExplicitConfig:
     """用户直填路径：api_format + base_url + model（不走 yaml 白名单）"""
@@ -346,7 +352,7 @@ class TestBackwardCompatibility:
     def test_openai_client_alias_still_works(self):
         """旧代码 import OpenAIClient 仍可用（别名指向 OpenAICompatibleClient）"""
         assert OpenAIClient is OpenAICompatibleClient
-        client = OpenAIClient(api_key="fake", model="gpt-5-mini")
+        client = OpenAIClient(api_key="fake", model="gpt-5.6-luna")
         assert isinstance(client, OpenAICompatibleClient)
 
 

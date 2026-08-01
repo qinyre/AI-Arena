@@ -45,7 +45,7 @@ export default function GameHeader({ gameId, status, controls }: Props) {
   const customModelPlayers = status.custom_model_players ?? [];
 
   return (
-    <header className="glass-panel flex items-center justify-between gap-4 px-4 py-3">
+    <header className="glass-panel flex flex-wrap items-center justify-between gap-3 px-4 py-3">
       <div className="flex min-w-0 items-center gap-3">
         <div className="border-r border-white/10 pr-3 text-center">
           <div className="font-display text-xl leading-none text-paper">{status.current_round ?? '—'}</div>
@@ -57,7 +57,7 @@ export default function GameHeader({ gameId, status, controls }: Props) {
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-3">
+      <div className="flex w-full flex-wrap items-center justify-end gap-1 sm:w-auto sm:shrink-0 sm:gap-3">
         {controls}
 
         {status.sheriff_enabled && (

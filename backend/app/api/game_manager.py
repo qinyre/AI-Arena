@@ -81,7 +81,9 @@ class GameManager:
         players = [c["player_id"] for c in player_configs]
         # orchestrator 期望 model_configs 以 player_id 为 key
         model_configs = {
-            c["player_id"]: {k: v for k, v in c.items() if k != "player_id"}
+            c["player_id"]: {
+                k: v for k, v in c.items() if k not in {"player_id", "avatar_id"}
+            }
             for c in player_configs
         }
 
@@ -123,6 +125,11 @@ class GameManager:
                 config["player_id"]: config["personality"]
                 for config in player_configs
                 if config.get("personality")
+            },
+            "avatar_assignment": {
+                config["player_id"]: config["avatar_id"]
+                for config in player_configs
+                if config.get("avatar_id")
             },
         }
         await self._save_record(record)
@@ -263,6 +270,7 @@ class GameManager:
             "custom_tokens": record.get("custom_tokens", 0),
             "role_assignment": record.get("role_assignment", {}),
             "personality_assignment": record.get("personality_assignment", {}),
+            "avatar_assignment": record.get("avatar_assignment", {}),
             "sheriff_enabled": record.get("sheriff_enabled", False),
             "sheriff_id": record.get("sheriff_id"),
         }

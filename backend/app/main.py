@@ -97,6 +97,7 @@ async def list_providers():
     providers = {}
     for name, prov in registry.providers.items():
         providers[name] = {
+            "display_name": prov.display_name,
             "protocol": prov.protocol,
             "api_base": prov.api_base,
             "needs_api_key": bool(prov.api_key_env),

@@ -1,0 +1,26 @@
+{
+  "generator": "ElevenLabs",
+  "targetDirectory": "frontend/public/audio/voice",
+  "items": [
+    { "kind": "wolf", "text": "", "file": "werewolf-action.mp3", "voice": "SFX · 狼嚎", "status": "ready" },
+    { "kind": "seer", "text": "Let me see your soul.", "file": "seer-investigate.mp3", "voice": "God - Deep, Powerful and Authoritative", "status": "ready" },
+    { "kind": "witch-heal", "text": "Live again.", "file": "witch-heal.mp3", "voice": "Charlotte - Warm, Clear, Modern, Distinctive", "status": "ready" },
+    { "kind": "witch-poison", "text": "Your time has come.", "file": "witch-poison.mp3", "voice": "Lilith Nightfal - Deep tone mysterious", "status": "ready" },
+    { "kind": "guard", "text": "None shall pass.", "file": "guard-action.mp3", "voice": "guard", "status": "ready" },
+    { "kind": "hunter-shot", "text": "This one's for you.", "file": "hunter-shot.mp3", "voice": "Sully - Mature, Deep and Intriguing", "status": "ready" },
+    { "kind": "wolf-kill", "text": "The hunt is over.", "file": "werewolf-kill.mp3", "voice": "Viraj - Intimidating and Suspenseful", "status": "ready" },
+    { "kind": "wolf-king", "text": "The king takes one with him.", "file": "wolf-king-shot.mp3", "voice": "Brian Nguyen - Balanced, Wise and Calm", "status": "ready" },
+    { "kind": "white-wolf", "text": "Let the whole village burn.", "file": "white-wolf-self-destruct.mp3", "voice": "Titan - Deep, Bold, and Powerful", "status": "ready" },
+    { "kind": "wolf-explode", "text": "Night falls now.", "file": "wolf-self-destruct.mp3", "voice": "Morgan - Deep, Powerful, and Confident", "status": "ready" },
+    { "kind": "idiot", "text": "You cannot exile a fool.", "file": "idiot-reveal.mp3", "voice": "Drew - Casual, Curious & Fun", "status": "ready" },
+    { "kind": "sheriff-opening", "text": "Step forward and claim the badge.", "file": "sheriff-campaign-start.mp3", "voice": "Oliver - Clean, British and Steady", "status": "ready" },
+    { "kind": "sheriff", "text": "The badge has chosen.", "file": "sheriff-elected.mp3", "voice": "Elariel X – Epic Queen Ethereal", "status": "ready" },
+    { "kind": "badge", "text": "Carry my badge.", "file": "badge-transfer.mp3", "voice": "David - Deep Audiobook & Documentary", "status": "ready" },
+    { "kind": "badge-destroyed", "text": "The badge dies with me.", "file": "badge-destroyed.mp3", "voice": "Julian - Deep, Rich and Mature", "status": "ready" },
+    { "kind": "exile", "text": "The village has spoken.", "file": "player-exiled.mp3", "voice": "Adam - Distinct, Deep and Engaging", "status": "ready" },
+    { "kind": "tie", "text": "The judgment is suspended.", "file": "vote-tie.mp3", "voice": "Dan - Captivating, Engaging and Inviting", "status": "ready" },
+    { "kind": "last-words", "text": "Speak your final words.", "file": "last-words.mp3", "voice": "Martin Osborne - Mature and Polished", "status": "ready" },
+    { "kind": "victory-good", "text": "Dawn belongs to the village.", "file": "victory-good.mp3", "voice": "Violetta - Ringing, Bright and Joyful", "status": "ready" },
+    { "kind": "victory-wolf", "text": "The long night belongs to us.", "file": "victory-wolf.mp3", "voice": "Christopher - Smooth, Deep and Engaging", "status": "ready" }
+  ]
+}

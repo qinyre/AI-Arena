@@ -2,7 +2,7 @@
 Anthropic Claude API Client Implementation
 
 Claude 是项目中唯一使用非 OpenAI 协议的 provider，故单独实现。
-其余 provider（OpenAI/DeepSeek/Gemini/Qwen/SiliconFlow/Ollama）
+其余 provider（OpenAI/DeepSeek/Gemini/Qwen/Kimi/MiMo/MiniMax/GLM/SiliconFlow）
 走 OpenAICompatibleClient。
 """
 import anthropic

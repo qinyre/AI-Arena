@@ -14,12 +14,12 @@ const KIND_TAG: Record<NonNullable<Props['kind']>, string> = {
 export default function AIReasoningPanel({ playerId, reasoning, kind }: Props) {
   return (
     <div className="ai-reasoning-panel mt-1.5 px-2.5 py-1.5">
-      <div className="mb-0.5 flex items-center gap-1.5 font-label text-[9px] tracking-[0.14em] text-ink-muted">
+      <div className="mb-0.5 flex items-center gap-1.5 font-label text-[10px] tracking-[0.12em] text-ink-muted">
         <span className="text-antique-gold/80">决策手记</span>
         <span>· {playerId}</span>
         {kind && <span>{KIND_TAG[kind]}</span>}
       </div>
-      <p className="font-body text-[11px] leading-[1.55] text-paper/65">{reasoning}</p>
+      <p className="font-body text-[12px] leading-[1.6] text-paper/75">{reasoning}</p>
     </div>
   );
 }

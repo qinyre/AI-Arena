@@ -5,7 +5,7 @@
 ✅ **已完成**:
 - 游戏引擎核心（WerewolfGame）
 - AI智能体系统（AIAgent）
-- LLM集成（OpenAI + Ollama）
+- 多家 LLM 接入（OpenAI、Anthropic、DeepSeek、Gemini、Qwen、Kimi、MiMo、MiniMax、GLM、SiliconFlow）
 - 游戏编排器（GameOrchestrator）
 - 完整的5人狼人杀游戏流程
 
@@ -115,38 +115,6 @@ python tests/test_game.py
   AI-4: 1102 tokens ($0.0044)
   AI-5: 1095 tokens ($0.0043)
 ```
-
-## 使用Ollama本地模型（免费）
-
-### 1. 安装Ollama
-
-访问 https://ollama.ai 下载安装
-
-### 2. 拉取模型
-
-```bash
-ollama pull llama3.2
-```
-
-### 3. 修改测试脚本
-
-编辑 `tests/test_game.py`，将model_configs改为：
-
-```python
-"model_configs": {
-    "AI-1": {"provider": "ollama", "model": "llama3.2"},
-    "AI-2": {"provider": "ollama", "model": "llama3.2"},
-    # ...
-}
-```
-
-### 4. 运行测试
-
-```bash
-python tests/test_game.py
-```
-
-成本将显示为 $0.00（本地模型免费）
 
 ## 验证功能
 

@@ -23,14 +23,14 @@ async def main():
     # 游戏配置 - 混合使用不同模型（展示多 provider 能力）
     config = {
         "game_id": "test_claude_001",
-        "players": ["Claude-1", "Claude-2", "GPT-1", "GPT-2", "Llama-1"],
+        "players": ["Claude-1", "Claude-2", "GPT-1", "GPT-2", "DeepSeek-1"],
         "seed": 42,
         "model_configs": {
             "Claude-1": {"provider": "anthropic", "model": "claude-sonnet-5"},
             "Claude-2": {"provider": "anthropic", "model": "claude-sonnet-5"},
-            "GPT-1": {"provider": "openai", "model": "gpt-5-mini"},
-            "GPT-2": {"provider": "openai", "model": "gpt-5-mini"},
-            "Llama-1": {"provider": "ollama", "model": "llama3.3"},
+            "GPT-1": {"provider": "openai", "model": "gpt-5.6-luna"},
+            "GPT-2": {"provider": "openai", "model": "gpt-5.6-luna"},
+            "DeepSeek-1": {"provider": "deepseek", "model": "deepseek-v4-flash"},
         }
     }
 

@@ -4,6 +4,7 @@
 
 export interface PlayerConfig {
   player_id: string;
+  avatar_id?: string;
   // provider 与自定义端点二选一：
   //   - 用 provider 名时走后端 yaml 白名单
   //   - 用自定义端点时省略 provider，填 api_format + base_url（见 orchestrator）
@@ -35,6 +36,7 @@ export interface ModelInfo {
 }
 
 export interface ProviderInfo {
+  display_name: string;
   protocol: 'openai' | 'anthropic';
   api_base: string;
   needs_api_key: boolean;
@@ -108,6 +110,7 @@ export interface GameStatusResponse {
   custom_tokens?: number;
   role_assignment: Record<string, string>;  // 玩家角色分配
   personality_assignment: Record<string, PersonalityProfile>;
+  avatar_assignment: Record<string, string>;
   sheriff_enabled: boolean;
   sheriff_id?: string;
 }
@@ -302,6 +305,7 @@ export type GamePhase = 'night' | 'day' | 'vote' | 'death_skill' | string;
 /** 玩家 + 身份 + 存活状态(合并 status.role_assignment 与 alive/dead) */
 export interface PlayerWithRole {
   id: string;
+  avatarId?: string;
   role: Role;
   alive: boolean;
   personality?: PersonalityProfile;

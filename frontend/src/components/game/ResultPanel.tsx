@@ -3,9 +3,10 @@
  * 不挤压三栏,往下滚整个页面即可看到。Nocturne Stage 风格:玻璃卡 + 金/绯红胜方色。
  */
 import { cn } from '../../utils/cn';
-import { getRoleConfig, avatarColor, playerInitial } from './roleConfig';
+import { getRoleConfig } from './roleConfig';
 import type { GameResultResponse, GameStatusResponse } from '../../types/api';
 import GameReviewPanel from './GameReviewPanel';
+import { LobeAvatar } from '../LobeAvatar';
 
 interface Props {
   result: GameResultResponse | null;
@@ -104,14 +105,11 @@ export default function ResultPanel({ result, status, onReviewGenerated }: Props
                     key={player}
                     className="flex items-center gap-2 bg-[#0b1c30]/50 border border-[#47464b]/20 px-3 py-1.5 rounded-md"
                   >
-                    <div
-                      className={cn(
-                        'w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-bold',
-                        avatarColor(player),
-                      )}
-                    >
-                      {playerInitial(player)}
-                    </div>
+                    <LobeAvatar
+                      avatarId={status?.avatar_assignment?.[player]}
+                      playerId={player}
+                      className="h-6 w-6 rounded-full text-[10px] font-bold text-white"
+                    />
                     <span className="font-body text-body-md text-[#d3e4fe] flex-1">{player}</span>
                     {rc && (
                       <span className={cn('text-[10px] px-1.5 py-0.5 rounded font-label uppercase tracking-wider', rc.badgeClass)}>
@@ -133,6 +131,7 @@ export default function ResultPanel({ result, status, onReviewGenerated }: Props
           gameId={result.game_id}
           initialReview={result.ai_review}
           roleAssignment={roleAssignment}
+          avatarAssignment={status?.avatar_assignment}
           onReviewGenerated={onReviewGenerated}
         />
       </div>

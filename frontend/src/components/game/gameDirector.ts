@@ -1,4 +1,5 @@
 import type { GameEvent } from '../../types/api';
+import type { CinematicKind } from './cinematics';
 
 export type DirectorTier = 'routine' | 'notable' | 'climax';
 export type ArenaSound =
@@ -7,6 +8,37 @@ export type ArenaSound =
   | 'sheriff' | 'explosion' | 'victory-good' | 'victory-wolf'
   | 'wolf';
 export type PlayerAttention = 'speaking' | 'watching' | 'voting' | 'targeted' | 'protected' | 'fallen';
+
+const VOICE_BY_EVENT: Record<string, string> = {
+  werewolf_kill: '/audio/voice/werewolf-action.mp3',
+  seer_investigate: '/audio/voice/seer-investigate.mp3',
+  guard_action: '/audio/voice/guard-action.mp3',
+  witch_heal: '/audio/voice/witch-heal.mp3',
+  witch_poison: '/audio/voice/witch-poison.mp3',
+};
+
+const VOICE_BY_CINEMATIC: Record<CinematicKind, string> = {
+  wolf: VOICE_BY_EVENT.werewolf_kill,
+  'wolf-kill': '/audio/voice/werewolf-kill.mp3',
+  'wolf-king': '/audio/voice/wolf-king-shot.mp3',
+  'white-wolf': '/audio/voice/white-wolf-self-destruct.mp3',
+  'wolf-explode': '/audio/voice/wolf-self-destruct.mp3',
+  seer: VOICE_BY_EVENT.seer_investigate,
+  guard: VOICE_BY_EVENT.guard_action,
+  'witch-heal': VOICE_BY_EVENT.witch_heal,
+  'witch-poison': VOICE_BY_EVENT.witch_poison,
+  'hunter-shot': '/audio/voice/hunter-shot.mp3',
+  idiot: '/audio/voice/idiot-reveal.mp3',
+  'sheriff-opening': '/audio/voice/sheriff-campaign-start.mp3',
+  sheriff: '/audio/voice/sheriff-elected.mp3',
+  badge: '/audio/voice/badge-transfer.mp3',
+  'badge-destroyed': '/audio/voice/badge-destroyed.mp3',
+  exile: '/audio/voice/player-exiled.mp3',
+  tie: '/audio/voice/vote-tie.mp3',
+  'last-words': '/audio/voice/last-words.mp3',
+  'victory-good': '/audio/voice/victory-good.mp3',
+  'victory-wolf': '/audio/voice/victory-wolf.mp3',
+};
 
 const CLIMAX_EVENTS = new Set([
   'white_wolf_king_self_destruct',
@@ -93,6 +125,37 @@ export function soundForEvent(event: GameEvent): ArenaSound | null {
     return data.winner === 'good' ? 'victory-good' : 'victory-wolf';
   }
   return null;
+}
+
+export function voiceForEvent(event: GameEvent): string | null {
+  const data = dataOf(event);
+  if (event.event_type === 'player_death') {
+    if (data.cause === 'hunter_shot') return VOICE_BY_CINEMATIC['hunter-shot'] || null;
+    if (data.cause === 'wolf_king_shot') return VOICE_BY_CINEMATIC['wolf-king'] || null;
+    if (data.cause === 'werewolf_kill') return VOICE_BY_CINEMATIC['wolf-kill'] || null;
+  }
+  if (event.event_type === 'white_wolf_king_self_destruct') return VOICE_BY_CINEMATIC['white-wolf'] || null;
+  if (event.event_type === 'wolf_self_destruct') return VOICE_BY_CINEMATIC['wolf-explode'] || null;
+  if (event.event_type === 'phase_change' && data.to === 'sheriff_campaign') return VOICE_BY_CINEMATIC['sheriff-opening'] || null;
+  if (event.event_type === 'sheriff_election_result' && data.result === 'elected') return VOICE_BY_CINEMATIC.sheriff || null;
+  if (event.event_type === 'badge_transferred') return VOICE_BY_CINEMATIC.badge || null;
+  if (event.event_type === 'badge_destroyed') return VOICE_BY_CINEMATIC['badge-destroyed'] || null;
+  if (event.event_type === 'player_speech' && data.phase === 'last_words') return VOICE_BY_CINEMATIC['last-words'] || null;
+  if (event.event_type === 'vote_result') {
+    if (data.result === 'idiot_revealed') return VOICE_BY_CINEMATIC.idiot || null;
+    if (data.result === 'eliminated') return VOICE_BY_CINEMATIC.exile || null;
+    if (data.result === 'tie' || data.result === 'no_elimination') return VOICE_BY_CINEMATIC.tie || null;
+  }
+  if (event.event_type === 'game_end') {
+    return data.winner === 'good'
+      ? VOICE_BY_CINEMATIC['victory-good'] || null
+      : VOICE_BY_CINEMATIC['victory-wolf'] || null;
+  }
+  return VOICE_BY_EVENT[event.event_type] || null;
+}
+
+export function voiceForCinematic(kind: CinematicKind): string | null {
+  return VOICE_BY_CINEMATIC[kind];
 }
 
 export function currentSpeaker(events: GameEvent[]): string | null {

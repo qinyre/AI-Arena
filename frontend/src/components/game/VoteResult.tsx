@@ -3,15 +3,16 @@
  * Nocturne Stage 风格:金/绯红条形 + 玻璃 chip。
  */
 import { cn } from '../../utils/cn';
-import { avatarColor, playerInitial } from './roleConfig';
 import type { PlayerVoteEvent, VoteResultEvent } from '../../types/api';
+import { LobeAvatar } from '../LobeAvatar';
 
 interface Props {
   votes: PlayerVoteEvent[];
   result?: VoteResultEvent;
+  avatarAssignment?: Record<string, string>;
 }
 
-export default function VoteResult({ votes, result }: Props) {
+export default function VoteResult({ votes, result, avatarAssignment }: Props) {
   // 投票明细优先用 vote_result 里的 vote_detail（voter->target，含弃票），
   // 回退到 player_vote 事件数组。
   const detail: Record<string, string> = result?.data.vote_detail
@@ -84,14 +85,11 @@ export default function VoteResult({ votes, result }: Props) {
                   : 'bg-[#1b2b3f]/60 border-[#47464b]/30',
               )}
             >
-              <span
-                className={cn(
-                  'w-3.5 h-3.5 rounded-full flex items-center justify-center text-white text-[8px] font-bold',
-                  avatarColor(voter),
-                )}
-              >
-                {playerInitial(voter).slice(-1)}
-              </span>
+              <LobeAvatar
+                avatarId={avatarAssignment?.[voter]}
+                playerId={voter}
+                className="h-3.5 w-3.5 rounded-full text-[8px] font-bold text-white"
+              />
               <span className="text-[#d3e4fe]">{voter}</span>
               {isAbstain ? (
                 <span className="text-[#64748b]">弃票</span>

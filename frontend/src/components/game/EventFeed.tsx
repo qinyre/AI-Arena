@@ -7,7 +7,7 @@
  * 自动滚到底(用户上滚查看时暂停)—— 用 scrollTop 直赋,不用 scrollIntoView
  * (scrollIntoView 会触发窗口滚动导致跳顶 bug,历史教训)。
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import TimelineEvent from './TimelineEvent';
 import { isPhaseChange, isWerewolfKill } from '../../types/api';
 import type { GameEvent, GameStatusResponse, RoundData, WerewolfKillEvent } from '../../types/api';
@@ -39,6 +39,8 @@ function phaseMeta(phase: string): { label: string; symbol: string } {
 export default function EventFeed({ events, rounds, status, followPlayback = false }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const userScrolledUp = useRef(false);
+  const previousLength = useRef(events.length);
+  const [unseenCount, setUnseenCount] = useState(0);
 
   // 监听用户上滚(查看历史时暂停自动滚)
   useEffect(() => {
@@ -47,6 +49,7 @@ export default function EventFeed({ events, rounds, status, followPlayback = fal
     const onScroll = () => {
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
       userScrolledUp.current = !atBottom;
+      if (atBottom) setUnseenCount(0);
     };
     el.addEventListener('scroll', onScroll);
     return () => el.removeEventListener('scroll', onScroll);
@@ -55,34 +58,54 @@ export default function EventFeed({ events, rounds, status, followPlayback = fal
   // 新事件来了,自动滚到底(仅当用户没在上滚查看)
   useEffect(() => {
     const el = containerRef.current;
-    if (!el || (!followPlayback && userScrolledUp.current)) return;
+    const added = Math.max(0, events.length - previousLength.current);
+    previousLength.current = events.length;
+    if (!el) return;
+    if (!followPlayback && userScrolledUp.current) {
+      if (added) setUnseenCount((count) => count + added);
+      return;
+    }
+    setUnseenCount(0);
     el.scrollTop = el.scrollHeight;
   }, [events.length, followPlayback]);
 
+  const returnToLatest = () => {
+    const el = containerRef.current;
+    if (!el) return;
+    userScrolledUp.current = false;
+    setUnseenCount(0);
+    el.scrollTo({
+      top: el.scrollHeight,
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+    });
+  };
+
   const roleAssignment = status?.role_assignment;
+  const avatarAssignment = status?.avatar_assignment;
 
   return (
     <div className="h-full flex flex-col">
       {/* 标题区 */}
       <div className="mb-3 flex shrink-0 items-end justify-between gap-4 border-b border-[#e6dfd2]/[0.08] pb-3">
         <div>
-          <p className="mb-1 font-label text-[9px] tracking-[0.3em] text-[#b99758]/65">
+          <p className="mb-1 font-label text-[10px] tracking-[0.28em] text-[#b99758]/75">
             MATCH CHRONICLE
           </p>
           <h2 className="m-0 font-display text-[27px] leading-none tracking-[0.04em] text-[#e6dfd2]">
             对局纪要
           </h2>
         </div>
-        <p className="hidden max-w-[20rem] text-right font-body text-[11px] leading-relaxed text-[#aaa79f]/50 sm:block">
+        <p className="hidden max-w-[20rem] text-right font-body text-[12px] leading-relaxed text-[#aaa79f]/75 sm:block">
           夜间行动、公开发言与票型，按发生顺序留档
         </p>
       </div>
 
       {/* 时间线滚动区 */}
-      <div
-        ref={containerRef}
-        className="flex-1 overflow-y-auto custom-scrollbar relative pr-3"
-      >
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={containerRef}
+          className="custom-scrollbar relative h-full overflow-y-auto pr-3"
+        >
         {events.length === 0 && (
           <div className="py-16 text-center font-body text-[#aaa79f]/55">
             <span className="mx-auto mb-4 block h-px w-20 bg-[#b99758]/35" />
@@ -159,6 +182,7 @@ export default function EventFeed({ events, rounds, status, followPlayback = fal
                     wolfKillEvents={wolfKillEvents}
                     rounds={rounds}
                     roleAssignment={roleAssignment}
+                    avatarAssignment={avatarAssignment}
                     index={idx}
                   />
                 );
@@ -171,6 +195,7 @@ export default function EventFeed({ events, rounds, status, followPlayback = fal
                   event={e}
                   rounds={rounds}
                   roleAssignment={roleAssignment}
+                  avatarAssignment={avatarAssignment}
                   index={idx}
                 />
               );
@@ -178,6 +203,16 @@ export default function EventFeed({ events, rounds, status, followPlayback = fal
 
             <div className="h-8" />
           </>
+        )}
+        </div>
+        {unseenCount > 0 && (
+          <button
+            type="button"
+            onClick={returnToLatest}
+            className="absolute bottom-3 left-1/2 z-20 -translate-x-1/2 border border-[#b99758]/45 bg-[#11181d]/95 px-3 py-2 font-label text-[11px] tracking-[0.08em] text-[#d7bd8b] shadow-[0_8px_24px_rgba(0,0,0,.45)]"
+          >
+            新增 {unseenCount} 条 · 回到最新
+          </button>
         )}
       </div>
     </div>

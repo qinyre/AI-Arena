@@ -38,6 +38,7 @@ class ModelInfo:
 class ProviderConfig:
     """单个 provider 的配置。"""
     name: str
+    display_name: str
     protocol: str           # "openai" 或 "anthropic"，决定用哪个 client
     api_base: str
     api_key_env: str        # 读取 key 的环境变量名；空字符串表示无需 key
@@ -87,6 +88,7 @@ def load_registry(path: Optional[Path] = None) -> Registry:
             )
         providers[prov_name] = ProviderConfig(
             name=prov_name,
+            display_name=prov_data.get("display_name", prov_name),
             protocol=prov_data.get("protocol", "openai"),
             api_base=prov_data.get("api_base", ""),
             api_key_env=prov_data.get("api_key_env", ""),

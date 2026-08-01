@@ -20,6 +20,8 @@ const {
   nextDirectorCursor,
   playerAttention,
   soundForEvent,
+  voiceForEvent,
+  voiceForCinematic,
 } = await importTypeScript('../src/components/game/gameDirector.ts');
 const event = (event_type, data) => ({ event_type, data, timestamp: '2026-07-27T00:00:00Z' });
 const actions = buildCinematics([
@@ -83,6 +85,15 @@ assert.equal(currentSpeaker([
 assert.equal(directorTier(voteEvents[3]), 'climax');
 assert(directorDelay(voteEvents[1], 1, true) < directorDelay(voteEvents[3], 1, true));
 assert.equal(soundForEvent(voteEvents[3]), 'gavel');
+assert.equal(voiceForEvent(event('seer_investigate', {})), '/audio/voice/seer-investigate.mp3');
+assert.equal(
+  voiceForEvent(event('player_death', { cause: 'hunter_shot' })),
+  '/audio/voice/hunter-shot.mp3',
+);
+assert.equal(voiceForEvent(event('player_death', { cause: 'poison' })), null);
+assert.equal(voiceForCinematic('witch-heal'), '/audio/voice/witch-heal.mp3');
+assert.equal(voiceForCinematic('victory-good'), '/audio/voice/victory-good.mp3');
+assert(actions.every(({ kind }) => voiceForCinematic(kind)), 'every cinematic must have a voice');
 assert.equal(nextDirectorCursor([
   event('werewolf_kill', {}),
   event('werewolf_kill', {}),

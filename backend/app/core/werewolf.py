@@ -380,7 +380,11 @@ class WerewolfGame(BaseGame):
                 })
 
             elif self.night_stage == "witch" and player.role == Role.WITCH:
-                if self.witch_antidote_available and self.last_night_kill:
+                if (
+                    self.witch_antidote_available
+                    and self.last_night_kill
+                    and self.last_night_kill != player_id
+                ):
                     actions.append({
                         "action_type": "heal",
                         "description": "使用一次性解药救下狼队刀口",
@@ -644,7 +648,10 @@ class WerewolfGame(BaseGame):
             # 避免误投好人等），不能空着 reasoning 偷懒弃票。
             if not player.can_vote:
                 return []
-            targets = [p for p in self.state.alive_players if p != player_id]
+            targets = [
+                p for p in self.state.alive_players
+                if p != player_id and self._can_be_exiled(p)
+            ]
             actions.append({
                 "action_type": "vote",
                 "description": "投票放逐一名玩家",
@@ -696,7 +703,8 @@ class WerewolfGame(BaseGame):
             if player_id not in self.tie_candidates and player.can_vote:
                 actions.append({
                     "action_type": "vote", "description": "在同票候选人中投票",
-                    "target_required": True, "valid_targets": list(self.tie_candidates),
+                    "target_required": True,
+                    "valid_targets": [p for p in self.tie_candidates if self._can_be_exiled(p)],
                     "parameters": {"reasoning": {"type": "string", "description": "投票理由"}}
                 })
                 actions.append({
@@ -996,6 +1004,14 @@ class WerewolfGame(BaseGame):
                     "data": {"player": action.actor_id, "round": self.state.round},
                     "visibility": "public",
                 })
+            elif self.state.phase == GamePhase.NIGHT and self.night_stage == "guard":
+                events.append({
+                    "event_type": "guard_pass",
+                    "data": {"guard": action.actor_id, "round": self.state.round,
+                             "reasoning": action.parameters.get("reasoning", "")},
+                    "visibility": "private",
+                    "visible_to": [action.actor_id],
+                })
             else:
                 events.append({
                     "event_type": "player_pass",
@@ -1217,24 +1233,7 @@ class WerewolfGame(BaseGame):
             if self.witch_poison_target:
                 deaths.append((self.witch_poison_target, "poison"))
 
-            for victim, cause in deaths:
-                if victim not in self.state.alive_players:
-                    continue
-                self._kill_player(victim, cause)
-                self.last_night_deaths.append(victim)
-                if cause == "werewolf_kill" and self._edge_completed():
-                    # 竞技屠边局采用狼刀在先：狼刀已经完成屠边时，后续毒药
-                    # 即使杀光狼人也不反转本轮胜负。
-                    self._force_winner("werewolf", "werewolf_kill_completed_edge")
-                events.append({
-                    "event_type": "player_death",
-                    "data": {
-                        "player": victim,
-                        "cause": cause,
-                        "round": self.state.round
-                    },
-                    "visibility": "public"
-                })
+            self._resolve_night_deaths(events, deaths)
 
             from_phase = self.state.phase.value
             self.guard_last_target = self.guarded_target
@@ -1341,22 +1340,7 @@ class WerewolfGame(BaseGame):
         if self.witch_poison_target:
             deaths.append((self.witch_poison_target, "poison"))
 
-        for victim, cause in deaths:
-            if victim not in self.state.alive_players:
-                continue
-            self._kill_player(victim, cause)
-            self.last_night_deaths.append(victim)
-            if cause == "werewolf_kill" and self._edge_completed():
-                self._force_winner("werewolf", "werewolf_kill_completed_edge")
-            events.append({
-                "event_type": "player_death",
-                "data": {
-                    "player": victim,
-                    "cause": cause,
-                    "round": self.state.round,
-                },
-                "visibility": "public",
-            })
+        self._resolve_night_deaths(events, deaths)
 
         self.guard_last_target = self.guarded_target
         self._reset_night_actions()
@@ -1367,6 +1351,26 @@ class WerewolfGame(BaseGame):
             self._begin_next_night(events, from_phase)
         else:
             self._change_phase(events, from_phase, next_phase)
+
+    def _resolve_night_deaths(self, events: List[Dict], deaths: List[tuple]) -> None:
+        """按规则顺序结算，按座位顺序公布，避免用公告顺序泄露死因。"""
+        resolved = []
+        for victim, cause in deaths:
+            if victim not in self.state.alive_players:
+                continue
+            self._kill_player(victim, cause)
+            resolved.append((victim, cause))
+            if cause == "werewolf_kill" and self._edge_completed():
+                # 竞技屠边局采用狼刀在先：狼刀完成屠边后，毒药不反转胜负。
+                self._force_winner("werewolf", "werewolf_kill_completed_edge")
+
+        resolved.sort(key=lambda item: self.seat_order.index(item[0]))
+        self.last_night_deaths = [victim for victim, _ in resolved]
+        events.extend({
+            "event_type": "player_death",
+            "data": {"player": victim, "cause": cause, "round": self.state.round},
+            "visibility": "public",
+        } for victim, cause in resolved)
 
     def _process_sheriff_votes(self, tiebreak: bool = False) -> Dict:
         vote_detail = {
@@ -1699,6 +1703,10 @@ class WerewolfGame(BaseGame):
             ) or (
                 role == Role.WOLF_KING
                 and cause in {"werewolf_kill", "voted_out", "hunter_shot"}
+                and any(
+                    p.is_alive and p.role in WOLF_ROLES
+                    for p in self.state.players.values()
+                )
             )
             if can_trigger:
                 self.pending_death_skills.append(player_id)
@@ -1713,10 +1721,12 @@ class WerewolfGame(BaseGame):
         """
         # 投票明细：voter -> target（弃票者为 None，记为 abstain 便于展示）
         vote_detail = {
-            voter: ("abstain" if target is None else target)
+            voter: (
+                target if target is not None and self._can_be_exiled(target) else "abstain"
+            )
             for voter, target in self.current_votes.items()
         }
-        cast_votes = [target for target in self.current_votes.values() if target is not None]
+        cast_votes = [target for target in vote_detail.values() if target != "abstain"]
         if not cast_votes:
             return {
                 "event_type": "vote_result",
@@ -1726,15 +1736,18 @@ class WerewolfGame(BaseGame):
 
         # 统计票数（仅统计有效投票，不含弃票）
         vote_counts: Dict[str, float] = {}
-        for voter, target in self.current_votes.items():
-            if target is None:
+        for voter, target in vote_detail.items():
+            if target == "abstain":
                 continue
             weight = 1.5 if voter == self.sheriff_id else 1.0
             vote_counts[target] = vote_counts.get(target, 0.0) + weight
 
         # 找到最高票数
         max_votes = max(vote_counts.values())
-        candidates = [p for p in self.state.alive_players if vote_counts.get(p) == max_votes]
+        candidates = [
+            p for p in self.state.alive_players
+            if self._can_be_exiled(p) and vote_counts.get(p) == max_votes
+        ]
 
         # 平票处理：无人出局
         if len(candidates) > 1:
@@ -1786,6 +1799,14 @@ class WerewolfGame(BaseGame):
             },
             "visibility": "public"
         }
+
+    def _can_be_exiled(self, player_id: str) -> bool:
+        player = self.state.players.get(player_id)
+        return bool(
+            player
+            and player.is_alive
+            and not (player.role == Role.IDIOT and not player.can_vote)
+        )
 
     def _filter_public_events(self, limit: int = 20) -> List[Dict]:
         """过滤出公开事件(喂给玩家 LLM 的可见状态)。

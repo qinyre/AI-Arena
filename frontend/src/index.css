@@ -419,6 +419,11 @@ h3,
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
 }
 
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid #d7bd8b;
+  outline-offset: 2px;
+}
+
 @layer components {
   .btn-primary {
     @apply rounded-sm px-4 py-2 font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
@@ -826,6 +831,10 @@ h3,
   }
 
   .cursor-blink {
+    animation: none;
+  }
+
+  .animate-fade-in-up {
     animation: none;
   }
 

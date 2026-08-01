@@ -1,14 +1,16 @@
 import { cn } from '../../utils/cn';
 import type { PlayerSpeechEvent } from '../../types/api';
-import { avatarColor, claimRoleLabel, getRoleConfig, playerInitial } from './roleConfig';
+import { claimRoleLabel, getRoleConfig } from './roleConfig';
+import { LobeAvatar } from '../LobeAvatar';
 
 interface Props {
   speech: PlayerSpeechEvent;
   roleAssignment?: Record<string, string>;
+  avatarAssignment?: Record<string, string>;
   time?: string;
 }
 
-export default function SpeechBubble({ speech, roleAssignment, time }: Props) {
+export default function SpeechBubble({ speech, roleAssignment, avatarAssignment, time }: Props) {
   const { speaker, content, claim_role } = speech.data;
   const claim = claimRoleLabel(claim_role);
   const realRole = roleAssignment?.[speaker];
@@ -22,15 +24,14 @@ export default function SpeechBubble({ speech, roleAssignment, time }: Props) {
 
   return (
     <div className="flex gap-2.5">
-      <div
+      <LobeAvatar
+        avatarId={avatarAssignment?.[speaker]}
+        playerId={speaker}
         className={cn(
           'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-sm text-[10px] font-bold text-paper ring-1',
-          avatarColor(speaker),
           realRoleConfig?.ringClass || 'ring-white/15',
         )}
-      >
-        {playerInitial(speaker)}
-      </div>
+      />
 
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex flex-wrap items-center gap-1.5">

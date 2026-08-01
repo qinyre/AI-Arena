@@ -207,6 +207,7 @@ export function useGameStream(gameId: string | null): GameStream {
       const d = deathMap[id];
       return {
         id,
+        avatarId: status.avatar_assignment?.[id],
         role: roleMap[id] || 'villager',
         alive,
         isSheriff: status.sheriff_id === id,

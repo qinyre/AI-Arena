@@ -1,6 +1,7 @@
 import { cn } from '../../utils/cn';
 import { REASONING_LABELS, TONE_LABELS } from '../../utils/personalityPresets';
-import { avatarColor, deathCauseLabel, getRoleConfig, playerInitial } from './roleConfig';
+import { deathCauseLabel, getRoleConfig } from './roleConfig';
+import { LobeAvatar } from '../LobeAvatar';
 import type { PersonalityProfile, PlayerWithRole } from '../../types/api';
 import type { PlayerAttention } from './gameDirector';
 
@@ -11,6 +12,8 @@ interface Props {
   onSelectPlayer: (id: string) => void;
   attention?: Record<string, PlayerAttention[]>;
   side?: 'left' | 'right';
+  compact?: boolean;
+  detailsIdPrefix?: string;
 }
 
 export default function PlayerTable({
@@ -20,6 +23,8 @@ export default function PlayerTable({
   onSelectPlayer,
   attention = {},
   side = 'left',
+  compact = false,
+  detailsIdPrefix = 'personality',
 }: Props) {
   if (players.length === 0) {
     return (
@@ -30,6 +35,61 @@ export default function PlayerTable({
   }
 
   const aliveCount = players.filter((player) => player.alive).length;
+
+  if (compact) {
+    const selected = players.find((player) => player.id === selectedPlayer);
+    return (
+      <div className="min-w-0">
+        <div className="mb-2 flex items-center justify-between">
+          <span className="font-display text-sm tracking-[0.12em] text-[#e6dfd2]">席位</span>
+          <span className="font-label text-[10px] text-[#aaa79f]/65">{aliveCount}/{players.length} 存活</span>
+        </div>
+        <div className="custom-scrollbar flex gap-2 overflow-x-auto pb-2">
+          {players.map((player) => {
+            const role = getRoleConfig(player.role);
+            const selectedNow = player.id === selectedPlayer;
+            const speaking = player.id === currentSpeaker;
+            return (
+              <button
+                key={player.id}
+                type="button"
+                onClick={() => onSelectPlayer(player.id)}
+                aria-expanded={selectedNow}
+                aria-controls={`${detailsIdPrefix}-${player.id}`}
+                className={cn(
+                  'player-card relative flex w-[62px] shrink-0 flex-col items-center gap-1.5 rounded-sm px-1.5 py-2',
+                  role.cardClass,
+                  speaking && 'is-speaking',
+                  selectedNow && 'is-selected',
+                  !player.alive && 'dead',
+                )}
+              >
+                <LobeAvatar
+                  avatarId={player.avatarId}
+                  playerId={player.id}
+                  className={cn('h-9 w-9 rounded-sm ring-1', role.ringClass)}
+                />
+                <span className="w-full truncate text-center font-display text-[11px] text-[#e6dfd2]">
+                  {player.id}
+                </span>
+                <span
+                  className="absolute right-1 top-1 h-2 w-2 rounded-full ring-2 ring-[#0d1216]"
+                  style={{ background: player.alive ? role.color : '#475054' }}
+                />
+              </button>
+            );
+          })}
+        </div>
+        {selected && (
+          <PersonalityDetails
+            playerId={selected.id}
+            personality={selected.personality}
+            idPrefix={detailsIdPrefix}
+          />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full flex-col gap-3">
@@ -81,7 +141,7 @@ export default function PlayerTable({
                 onClick={() => onSelectPlayer(player.id)}
                 data-player-id={player.id}
                 aria-expanded={isSelected}
-                aria-controls={`personality-${player.id}`}
+                aria-controls={`${detailsIdPrefix}-${player.id}`}
                 className={cn(
                   'player-card flex w-full items-center gap-3 rounded-sm p-2.5 text-left',
                   role.cardClass,
@@ -96,15 +156,14 @@ export default function PlayerTable({
                 )}
               >
                 <div className="relative shrink-0">
-                  <div
+                  <LobeAvatar
+                    avatarId={player.avatarId}
+                    playerId={player.id}
                     className={cn(
                       'flex h-10 w-10 items-center justify-center rounded-sm text-xs font-semibold text-[#e6dfd2] ring-1',
-                      avatarColor(player.id),
                       role.ringClass,
                     )}
-                  >
-                    {playerInitial(player.id)}
-                  </div>
+                  />
                   <span
                     className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center border border-[#0d1216] font-display text-[9px] text-[#090d10]"
                     style={{ background: role.color }}
@@ -169,7 +228,11 @@ export default function PlayerTable({
               </button>
 
               {isSelected && (
-                <PersonalityDetails playerId={player.id} personality={player.personality} />
+                <PersonalityDetails
+                  playerId={player.id}
+                  personality={player.personality}
+                  idPrefix={detailsIdPrefix}
+                />
               )}
             </div>
           );
@@ -182,9 +245,11 @@ export default function PlayerTable({
 function PersonalityDetails({
   playerId,
   personality,
+  idPrefix,
 }: {
   playerId: string;
   personality?: PersonalityProfile;
+  idPrefix: string;
 }) {
   const profile = personality ?? {
     name: '标准平衡',
@@ -202,7 +267,7 @@ function PersonalityDetails({
 
   return (
     <section
-      id={`personality-${playerId}`}
+      id={`${idPrefix}-${playerId}`}
       aria-label={`${playerId} 的性格档案`}
       className="border border-[#e6dfd2]/10 border-l-[#9870a8]/55 bg-[#0d1216]/95 p-3"
     >

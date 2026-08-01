@@ -26,6 +26,9 @@ class PersonalityConfig(BaseModel):
 class PlayerConfig(BaseModel):
     """单个玩家的模型配置（provider 名 或 自定义端点二选一）。"""
     player_id: str
+    avatar_id: Optional[str] = Field(
+        default=None, min_length=1, max_length=64, pattern=r"^[a-z0-9-]+$"
+    )
     provider: Optional[str] = None
     model: str
     # 自定义端点字段（对应后端 orchestrator 用户直填路径）
@@ -85,6 +88,7 @@ class GameStatusResponse(BaseModel):
     custom_tokens: int = 0
     role_assignment: Dict[str, str] = Field(default_factory=dict)  # 玩家角色分配
     personality_assignment: Dict[str, PersonalityConfig] = Field(default_factory=dict)
+    avatar_assignment: Dict[str, str] = Field(default_factory=dict)
     sheriff_enabled: bool = False
     sheriff_id: Optional[str] = None
 

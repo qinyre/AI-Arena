@@ -5,7 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 import app.api.game_manager as game_manager_module
-from app.api.schemas import PersonalityConfig
+from app.api.schemas import PersonalityConfig, PlayerConfig
 from app.api.game_manager import GameManager
 from app.core.agent import AIAgent
 from app.core.models import ActionType, GameAction, GamePhase, Role
@@ -431,6 +431,11 @@ def test_personality_schema_rejects_prompt_injection_fields():
         )
 
 
+def test_avatar_id_rejects_non_lobe_asset_paths():
+    with pytest.raises(ValidationError):
+        PlayerConfig(player_id="AI-1", model="test", avatar_id="../openai.webp")
+
+
 def test_game_status_keeps_personality_for_spectators(tmp_path, monkeypatch):
     monkeypatch.setattr(game_manager_module, "_STORAGE_PATH", tmp_path / "games.json")
     manager = GameManager()
@@ -449,6 +454,18 @@ def test_game_status_keeps_personality_for_spectators(tmp_path, monkeypatch):
     }))
 
     assert manager.get_status("personality-view")["personality_assignment"]["AI-1"] == personality
+
+
+def test_game_status_keeps_avatar_for_spectators(tmp_path, monkeypatch):
+    monkeypatch.setattr(game_manager_module, "_STORAGE_PATH", tmp_path / "games.json")
+    manager = GameManager()
+    asyncio.run(manager._save_record({
+        "game_id": "avatar-view",
+        "status": "completed",
+        "avatar_assignment": {"AI-1": "deepseek"},
+    }))
+
+    assert manager.get_status("avatar-view")["avatar_assignment"] == {"AI-1": "deepseek"}
 
 
 def test_custom_model_usage_is_reported_as_tokens():
@@ -627,6 +644,29 @@ def test_guard_and_witch_heal_same_target_still_dies():
     assert target in game.state.dead_players
 
 
+def test_guard_pass_records_empty_guard_reason():
+    players = [f"AI-{i}" for i in range(1, 13)]
+    game = WerewolfGame()
+    game.initialize(players, {
+        "game_id": "guard-pass",
+        "board_id": "12p_white_wolf_guard",
+        "seed": 1,
+    })
+    guard = next(pid for pid, player in game.state.players.items() if player.role == Role.GUARD)
+    events = game.apply_action(GameAction(
+        ActionType.PASS,
+        guard,
+        parameters={"reasoning": "首夜信息不足，选择空守"},
+    ))
+
+    assert events == [{
+        "event_type": "guard_pass",
+        "data": {"guard": guard, "round": 1, "reasoning": "首夜信息不足，选择空守"},
+        "visibility": "private",
+        "visible_to": [guard],
+    }]
+
+
 def test_idiot_survives_vote_but_loses_vote_right():
     players = [f"AI-{i}" for i in range(1, 13)]
     game = WerewolfGame()
@@ -642,6 +682,27 @@ def test_idiot_survives_vote_but_loses_vote_right():
     assert result["data"]["result"] == "idiot_revealed"
     assert game.state.players[idiot].is_alive
     assert not game.state.players[idiot].can_vote
+
+    game.state.phase = GamePhase.VOTING
+    assert idiot not in next(
+        action for action in game.get_available_actions(voter)
+        if action["action_type"] == "vote"
+    )["valid_targets"]
+    game.current_votes = {voter: idiot}
+    assert game._process_votes()["data"]["result"] == "no_votes"
+
+
+def test_witch_cannot_heal_herself():
+    players = [f"AI-{i}" for i in range(1, 10)]
+    game = WerewolfGame()
+    game.initialize(players, {"game_id": "witch-self-heal", "board_id": "9p", "seed": 3})
+    witch = next(pid for pid, p in game.state.players.items() if p.role == Role.WITCH)
+    game.night_stage = "witch"
+    game.last_night_kill = witch
+    assert all(
+        action["action_type"] != "heal"
+        for action in game.get_available_actions(witch)
+    )
 
 
 def test_hunter_poisoned_cannot_shoot_but_night_killed_can():
@@ -662,6 +723,7 @@ def test_gun_and_function_kill_triggers_match_online_rules():
     hunter, wolf_king = PLAYERS[:2]
     game.state.players[hunter].role = Role.HUNTER
     game.state.players[wolf_king].role = Role.WOLF_KING
+    game.state.players[PLAYERS[2]].role = Role.WEREWOLF
 
     game._kill_player(hunter, "white_wolf_king")
     assert hunter not in game.pending_death_skills
@@ -711,7 +773,7 @@ def test_ordinary_wolf_can_self_destruct_without_target():
     assert wolf in game.state.dead_players
 
 
-def test_last_wolf_king_shooting_last_god_wins_by_edge():
+def test_last_wolf_king_cannot_shoot_after_elimination():
     players = [f"AI-{i}" for i in range(1, 10)]
     game = WerewolfGame()
     game.initialize(players, {"game_id": "priority", "board_id": "9p", "seed": 7})
@@ -725,16 +787,23 @@ def test_last_wolf_king_shooting_last_god_wins_by_edge():
     game.state.dead_players = []
 
     game._kill_player(wolf_king, "voted_out")
-    game.state.phase = GamePhase.VOTING
-    game.resume_phase = GamePhase.NIGHT
-    game._start_next_death_skill_or_resume([])
-    game.apply_action(GameAction(
-        ActionType.SHOOT, wolf_king, last_god, {"reasoning": "带走最后一神"}
-    ))
-
+    assert game.pending_death_skills == []
     result = game.check_win_condition()
-    assert result and result.winner == "werewolf"
-    assert result.reason == "wolf_skill_completed_edge"
+    assert result and result.winner == "good"
+    assert result.reason == "all_werewolves_eliminated"
+
+
+def test_night_deaths_are_announced_in_seat_order():
+    game = make_game()
+    game.last_night_kill = "AI-5"
+    game.witch_poison_target = "AI-1"
+    events = game.advance_phase()
+    announced = [
+        event["data"]["player"]
+        for event in events if event["event_type"] == "player_death"
+    ]
+    assert announced == ["AI-1", "AI-5"]
+    assert game.last_night_deaths == announced
 
 
 class ScriptedDayAgent:

@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",
+    "@lobehub/icons-static-avatar": "^1.13.0",
     "clsx": "^2.1.1",
     "gsap": "^3.15.0",
     "react": "^18.2.0",

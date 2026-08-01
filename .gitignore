@@ -33,3 +33,6 @@ Thumbs.db
 docs/
 .claude/
 .zcode/
+.playwright-mcp/
+.playwright-cli/
+output/playwright/

@@ -1,11 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { GameEvent } from '../../types/api';
-import { soundForEvent, type ArenaSound } from './gameDirector';
+import type { CinematicAction } from './cinematics';
+import {
+  soundForEvent,
+  voiceForCinematic,
+  voiceForEvent,
+  type ArenaSound,
+} from './gameDirector';
 
 class ArenaAudioEngine {
   private context?: AudioContext;
   private master?: GainNode;
   private ambientNodes: AudioScheduledSourceNode[] = [];
+  private voices = new Map<string, HTMLAudioElement>();
   private volume = 0.42;
   private wantsAmbient = false;
 
@@ -26,6 +33,7 @@ class ArenaAudioEngine {
 
   setVolume(value: number) {
     this.volume = value;
+    this.voices.forEach((voice) => { voice.volume = value; });
     if (this.context && this.master) {
       this.master.gain.setTargetAtTime(value, this.context.currentTime, 0.03);
     }
@@ -37,8 +45,9 @@ class ArenaAudioEngine {
     else if (this.isReady()) this.startAmbient();
   }
 
-  play(sound: ArenaSound) {
+  play(sound: ArenaSound, voiceUrl?: string | null) {
     if (!this.context || !this.master || this.context.state !== 'running') return;
+    if (voiceUrl) this.playVoice(voiceUrl);
     const now = this.context.currentTime;
     const tone = (
       from: number,
@@ -120,6 +129,16 @@ class ArenaAudioEngine {
         tone(frequency, frequency * 0.78, 0.9, 0.06, index * 0.16, 'sawtooth')
       ));
     }
+  }
+
+  playVoice(url?: string | null) {
+    if (!url || !this.isReady()) return;
+    const voice = this.voices.get(url) || new Audio(url);
+    voice.preload = 'auto';
+    voice.volume = this.volume;
+    voice.currentTime = 0;
+    this.voices.set(url, voice);
+    void voice.play().catch(() => undefined);
   }
 
   private tone(
@@ -217,7 +236,12 @@ function savedVolume() {
   return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0.42;
 }
 
-export function useArenaAudio(events: GameEvent[], phase: string | undefined, active: boolean) {
+export function useArenaAudio(
+  events: GameEvent[],
+  phase: string | undefined,
+  active: boolean,
+  directorEnabled: boolean,
+) {
   const cursor = useRef<number | null>(null);
   const [enabled, setEnabledState] = useState(
     () => localStorage.getItem('ai-arena:sound') !== '0',
@@ -252,15 +276,27 @@ export function useArenaAudio(events: GameEvent[], phase: string | undefined, ac
       cursor.current = events.length;
       return;
     }
-    const added = events.slice(cursor.current);
+    const start = cursor.current;
     cursor.current = events.length;
-    if (!enabled || !active || !added.length) return;
-    const timers = added
-      .map(soundForEvent)
-      .filter((sound): sound is ArenaSound => Boolean(sound))
-      .map((sound, index) => window.setTimeout(() => engine.play(sound), index * 110));
+    if (!enabled || !active || start === events.length) return;
+    const cues: Array<{ sound: ArenaSound; voice: string | null }> = [];
+    for (let index = start; index < events.length; index += 1) {
+      const event = events[index];
+      if (event.event_type === 'werewolf_kill' && events[index - 1]?.event_type === 'werewolf_kill') {
+        continue;
+      }
+      const sound = soundForEvent(event);
+      if (sound) cues.push({ sound, voice: directorEnabled ? null : voiceForEvent(event) });
+    }
+    const timers = cues.map(({ sound, voice }, index) => (
+      window.setTimeout(() => engine.play(sound, voice), index * 110)
+    ));
     return () => timers.forEach(window.clearTimeout);
-  }, [active, enabled, events]);
+  }, [active, directorEnabled, enabled, events]);
+
+  const playCinematicVoice = useCallback((action: CinematicAction) => {
+    if (enabled && active) engine.playVoice(voiceForCinematic(action.kind));
+  }, [active, enabled]);
 
   const setEnabled = useCallback((next: boolean) => {
     localStorage.setItem('ai-arena:sound', next ? '1' : '0');
@@ -275,5 +311,5 @@ export function useArenaAudio(events: GameEvent[], phase: string | undefined, ac
     setVolumeState(clamped);
   }, []);
 
-  return { enabled, ready, volume, setEnabled, setVolume };
+  return { enabled, ready, volume, setEnabled, setVolume, playCinematicVoice };
 }

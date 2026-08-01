@@ -41,11 +41,11 @@ export default function GameHistory({ onViewGame }: Props) {
 
   const getStatusBadge = (status: string) => {
     const badges = {
-      pending: 'bg-gray-600 text-gray-200',
-      initialized: 'bg-blue-600 text-blue-200',
-      running: 'bg-yellow-600 text-yellow-200',
-      completed: 'bg-green-600 text-green-200',
-      error: 'bg-red-600 text-red-200'
+      pending: { label: '等待', className: 'bg-gray-600 text-gray-200' },
+      initialized: { label: '已就绪', className: 'bg-blue-600 text-blue-200' },
+      running: { label: '进行中', className: 'bg-yellow-600 text-yellow-100' },
+      completed: { label: '已落幕', className: 'bg-green-700 text-green-100' },
+      error: { label: '异常', className: 'bg-red-700 text-red-100' },
     };
     return badges[status as keyof typeof badges] || badges.pending;
   };
@@ -80,11 +80,15 @@ export default function GameHistory({ onViewGame }: Props) {
 
   return (
     <div className="max-w-6xl mx-auto">
-      <div className="card">
+      <div className="card border border-white/10">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-bold">游戏历史</h2>
-          <button onClick={fetchGames} className="btn-secondary">
-            🔄 刷新
+          <div>
+            <p className="font-label text-[10px] tracking-[0.2em] text-antique-gold/60">ARCHIVE</p>
+            <h2 className="font-display text-2xl text-paper">对局档案</h2>
+          </div>
+          <button onClick={fetchGames} className="btn-secondary inline-flex min-h-11 items-center gap-1.5">
+            <span className="material-symbols-outlined text-[18px]">refresh</span>
+            刷新
           </button>
         </div>
 
@@ -93,8 +97,41 @@ export default function GameHistory({ onViewGame }: Props) {
             <p className="text-gray-400 text-lg">暂无游戏记录</p>
             <p className="text-gray-500 text-sm mt-2">创建第一个游戏开始对战！</p>
           </div>
-        ) : (
-          <div className="overflow-x-auto">
+        ) : (<>
+          <div className="space-y-3 md:hidden">
+            {games.map((game) => {
+              const status = getStatusBadge(game.status);
+              return (
+                <article key={game.game_id} className="border border-white/10 bg-stage-deep/70 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-mono text-sm text-paper">{game.game_id}</p>
+                      <p className="mt-1 text-xs text-ink-muted">创建于 {formatDate(game.created_at)}</p>
+                    </div>
+                    <span className={`shrink-0 rounded px-2 py-1 text-xs font-medium ${status.className}`}>
+                      {status.label}
+                    </span>
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => onViewGame(game.game_id)}
+                      className="btn-primary min-h-11"
+                    >
+                      查看对局
+                    </button>
+                    <button
+                      onClick={() => handleDelete(game.game_id)}
+                      className="min-h-11 border border-crimson/35 text-sm text-crimson transition-colors hover:bg-crimson/10"
+                    >
+                      删除
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-700">
@@ -107,12 +144,13 @@ export default function GameHistory({ onViewGame }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {games.map((game) => (
-                  <tr key={game.game_id} className="border-b border-gray-700 hover:bg-gray-700/50">
+                {games.map((game) => {
+                  const status = getStatusBadge(game.status);
+                  return <tr key={game.game_id} className="border-b border-gray-700 hover:bg-gray-700/50">
                     <td className="py-3 px-4 font-mono text-sm">{game.game_id}</td>
                     <td className="py-3 px-4">
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusBadge(game.status)}`}>
-                        {game.status}
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${status.className}`}>
+                        {status.label}
                       </span>
                     </td>
                     <td className="py-3 px-4 text-sm text-gray-300">{formatDate(game.created_at)}</td>
@@ -132,12 +170,12 @@ export default function GameHistory({ onViewGame }: Props) {
                         删除
                       </button>
                     </td>
-                  </tr>
-                ))}
+                  </tr>;
+                })}
               </tbody>
             </table>
           </div>
-        )}
+        </>)}
       </div>
     </div>
   );

@@ -9,7 +9,8 @@ import { cn } from '../../utils/cn';
 import SpeechBubble from './SpeechBubble';
 import VoteResult from './VoteResult';
 import AIReasoningPanel from './AIReasoningPanel';
-import { avatarColor, deathCauseLabel, playerInitial } from './roleConfig';
+import { deathCauseLabel } from './roleConfig';
+import { LobeAvatar } from '../LobeAvatar';
 import {
   isPhaseChange,
   isWerewolfKill,
@@ -28,6 +29,7 @@ interface Props {
   wolfKillEvents?: WerewolfKillEvent[];
   rounds: RoundData[];
   roleAssignment?: Record<string, string>;
+  avatarAssignment?: Record<string, string>;
   /** 本事件时间线内的索引(用于 key) */
   index: number;
 }
@@ -213,6 +215,31 @@ function getEventStyle(e: GameEvent): EventStyle | null {
   return null;
 }
 
+const FALLBACK_EVENT_STYLE: EventStyle = {
+  dotBorder: 'border-slate-500',
+  dotCore: 'bg-slate-500',
+  cardClass: '',
+  headColor: 'text-slate-300',
+  symbol: 'info',
+  label: '系统事件',
+};
+
+const GUARD_PASS_STYLE: EventStyle = {
+  dotBorder: 'border-emerald-400',
+  dotCore: 'bg-emerald-400 shadow-[0_0_5px_rgba(52,211,153,0.8)]',
+  cardClass: '',
+  headColor: 'text-emerald-200',
+  symbol: 'shield_lock',
+  label: '守卫行动',
+};
+
+function isGuardPass(event: GameEvent, roleAssignment?: Record<string, string>): boolean {
+  if (event.event_type === 'guard_pass') return true;
+  if (event.event_type !== 'player_pass') return false;
+  const player = String(event.data.player || '');
+  return event.data.context === 'guard' || roleAssignment?.[player] === 'guard';
+}
+
 /** 提取事件对应的 reasoning */
 function getReasoning(e: GameEvent): string | null {
   if (isWerewolfKill(e)) return e.data.reasoning;
@@ -234,6 +261,9 @@ function getReasoning(e: GameEvent): string | null {
     return typeof e.data.reasoning === 'string' ? e.data.reasoning : null;
   }
   if (e.event_type === 'speech_order_decided') {
+    return typeof e.data.reasoning === 'string' ? e.data.reasoning : null;
+  }
+  if (e.event_type === 'guard_pass' || e.event_type === 'player_pass') {
     return typeof e.data.reasoning === 'string' ? e.data.reasoning : null;
   }
   return null;
@@ -258,6 +288,9 @@ function getReasoningPlayer(e: GameEvent): string | null {
   if (e.event_type === 'speech_order_decided' && e.data.chooser !== 'judge') {
     return String(e.data.chooser || '');
   }
+  if (e.event_type === 'guard_pass' || e.event_type === 'player_pass') {
+    return String(e.data.guard || e.data.player || '');
+  }
   return null;
 }
 
@@ -272,16 +305,24 @@ function formatTime(ts: string): string {
   }
 }
 
-export default function TimelineEvent({ event, wolfKillEvents, rounds, roleAssignment }: Props) {
+export default function TimelineEvent({
+  event,
+  wolfKillEvents,
+  rounds,
+  roleAssignment,
+  avatarAssignment,
+}: Props) {
   // phase_change 不渲染为时间线条目(由 EventFeed 单独渲染为分隔条)
   if (isPhaseChange(event)) return null;
+  if (event.event_type === 'game_start') return null;
+  const guardPass = isGuardPass(event, roleAssignment);
+  if (event.event_type === 'player_pass' && !guardPass) return null;
   // 放逐死亡已由票型汇总展示，避免重复。
   if (isPlayerDeath(event) && event.data.cause === 'voted_out') {
     return null;
   }
 
-  const style = getEventStyle(event);
-  if (!style) return null; // 未知事件不渲染
+  const style = guardPass ? GUARD_PASS_STYLE : getEventStyle(event) ?? FALLBACK_EVENT_STYLE;
   const tier = directorTier(event);
   const prominent = (
     isVoteResult(event)
@@ -355,6 +396,7 @@ export default function TimelineEvent({ event, wolfKillEvents, rounds, roleAssig
           event={event}
           wolfKillEvents={wolfKillEvents}
           roleAssignment={roleAssignment}
+          avatarAssignment={avatarAssignment}
           votesForResult={votesForResult}
           time={time}
         />
@@ -374,12 +416,14 @@ function EventBody({
   event,
   wolfKillEvents,
   roleAssignment,
+  avatarAssignment,
   votesForResult,
   time,
 }: {
   event: GameEvent;
   wolfKillEvents?: WerewolfKillEvent[];
   roleAssignment?: Record<string, string>;
+  avatarAssignment?: Record<string, string>;
   votesForResult: PlayerVoteEvent[];
   time?: string;
 }) {
@@ -449,6 +493,13 @@ function EventBody({
       <b>{String(event.data.target)}</b>
     </p>;
   }
+  if (isGuardPass(event, roleAssignment)) {
+    const data = event.data as Record<string, unknown>;
+    return <p className="font-body text-body-lg text-[#d3e4fe]">
+      <b className="text-emerald-200">{String(data.guard || data.player)}</b>
+      {' '}今夜选择空守
+    </p>;
+  }
   if (event.event_type === 'witch_heal' || event.event_type === 'witch_poison') {
     return <p className="font-body text-body-lg text-[#d3e4fe]">
       <b className="text-violet-200">{String(event.data.witch)}</b>
@@ -470,12 +521,11 @@ function EventBody({
     const speaker = String(event.data.speaker);
     return (
       <div className="flex gap-2">
-        <div className={cn(
-          'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white ring-1 ring-[#eb2445]/60',
-          avatarColor(speaker),
-        )}>
-          {playerInitial(speaker)}
-        </div>
+        <LobeAvatar
+          avatarId={avatarAssignment?.[speaker]}
+          playerId={speaker}
+          className="mt-0.5 h-7 w-7 rounded-full text-[10px] font-bold text-white ring-1 ring-[#eb2445]/60"
+        />
         <div className="min-w-0 flex-1">
           <div className="mb-1 flex items-center gap-1.5">
             <span className="font-display text-[13px] text-[#ffb3b3]">{speaker}</span>
@@ -551,7 +601,14 @@ function EventBody({
   }
 
   if (isPlayerSpeech(event)) {
-    return <SpeechBubble speech={event} roleAssignment={roleAssignment} time={time} />;
+    return (
+      <SpeechBubble
+        speech={event}
+        roleAssignment={roleAssignment}
+        avatarAssignment={avatarAssignment}
+        time={time}
+      />
+    );
   }
 
   if (isPlayerVote(event)) {
@@ -568,7 +625,11 @@ function EventBody({
   if (isVoteResult(event)) {
     return (
       <div className="flex flex-col gap-3">
-        <VoteResult votes={votesForResult} result={event} />
+        <VoteResult
+          votes={votesForResult}
+          result={event}
+          avatarAssignment={avatarAssignment}
+        />
         {event.data.result === 'eliminated' && event.data.eliminated && (
           <p className="font-body text-body-md text-[#ffb3b3] bg-[#eb2445]/10 border border-[#eb2445]/30 rounded-md px-3 py-2">
             <b className="font-display">{event.data.eliminated}</b> 被投票放逐(第{event.data.round}轮)。
@@ -604,7 +665,11 @@ function EventBody({
     );
   }
 
-  return null;
+  return (
+    <p className="font-body text-[12px] leading-relaxed text-[#c8c5cb]">
+      已记录事件：<b>{event.event_type.replace(/_/g, ' ')}</b>
+    </p>
+  );
 }
 
 function WolfKillSummary({ events }: { events: WerewolfKillEvent[] }) {
@@ -638,12 +703,12 @@ function WolfKillSummary({ events }: { events: WerewolfKillEvent[] }) {
       </div>
 
       <div className="border-l-2 border-[#eb2445]/35 pl-2.5">
-        <div className="mb-1.5 font-label text-[9px] uppercase tracking-wider text-[#ffb3b3]/70">
+        <div className="mb-1.5 font-label text-[10px] uppercase tracking-wider text-[#ffb3b3]/70">
           狼队行动推理
         </div>
         <div className="space-y-1.5">
           {events.map((event) => (
-            <div key={event.data.killer} className="grid grid-cols-[42px_1fr] gap-2 text-[11px] leading-[1.45]">
+            <div key={event.data.killer} className="grid grid-cols-[42px_1fr] gap-2 text-[12px] leading-[1.5]">
               <b className="font-display text-[#ffb3b3]">{event.data.killer}</b>
               <span className="font-body text-[#c8c5cb]/75">{event.data.reasoning}</span>
             </div>

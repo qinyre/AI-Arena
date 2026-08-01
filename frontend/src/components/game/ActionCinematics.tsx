@@ -211,6 +211,7 @@ interface Props {
   enabled: boolean;
   roleAssignment?: Record<string, string>;
   onActiveChange?: (active: boolean) => void;
+  onActionStart?: (action: CinematicAction) => void;
 }
 
 export default function ActionCinematics({
@@ -220,10 +221,12 @@ export default function ActionCinematics({
   enabled,
   roleAssignment,
   onActiveChange,
+  onActionStart,
 }: Props) {
   const cursor = useRef<number | null>(null);
   const [queue, setQueue] = useState<CinematicAction[]>([]);
   const [current, setCurrent] = useState<CinematicAction | null>(null);
+  const announced = useRef<string | null>(null);
   const finishCurrent = useCallback(() => setCurrent(null), []);
 
   useEffect(() => {
@@ -279,6 +282,15 @@ export default function ActionCinematics({
     return () => onActiveChange?.(false);
   }, [current, onActiveChange]);
 
+  useEffect(() => {
+    if (!current) {
+      announced.current = null;
+    } else if (announced.current !== current.id) {
+      announced.current = current.id;
+      onActionStart?.(current);
+    }
+  }, [current, onActionStart]);
+
   return current ? (
     <CinematicScene action={current} onComplete={finishCurrent} />
   ) : null;
@@ -291,7 +303,7 @@ function CinematicScene({
   action: CinematicAction;
   onComplete: () => void;
 }) {
-  const root = useRef<HTMLDivElement>(null);
+  const root = useRef<HTMLDialogElement>(null);
   const skipButton = useRef<HTMLButtonElement>(null);
   const [reduced, setReduced] = useState(
     () => localStorage.getItem('ai-arena:reduced-cinematics') === '1',
@@ -299,18 +311,16 @@ function CinematicScene({
   const meta = META[action.kind];
 
   useEffect(() => {
+    const dialog = root.current;
     const previousFocus = document.activeElement;
+    if (dialog && !dialog.open) dialog.showModal();
     const frame = window.requestAnimationFrame(() => skipButton.current?.focus());
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onComplete();
-    };
-    window.addEventListener('keydown', onKeyDown);
     return () => {
       window.cancelAnimationFrame(frame);
-      window.removeEventListener('keydown', onKeyDown);
+      if (dialog?.open) dialog.close();
       if (previousFocus instanceof HTMLElement) previousFocus.focus();
     };
-  }, [onComplete]);
+  }, []);
 
   useGSAP(() => {
     const media = gsap.matchMedia();
@@ -451,13 +461,15 @@ function CinematicScene({
   };
 
   return (
-    <div
+    <dialog
       ref={root}
-      role="dialog"
-      aria-modal="true"
       aria-label={`${action.title}，${action.actor}${action.target ? ` 对 ${action.target}` : ''}`}
       data-scene={action.kind}
-      className="cinematic-root fixed inset-0 z-[100] overflow-hidden bg-[#090b0d]"
+      className="cinematic-root fixed inset-0 z-[100] m-0 h-full max-h-none w-full max-w-none overflow-hidden border-0 bg-[#090b0d] p-0 backdrop:bg-[#090b0d]"
+      onCancel={(event) => {
+        event.preventDefault();
+        onComplete();
+      }}
       style={{
         '--cinematic-color': meta.color,
         '--cinematic-wash': meta.wash,
@@ -562,7 +574,7 @@ function CinematicScene({
           style={{ backgroundColor: meta.color }}
         />
       </div>
-    </div>
+    </dialog>
   );
 }
 

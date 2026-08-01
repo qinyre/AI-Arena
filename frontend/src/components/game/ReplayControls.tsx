@@ -13,7 +13,7 @@ interface Props {
 }
 
 const SPEEDS = [0.5, 1, 2, 4];
-const TRANSPORT_BUTTON = 'grid h-8 w-8 place-items-center rounded border border-[#47464b]/35 bg-[#102034]/70 text-[#c8c5cb]/65 transition-colors hover:border-[#e9c400]/35 hover:text-[#ffe16d]';
+const TRANSPORT_BUTTON = 'grid h-11 w-11 place-items-center rounded border border-[#47464b]/35 bg-[#102034]/70 text-[#c8c5cb]/65 transition-colors hover:border-[#e9c400]/35 hover:text-[#ffe16d]';
 
 export default function ReplayControls({
   events,
@@ -77,7 +77,7 @@ export default function ReplayControls({
           type="button"
           onClick={togglePlayback}
           aria-label={playing ? '暂停回放' : '播放回放'}
-          className="grid h-9 w-9 place-items-center rounded-full border border-[#e9c400]/45 bg-[#e9c400]/10 text-[#ffe16d] transition-colors hover:bg-[#e9c400]/20"
+          className="grid h-11 w-11 place-items-center rounded-full border border-[#e9c400]/45 bg-[#e9c400]/10 text-[#ffe16d] transition-colors hover:bg-[#e9c400]/20"
         >
           <span className="material-symbols-outlined text-[21px]">{playing ? 'pause' : 'play_arrow'}</span>
         </button>
@@ -117,12 +117,14 @@ export default function ReplayControls({
             onClick={() => seek(marker.cursor)}
             title={`第 ${marker.round} 轮 · ${marker.title}\n${marker.impact}`}
             aria-label={`跳到关键转折：${marker.title}`}
-            className={cn(
-              'absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[#081624] bg-[#c4b5fd] shadow-[0_0_9px_rgba(196,181,253,0.75)]',
+            className="absolute top-1/2 grid h-11 w-11 -translate-x-1/2 -translate-y-1/2 place-items-center"
+            style={{ left: `clamp(1.375rem, ${(marker.cursor / total) * 100}%, calc(100% - 1.375rem))` }}
+          >
+            <span className={cn(
+              'h-3 w-3 rounded-full border-2 border-[#081624] bg-[#c4b5fd] shadow-[0_0_9px_rgba(196,181,253,0.75)]',
               cursor >= marker.cursor && 'bg-[#ffe16d]',
-            )}
-            style={{ left: `${(marker.cursor / total) * 100}%` }}
-          />
+            )} />
+          </button>
         ))}
       </div>
 
@@ -134,7 +136,7 @@ export default function ReplayControls({
               type="button"
               onClick={() => seek(marker.cursor)}
               className={cn(
-                'shrink-0 rounded-full border px-2.5 py-1 text-xs transition-colors',
+                'min-h-11 shrink-0 rounded-full border px-3 py-2 text-xs transition-colors',
                 cursor >= marker.cursor
                   ? 'border-[#e9c400]/35 bg-[#e9c400]/10 text-[#ffe16d]'
                   : 'border-[#c4b5fd]/25 bg-[#c4b5fd]/5 text-[#d8ccff]/70',

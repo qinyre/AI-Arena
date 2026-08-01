@@ -2,7 +2,7 @@
 LLM Model Client Interface
 
 所有 provider 客户端的抽象基类。具体实现：
-  - OpenAICompatibleClient: OpenAI/DeepSeek/Gemini/Qwen/SiliconFlow/Ollama 等
+  - OpenAICompatibleClient: OpenAI/DeepSeek/Gemini/Qwen/Kimi/MiMo/MiniMax/GLM/SiliconFlow 等
     所有 OpenAI 兼容协议的 provider
   - ClaudeClient: Anthropic Claude（唯一非 OpenAI 协议）
 

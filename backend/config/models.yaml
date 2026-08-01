@@ -4,12 +4,13 @@
 # 被 app/llm/registry.py 读取。新增 provider 只需在此添加，无需改代码。
 #
 # 字段说明:
+#   display_name: 前端展示的供应商名称
 #   protocol:    "openai" = OpenAI 兼容协议，用 OpenAICompatibleClient
 #                "anthropic" = Anthropic 专属协议，用 ClaudeClient
 #   api_base:    API 基础 URL
-#   api_key_env: 读取 API key 的环境变量名；空字符串表示无需 key（如本地 Ollama）
+#   api_key_env: 读取 API key 的环境变量名
 #   models:      该 provider 下的模型字典
-#     cost_in / cost_out: 每 1M token 美元成本（参考价，以各官方定价页为准，2026-07）
+#     cost_in / cost_out: 每 1M token 美元成本（参考价，以各官方定价页为准，2026-07-31）
 #     context:            上下文窗口大小（token 数）
 #
 # ⚠️ 模型版本迭代极快，本清单为 2026-07 参考值。如需用最新/特定版本，
@@ -29,60 +30,67 @@ providers:
   #       分别对应 v4-flash 的非思考/思考模式。
   # ---------------------------------------------------------------------------
   deepseek:
+    display_name: "DeepSeek"
     protocol: openai
     api_base: "https://api.deepseek.com/v1"
     api_key_env: "DEEPSEEK_API_KEY"
     models:
       deepseek-v4-flash:
-        cost_in: 0.28
-        cost_out: 0.42
-        context: 64000
+        cost_in: 0.14
+        cost_out: 0.28
+        context: 1000000
       deepseek-v4-pro:
-        cost_in: 0.55
-        cost_out: 2.19
+        cost_in: 0.435
+        cost_out: 0.87
         context: 1000000
 
   # ---------------------------------------------------------------------------
-  # OpenAI 官方（GPT-5 时代）
+  # OpenAI 官方（GPT-5.6）
   # ---------------------------------------------------------------------------
   openai:
+    display_name: "OpenAI"
     protocol: openai
     api_base: "https://api.openai.com/v1"
     api_key_env: "OPENAI_API_KEY"
     models:
-      gpt-5:
-        cost_in: 1.25
-        cost_out: 10.0
-        context: 400000
-      gpt-5-mini:
-        cost_in: 0.25
-        cost_out: 2.0
-        context: 400000
-      gpt-5-nano:
-        cost_in: 0.05
-        cost_out: 0.40
-        context: 400000
+      gpt-5.6-sol:
+        cost_in: 5.0
+        cost_out: 30.0
+        context: 1050000
+      gpt-5.6-terra:
+        cost_in: 2.0
+        cost_out: 12.0
+        context: 1050000
+      gpt-5.6-luna:
+        cost_in: 0.2
+        cost_out: 1.2
+        context: 1050000
 
   # ---------------------------------------------------------------------------
   # Anthropic Claude — 唯一的非 OpenAI 协议 provider（Claude 5 时代）
-  # 旗舰 fable / 高端 opus-4-8 / 主力 sonnet-5 / 快速 haiku-4-5
+  # 旗舰 fable-5 / 高端 opus-5 / 主力 sonnet-5 / 快速 haiku-4-5
   # ---------------------------------------------------------------------------
   anthropic:
+    display_name: "Anthropic"
     protocol: anthropic
     api_base: "https://api.anthropic.com"
     api_key_env: "ANTHROPIC_API_KEY"
     models:
+      claude-fable-5:
+        cost_in: 10.0
+        cost_out: 50.0
+        context: 1000000
+      claude-opus-5:
+        cost_in: 5.0
+        cost_out: 25.0
+        context: 1000000
       claude-sonnet-5:
         cost_in: 3.0
         cost_out: 15.0
-        context: 200000
-      claude-opus-4-8:
-        cost_in: 5.0
-        cost_out: 25.0
-        context: 200000
+        context: 1000000
       claude-haiku-4-5:
-        cost_in: 0.8
-        cost_out: 4.0
+        cost_in: 1.0
+        cost_out: 5.0
         context: 200000
 
   # ---------------------------------------------------------------------------
@@ -90,77 +98,178 @@ providers:
   # 注意 base_url 结尾斜杠是硬性要求
   # ---------------------------------------------------------------------------
   gemini:
+    display_name: "Google Gemini"
     protocol: openai
     api_base: "https://generativelanguage.googleapis.com/v1beta/openai/"
     api_key_env: "GEMINI_API_KEY"
     models:
       gemini-3.6-flash:
+        cost_in: 1.5
+        cost_out: 7.5
+        context: 1048576
+      gemini-3.5-flash:
+        cost_in: 1.5
+        cost_out: 9.0
+        context: 1048576
+      gemini-3.5-flash-lite:
         cost_in: 0.3
         cost_out: 2.5
-        context: 1000000
-      gemini-3-pro:
-        cost_in: 1.25
-        cost_out: 10.0
-        context: 2000000
+        context: 1048576
 
   # ---------------------------------------------------------------------------
   # 通义千问 Qwen（阿里云百炼 DashScope 的 OpenAI 兼容接口，Qwen3 时代）
   # ---------------------------------------------------------------------------
   qwen:
+    display_name: "阿里云百炼（通义千问）"
     protocol: openai
     api_base: "https://dashscope.aliyuncs.com/compatible-mode/v1"
     api_key_env: "DASHSCOPE_API_KEY"
+    # 中国站人民币目录价按 7.2 CNY/USD 折算；长上下文会触发阶梯价
     models:
-      qwen3-max:
-        cost_in: 2.8
-        cost_out: 8.4
-        context: 32768
-      qwen-plus:
-        cost_in: 0.4
-        cost_out: 1.2
-        context: 131072
-      qwen-turbo:
-        cost_in: 0.05
-        cost_out: 0.2
+      qwen3.7-max:
+        cost_in: 1.67
+        cost_out: 5.0
         context: 1000000
+      qwen3.7-plus:
+        cost_in: 0.28
+        cost_out: 1.11
+        context: 1000000
+      qwen3.7-flash:
+        cost_in: 0.03
+        cost_out: 0.11
+        context: 1000000
+
+  # ---------------------------------------------------------------------------
+  # Kimi（月之暗面，中国区 OpenAI 兼容接口）
+  # 中国区人民币目录价按 7.2 CNY/USD 折算
+  # ---------------------------------------------------------------------------
+  kimi:
+    display_name: "Moonshot AI（月之暗面）"
+    protocol: openai
+    api_base: "https://api.moonshot.cn/v1"
+    api_key_env: "MOONSHOT_API_KEY"
+    models:
+      kimi-k3:
+        cost_in: 2.78
+        cost_out: 13.89
+        context: 1048576
+      kimi-k2.7-code:
+        cost_in: 0.90
+        cost_out: 3.75
+        context: 262144
+      kimi-k2.6:
+        cost_in: 0.90
+        cost_out: 3.75
+        context: 262144
+
+  # ---------------------------------------------------------------------------
+  # Xiaomi MiMo（OpenAI 兼容接口）
+  # 中国区人民币目录价按 7.2 CNY/USD 折算
+  # ---------------------------------------------------------------------------
+  mimo:
+    display_name: "小米（MiMo）"
+    protocol: openai
+    api_base: "https://api.xiaomimimo.com/v1"
+    api_key_env: "MIMO_API_KEY"
+    models:
+      mimo-v2.5-pro:
+        cost_in: 0.435
+        cost_out: 0.87
+        context: 1000000
+      mimo-v2.5:
+        cost_in: 0.14
+        cost_out: 0.28
+        context: 1000000
+
+  # ---------------------------------------------------------------------------
+  # MiniMax（中国区 OpenAI 兼容接口）
+  # 人民币目录价按 7.2 CNY/USD 折算，按 ≤512K 输入档估算
+  # ---------------------------------------------------------------------------
+  minimax:
+    display_name: "MiniMax"
+    protocol: openai
+    api_base: "https://api.minimaxi.com/v1"
+    api_key_env: "MINIMAX_API_KEY"
+    models:
+      MiniMax-M3:
+        cost_in: 0.29
+        cost_out: 1.17
+        context: 1000000
+      MiniMax-M2.7:
+        cost_in: 0.29
+        cost_out: 1.17
+        context: 204800
+      MiniMax-M2.7-highspeed:
+        cost_in: 0.58
+        cost_out: 2.33
+        context: 204800
+
+  # ---------------------------------------------------------------------------
+  # 智谱 GLM（OpenAI 兼容接口）
+  # 人民币目录价按 7.2 CNY/USD 折算
+  # 阶梯计价模型按游戏常见的 <32K 输入、>=200 输出 token 档估算
+  # ---------------------------------------------------------------------------
+  glm:
+    display_name: "Zhipu AI（智谱）"
+    protocol: openai
+    api_base: "https://open.bigmodel.cn/api/paas/v4/"
+    api_key_env: "ZHIPU_API_KEY"
+    models:
+      glm-5.2:
+        cost_in: 1.11
+        cost_out: 3.89
+        context: 1000000
+      glm-5.1:
+        cost_in: 0.83
+        cost_out: 3.33
+        context: 200000
+      glm-5-turbo:
+        cost_in: 0.69
+        cost_out: 3.06
+        context: 200000
+      glm-5:
+        cost_in: 0.56
+        cost_out: 2.50
+        context: 200000
+      glm-4.7:
+        cost_in: 0.42
+        cost_out: 1.94
+        context: 200000
+      glm-4.7-flashx:
+        cost_in: 0.07
+        cost_out: 0.42
+        context: 200000
+      glm-4.5-air:
+        cost_in: 0.11
+        cost_out: 0.83
+        context: 128000
+      glm-4.7-flash:
+        cost_in: 0.0
+        cost_out: 0.0
+        context: 200000
 
   # ---------------------------------------------------------------------------
   # 硅基流动 SiliconFlow（聚合平台，一个 key 调多家开源模型）
   # ---------------------------------------------------------------------------
   siliconflow:
+    display_name: "硅基流动（SiliconFlow）"
     protocol: openai
     api_base: "https://api.siliconflow.cn/v1"
     api_key_env: "SILICONFLOW_API_KEY"
+    # 中国站人民币目录价按 7.2 CNY/USD 折算
     models:
       deepseek-ai/DeepSeek-V4-Pro:
-        cost_in: 0.55
-        cost_out: 2.19
+        cost_in: 1.67
+        cost_out: 3.33
         context: 1000000
-      Qwen/Qwen3-235B-A22B:
-        cost_in: 0.55
-        cost_out: 0.55
-        context: 131072
-
-  # ---------------------------------------------------------------------------
-  # Ollama（本地模型，零成本）
-  # ---------------------------------------------------------------------------
-  ollama:
-    protocol: openai
-    api_base: "http://localhost:11434/v1"
-    api_key_env: ""
-    models:
-      llama3.3:
-        cost_in: 0.0
-        cost_out: 0.0
-        context: 128000
-      qwen3:
-        cost_in: 0.0
-        cost_out: 0.0
-        context: 32768
-      deepseek-r1:
-        cost_in: 0.0
-        cost_out: 0.0
-        context: 64000
+      deepseek-ai/DeepSeek-V4-Flash:
+        cost_in: 0.14
+        cost_out: 0.28
+        context: 1000000
+      Qwen/Qwen3.6-35B-A3B:
+        cost_in: 0.25
+        cost_out: 1.5
+        context: 262144
 
 # 默认 provider 与模型（开发期推荐用 DeepSeek v4-flash，便宜且国内直连）
 default:

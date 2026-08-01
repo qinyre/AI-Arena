@@ -6,8 +6,8 @@ OpenAI 兼容协议客户端实现。
   - DeepSeek
   - Google Gemini（官方 OpenAI 兼容端点）
   - 通义千问 Qwen（DashScope 兼容接口）
+  - Kimi、Xiaomi MiMo、MiniMax、智谱 GLM
   - 硅基流动 SiliconFlow
-  - Ollama 本地（见 OllamaClient 子类）
 
 只需 openai SDK，无需为每家单独装 SDK。
 """
@@ -23,7 +23,7 @@ class OpenAICompatibleClient(ModelClient):
     def __init__(
         self,
         api_key: str,
-        model: str = "gpt-5-mini",
+        model: str = "gpt-5.6-luna",
         base_url: Optional[str] = None,
         cost_per_1m_input: float = 0.4,
         cost_per_1m_output: float = 1.6
@@ -66,16 +66,19 @@ class OpenAICompatibleClient(ModelClient):
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
+        model_name = self.model.casefold()
         kwargs = {
             "model": self.model,
             "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens
+            "temperature": 1.0 if model_name.startswith("kimi-k") else temperature,
         }
+        kwargs["max_completion_tokens" if model_name.startswith("mimo-") else "max_tokens"] = max_tokens
+        if model_name.startswith("minimax-"):
+            kwargs["extra_body"] = {"reasoning_split": True}
 
         # JSON 模式（部分兼容 provider 可能不支持 response_format，
         # 失败时由调用方/解析层降级到正则抽取 JSON）
-        if json_mode and self.model.casefold() != "longcat-2.0":
+        if json_mode and model_name != "longcat-2.0" and not model_name.startswith("minimax-"):
             kwargs["response_format"] = {"type": "json_object"}
 
         try:
@@ -163,27 +166,3 @@ class OpenAICompatibleClient(ModelClient):
 
 # 向后兼容别名：旧代码 import OpenAIClient 仍可用
 OpenAIClient = OpenAICompatibleClient
-
-
-class OllamaClient(OpenAICompatibleClient):
-    """Ollama 本地模型客户端（OpenAI 兼容协议，零成本）"""
-
-    def __init__(
-        self,
-        model: str = "llama3.3",
-        base_url: str = "http://localhost:11434/v1"
-    ):
-        """
-        初始化 Ollama 客户端
-
-        Args:
-            model: 本地模型名称
-            base_url: Ollama API 地址
-        """
-        super().__init__(
-            api_key="ollama",  # Ollama 不需要真实 API key
-            model=model,
-            base_url=base_url,
-            cost_per_1m_input=0.0,   # 本地模型免费
-            cost_per_1m_output=0.0
-        )

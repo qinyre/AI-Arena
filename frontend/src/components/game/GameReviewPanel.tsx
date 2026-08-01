@@ -3,12 +3,14 @@ import { apiClient } from '../../api/client';
 import type { GameReview } from '../../types/api';
 import { loadModelPresets } from '../../utils/modelPresets';
 import { cn } from '../../utils/cn';
-import { getRoleConfig, avatarColor, playerInitial } from './roleConfig';
+import { getRoleConfig } from './roleConfig';
+import { LobeAvatar } from '../LobeAvatar';
 
 interface Props {
   gameId: string;
   initialReview?: GameReview;
   roleAssignment: Record<string, string>;
+  avatarAssignment?: Record<string, string>;
   onReviewGenerated?: (review: GameReview) => void;
 }
 
@@ -16,6 +18,7 @@ export default function GameReviewPanel({
   gameId,
   initialReview,
   roleAssignment,
+  avatarAssignment,
   onReviewGenerated,
 }: Props) {
   const [presets] = useState(loadModelPresets);
@@ -109,7 +112,12 @@ export default function GameReviewPanel({
 
       {loading && !review && <ReviewSkeleton />}
       {review ? (
-        <ReviewReport review={review} roleAssignment={roleAssignment} dimmed={loading} />
+        <ReviewReport
+          review={review}
+          roleAssignment={roleAssignment}
+          avatarAssignment={avatarAssignment}
+          dimmed={loading}
+        />
       ) : !loading && (
         <div className="grid min-h-[180px] place-items-center p-8 text-center">
           <div>
@@ -126,10 +134,12 @@ export default function GameReviewPanel({
 function ReviewReport({
   review,
   roleAssignment,
+  avatarAssignment,
   dimmed,
 }: {
   review: GameReview;
   roleAssignment: Record<string, string>;
+  avatarAssignment?: Record<string, string>;
   dimmed: boolean;
 }) {
   const players = [...review.player_reviews].sort((a, b) => b.score - a.score);
@@ -179,9 +189,11 @@ function ReviewReport({
               <article key={player.player_id} className="rounded-md border border-[#47464b]/20 bg-[#0b1c30]/55 p-3">
                 <div className="flex items-center gap-2">
                   <span className="w-4 font-display text-sm text-[#c8c5cb]/40">{index + 1}</span>
-                  <span className={cn('grid h-8 w-8 place-items-center rounded-full text-[10px] font-bold text-white', avatarColor(player.player_id))}>
-                    {playerInitial(player.player_id)}
-                  </span>
+                  <LobeAvatar
+                    avatarId={avatarAssignment?.[player.player_id]}
+                    playerId={player.player_id}
+                    className="h-8 w-8 rounded-full text-[10px] font-bold text-white"
+                  />
                   <strong className="font-display text-base text-[#d3e4fe]">{player.player_id}</strong>
                   {roleConfig && (
                     <span className={cn('rounded px-1.5 py-0.5 font-label text-[11px]', roleConfig.badgeClass)}>

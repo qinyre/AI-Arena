@@ -37,6 +37,11 @@ export default function VoteFlowOverlay({ containerRef, detail, eventKey }: Prop
         const cardFor = (playerId: string) => cards.find((card) => card.dataset.playerId === playerId);
         const width = rootRect.width;
         const height = rootRect.height;
+        if (width < 1024) {
+          setSize({ width, height });
+          setPaths([]);
+          return;
+        }
         const centerX = width / 2;
         const nextPaths: VotePath[] = [];
 
@@ -85,10 +90,14 @@ export default function VoteFlowOverlay({ containerRef, detail, eventKey }: Prop
   }, [containerRef, detail, eventKey]);
 
   useGSAP(() => {
+    if (!root.current || !paths.length) return;
+    const pathNodes = root.current.querySelectorAll('.vote-flow-path');
+    const targetNodes = root.current.querySelectorAll('.vote-flow-target');
+    if (!pathNodes.length || !targetNodes.length) return;
     const media = gsap.matchMedia();
     media.add('(prefers-reduced-motion: no-preference)', () => {
       gsap.fromTo(
-        '.vote-flow-path',
+        pathNodes,
         { strokeDasharray: 1, strokeDashoffset: 1, autoAlpha: 0 },
         {
           strokeDashoffset: 0,
@@ -99,7 +108,7 @@ export default function VoteFlowOverlay({ containerRef, detail, eventKey }: Prop
         },
       );
       gsap.fromTo(
-        '.vote-flow-target',
+        targetNodes,
         { scale: 0.3, autoAlpha: 0 },
         { scale: 1, autoAlpha: 0.85, duration: 0.35, stagger: 0.04, ease: 'back.out(1.8)' },
       );
@@ -111,8 +120,6 @@ export default function VoteFlowOverlay({ containerRef, detail, eventKey }: Prop
     dependencies: [eventKey, paths.length],
     revertOnUpdate: true,
   });
-
-  if (!paths.length || size.width === 0) return null;
 
   return (
     <svg

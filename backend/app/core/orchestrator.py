@@ -10,7 +10,7 @@ from app.core.werewolf import WerewolfGame
 from app.core.agent import AIAgent
 from app.core.models import ActionType, GameEvent, GamePhase, GameResult
 from app.llm.registry import get_registry
-from app.llm.openai_client import OpenAICompatibleClient, OllamaClient
+from app.llm.openai_client import OpenAICompatibleClient
 from app.llm.claude_client import ClaudeClient
 import time
 
@@ -122,7 +122,7 @@ class GameOrchestrator:
                     "请在模型预设中补充 Key 后重试。"
                 )
             else:
-                api_key = "dummy"  # 本地端点（如 Ollama）可能不需要 key
+                api_key = "dummy"  # 无需鉴权的兼容端点使用占位 key
 
         # 定价：用户填了就用，没填默认 0（不强制，成本统计只是参考）
         cost_in = model_config.get("cost_per_1m_input", 0.0)
@@ -164,7 +164,7 @@ class GameOrchestrator:
                 f"请在 config/models.yaml 中添加，或直接填 base_url + model 自定义。"
             )
 
-        # 读取 API key（无 key_env 的 provider 如 Ollama 用占位符）
+        # 读取 API key（无 key_env 时使用占位符）
         api_key = "dummy"
         if prov.api_key_env:
             api_key = os.getenv(prov.api_key_env)

@@ -137,6 +137,7 @@ class TestCostCalculation:
         asyncio.run(client.generate("test"))
 
         assert "response_format" not in captured[0]
+        assert captured[0]["extra_body"] == {"thinking": {"type": "disabled"}}
         assert "response_format" not in captured[1]
         assert captured[1]["extra_body"] == {"reasoning_split": True}
         assert captured[2]["temperature"] == 1.0

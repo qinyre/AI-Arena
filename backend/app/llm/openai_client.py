@@ -77,7 +77,11 @@ class OpenAICompatibleClient(ModelClient):
             "temperature": 1.0 if model_name.startswith("kimi-k") else temperature,
         }
         kwargs["max_completion_tokens" if model_name.startswith("mimo-") else "max_tokens"] = max_tokens
-        if model_name.startswith("minimax-"):
+        if model_name == "longcat-2.0":
+            # 游戏已要求返回可展示的 reasoning；关闭模型默认的隐藏思考，
+            # 避免输出额度耗尽在 reasoning_content 后正文仍为空。
+            kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+        elif model_name.startswith("minimax-"):
             kwargs["extra_body"] = {"reasoning_split": True}
 
         # JSON 模式（部分兼容 provider 可能不支持 response_format，

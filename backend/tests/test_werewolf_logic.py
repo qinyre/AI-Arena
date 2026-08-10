@@ -94,6 +94,7 @@ def test_sheriff_mode_is_optional_and_starts_after_first_night():
     normal = make_game()
     normal.advance_phase()
     assert normal.state.phase == GamePhase.SPEECH_ORDER
+    assert normal.night_stage is None
     normal.advance_phase()
     assert normal.state.phase == GamePhase.DAY
 

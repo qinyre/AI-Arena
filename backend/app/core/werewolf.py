@@ -1481,6 +1481,8 @@ class WerewolfGame(BaseGame):
         self, events: List[Dict], from_phase: str, phase: GamePhase
     ) -> None:
         self.state.phase = phase
+        if phase != GamePhase.NIGHT:
+            self.night_stage = None
         self.acted_players = set()
         events.append({
             "event_type": "phase_change",

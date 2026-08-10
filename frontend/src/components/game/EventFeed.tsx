@@ -11,16 +11,19 @@ import { useEffect, useRef, useState } from 'react';
 import TimelineEvent from './TimelineEvent';
 import { isPhaseChange, isWerewolfKill } from '../../types/api';
 import type { GameEvent, GameStatusResponse, RoundData, WerewolfKillEvent } from '../../types/api';
+import { eventMatchesFilter, type EventFilter } from './gameDirector';
 
 interface Props {
   events: GameEvent[];
   rounds: RoundData[];
   status: GameStatusResponse | null;
   followPlayback?: boolean;
+  eventFilter?: EventFilter;
 }
 
 function phaseMeta(phase: string): { label: string; symbol: string } {
   if (phase === 'sheriff_campaign') return { label: '警长竞选', symbol: 'campaign' };
+  if (phase === 'sheriff_withdrawal') return { label: '警上退水', symbol: 'person_remove' };
   if (phase === 'sheriff_voting') return { label: '警长投票', symbol: 'how_to_vote' };
   if (phase === 'sheriff_tiebreak_speech') return { label: '警长平票 PK', symbol: 'record_voice_over' };
   if (phase === 'sheriff_tiebreak_voting') return { label: '警长复投', symbol: 'how_to_vote' };
@@ -33,10 +36,18 @@ function phaseMeta(phase: string): { label: string; symbol: string } {
   if (phase === 'tiebreak_speech') return { label: '平票辩护', symbol: 'record_voice_over' };
   if (phase === 'tiebreak_voting') return { label: '加赛投票', symbol: 'how_to_vote' };
   if (phase === 'death_skill') return { label: '死亡技能', symbol: 'my_location' };
+  if (phase === 'last_words') return { label: '最后陈词', symbol: 'history_edu' };
+  if (phase === 'knight_duel') return { label: '骑士决斗窗口', symbol: 'swords' };
   return { label: phase, symbol: 'circle' };
 }
 
-export default function EventFeed({ events, rounds, status, followPlayback = false }: Props) {
+export default function EventFeed({
+  events,
+  rounds,
+  status,
+  followPlayback = false,
+  eventFilter = 'all',
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const userScrolledUp = useRef(false);
   const previousLength = useRef(events.length);
@@ -82,6 +93,7 @@ export default function EventFeed({ events, rounds, status, followPlayback = fal
 
   const roleAssignment = status?.role_assignment;
   const avatarAssignment = status?.avatar_assignment;
+  const filteredEvents = events.filter((event) => eventMatchesFilter(event, eventFilter));
 
   return (
     <div className="h-full flex flex-col">
@@ -106,14 +118,14 @@ export default function EventFeed({ events, rounds, status, followPlayback = fal
           ref={containerRef}
           className="custom-scrollbar relative h-full overflow-y-auto pr-3"
         >
-        {events.length === 0 && (
+        {filteredEvents.length === 0 && (
           <div className="py-16 text-center font-body text-[#aaa79f]/55">
             <span className="mx-auto mb-4 block h-px w-20 bg-[#b99758]/35" />
             夜幕尚未落下，等待第一项行动
           </div>
         )}
 
-        {events.length > 0 && (
+        {filteredEvents.length > 0 && (
           <>
             {/* 对局开始标记 */}
             <div className="relative z-10 py-3 text-center">
@@ -127,7 +139,7 @@ export default function EventFeed({ events, rounds, status, followPlayback = fal
             <div className="timeline-line" />
 
             {/* 事件流 */}
-            {events.map((e, idx) => {
+            {filteredEvents.map((e, idx) => {
               // phase_change → 阶段分隔条
               if (isPhaseChange(e)) {
                 const meta = phaseMeta(e.data.to);
@@ -170,10 +182,10 @@ export default function EventFeed({ events, rounds, status, followPlayback = fal
               }
 
               if (isWerewolfKill(e)) {
-                if (idx > 0 && isWerewolfKill(events[idx - 1])) return null;
+                if (idx > 0 && isWerewolfKill(filteredEvents[idx - 1])) return null;
                 const wolfKillEvents: WerewolfKillEvent[] = [];
-                for (let i = idx; i < events.length && isWerewolfKill(events[i]); i += 1) {
-                  wolfKillEvents.push(events[i] as WerewolfKillEvent);
+                for (let i = idx; i < filteredEvents.length && isWerewolfKill(filteredEvents[i]); i += 1) {
+                  wolfKillEvents.push(filteredEvents[i] as WerewolfKillEvent);
                 }
                 return (
                   <TimelineEvent

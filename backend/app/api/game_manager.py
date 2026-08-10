@@ -30,6 +30,24 @@ _STORAGE_PATH = Path(__file__).resolve().parents[2] / "data" / "games.json"
 # 引擎用 GamePhase.VOTING="voting",前端 GameView 期望 "vote"
 _PHASE_MAP = {"voting": "vote", "tiebreak_speech": "day", "tiebreak_voting": "vote"}
 
+_BUDGET_PROFILES = {
+    "economy": {
+        "max_output_tokens": 700,
+        "player_token_budget": 30000,
+        "game_token_budget": 240000,
+    },
+    "standard": {
+        "max_output_tokens": 1200,
+        "player_token_budget": 80000,
+        "game_token_budget": 500000,
+    },
+    "premium": {
+        "max_output_tokens": 1800,
+        "player_token_budget": 200000,
+        "game_token_budget": 1500000,
+    },
+}
+
 
 class GameManager:
     """单例游戏管理器(模块级实例 game_manager)。"""
@@ -53,6 +71,8 @@ class GameManager:
         seed: Optional[int],
         board_id: str = "5p",
         enable_sheriff: bool = False,
+        budget_tier: str = "standard",
+        parent_game_id: Optional[str] = None,
     ) -> Dict:
         """
         创建并启动一局游戏。
@@ -76,8 +96,37 @@ class GameManager:
             raise ValueError(
                 f"{board['name']}需要 {len(board['roles'])} 人,收到 {len(player_configs)} 人"
             )
+        if budget_tier not in _BUDGET_PROFILES:
+            raise ValueError(f"未知预算档位: {budget_tier}")
+        budget_profile = _BUDGET_PROFILES[budget_tier]
+
+        replay_config = {
+            "board_id": board_id,
+            "enable_sheriff": enable_sheriff,
+            "budget_tier": budget_tier,
+            "players": _sanitize_player_configs(player_configs),
+        }
+        parent = self._load_record(parent_game_id) if parent_game_id else None
+        if parent_game_id and parent is None:
+            raise ValueError(f"复赛来源 {parent_game_id} 不存在")
+        if parent:
+            if parent.get("replay_config") != replay_config:
+                raise ValueError("复赛必须沿用原局的板型、警徽设置、模型与性格阵容")
+            series_id = parent.get("series_id") or parent["game_id"]
+            series_game_number = 1 + max(
+                (
+                    int(record.get("series_game_number", 1))
+                    for record in self._load_all()
+                    if (record.get("series_id") or record.get("game_id")) == series_id
+                ),
+                default=0,
+            )
+        else:
+            series_id = None
+            series_game_number = 1
 
         game_id = f"game-{uuid.uuid4().hex[:8]}"
+        series_id = series_id or game_id
         players = [c["player_id"] for c in player_configs]
         # orchestrator 期望 model_configs 以 player_id 为 key
         model_configs = {
@@ -94,6 +143,10 @@ class GameManager:
             "board_id": board_id,
             "seed": seed,
             "enable_sheriff": enable_sheriff,
+            "budget_tier": budget_tier,
+            "ai_max_output_tokens": budget_profile["max_output_tokens"],
+            "ai_player_token_budget": budget_profile["player_token_budget"],
+            "ai_game_token_budget": budget_profile["game_token_budget"],
         }
 
         orchestrator = GameOrchestrator(game_id, config)
@@ -119,6 +172,13 @@ class GameManager:
             ],
             "custom_tokens": 0,
             "player_tokens": {},
+            "board_id": board_id,
+            "replay_config": replay_config,
+            "series_id": series_id,
+            "series_game_number": series_game_number,
+            "source_game_id": parent_game_id,
+            "budget_tier": budget_tier,
+            "budget_profile": budget_profile,
             "sheriff_enabled": enable_sheriff,
             "sheriff_id": None,
             "personality_assignment": {
@@ -144,6 +204,8 @@ class GameManager:
             "message": "游戏已创建,正在后台启动",
             "players": players,
             "board_id": board_id,
+            "series_id": series_id,
+            "series_game_number": series_game_number,
         }
 
     async def _run_game_safe(self, game_id: str):
@@ -180,6 +242,15 @@ class GameManager:
             final_alive = list(state.alive_players) if state else []
             final_dead = list(state.dead_players) if state else []
             final_phase = _PHASE_MAP.get(state.phase.value, state.phase.value) if state else None
+            event_records = (
+                [event.to_dict() for event in state.events]
+                if state and state.events else []
+            )
+            match_facts = _build_match_facts(
+                event_records,
+                final_role_assignment,
+                result.get("winner"),
+            )
 
             # 更新持久化记录
             update = {
@@ -195,6 +266,7 @@ class GameManager:
                 "custom_tokens": custom_tokens,
                 "player_tokens": player_tokens,
                 "llm_metrics": orch.get_model_metrics(),
+                "match_facts": match_facts,
                 "summary": result.get("summary"),  # 原本漏存，导致 get_result() 永远返回 null
                 # 终局玩家状态(复盘用)
                 "role_assignment": final_role_assignment,
@@ -327,6 +399,11 @@ class GameManager:
             "custom_tokens": record.get("custom_tokens", 0),
             "player_tokens": record.get("player_tokens", {}),
             "llm_metrics": record.get("llm_metrics", {}),
+            "match_facts": record.get("match_facts", {}),
+            "replay_config": record.get("replay_config", {}),
+            "series": self._build_series_summary(record),
+            "budget_tier": record.get("budget_tier", "standard"),
+            "budget_profile": record.get("budget_profile", _BUDGET_PROFILES["standard"]),
             "summary": record.get("summary"),
             "ai_review": record.get("ai_review"),
         }
@@ -344,6 +421,11 @@ class GameManager:
             raise ValueError("该对局没有可供分析的事件记录")
 
         players = list(record.get("role_assignment", {}).keys())
+        match_facts = record.get("match_facts") or _build_match_facts(
+            events,
+            record.get("role_assignment", {}),
+            record.get("winner"),
+        )
         context = {
             "outcome": {
                 "winner": record.get("winner"),
@@ -353,13 +435,22 @@ class GameManager:
             },
             "roles": record.get("role_assignment", {}),
             "personalities": record.get("personality_assignment", {}),
-            "events": [_compact_review_event(event) for event in events],
+            "match_facts": match_facts,
+            "events": [
+                _compact_review_event(event, index)
+                for index, event in enumerate(events)
+            ],
         }
         output_shape = {
             "headline": "一句话标题",
             "overview": "全局复盘",
             "mvp": {"player_id": "AI-1", "reason": "MVP理由"},
-            "turning_points": [{"round": 1, "title": "转折标题", "impact": "影响"}],
+            "turning_points": [{
+                "round": 1,
+                "event_index": 12,
+                "title": "转折标题",
+                "impact": "影响",
+            }],
             "player_reviews": [{
                 "player_id": "AI-1",
                 "score": 85,
@@ -374,6 +465,9 @@ class GameManager:
             f"player_reviews 必须且只能覆盖这些玩家，每人一次：{players}\n"
             "评分范围 0-100；不能只按输赢打分，要评价信息利用、推理、发言、投票、"
             "技能与阵营贡献。turning_points 取 2-5 个，awards 取 2-4 个且避免与 MVP 重复。\n"
+            "match_facts 是程序从完整事件流计算出的权威事实，评价中的行动次数、投票与技能"
+            "必须以它为准。每个 turning_point 的 event_index 必须原样引用 events 中真实存在的"
+            "同名索引，round 必须与该事件所在轮次一致。\n"
             f"返回结构：{json.dumps(output_shape, ensure_ascii=False)}\n"
             "<match_data>\n"
             f"{json.dumps(context, ensure_ascii=False, separators=(',', ':'))}\n"
@@ -414,13 +508,27 @@ class GameManager:
         if not referenced_players <= expected_players:
             raise RuntimeError("复盘包含本局不存在的 MVP 或奖项玩家")
 
+        turning_point_indexes = [
+            point.event_index for point in content.turning_points
+        ]
+        if len(turning_point_indexes) != len(set(turning_point_indexes)):
+            raise RuntimeError("复盘转折点重复引用了同一事件")
+        for point in content.turning_points:
+            if point.event_index >= len(events):
+                raise RuntimeError("复盘转折点引用了不存在的事件")
+            point.round = _event_round(events, point.event_index)
+
         review = {
             **content.model_dump(),
             "model": result.get("model", model_config["model"]),
             "usage": result.get("usage", {}),
             "generated_at": _now_iso(),
         }
-        await self._update_status(game_id, ai_review=review)
+        await self._update_status(
+            game_id,
+            ai_review=review,
+            match_facts=match_facts,
+        )
         return review
 
     # ------------------------------------------------------------------
@@ -437,14 +545,48 @@ class GameManager:
                 "created_at": r["created_at"],
                 "started_at": r.get("started_at"),
                 "completed_at": r.get("completed_at"),
+                "board_id": r.get("board_id"),
+                "winner": r.get("winner"),
+                "series_id": r.get("series_id") or r.get("game_id"),
+                "series_game_number": r.get("series_game_number", 1),
             }
             for r in records
         ]
         return {"total": len(games), "games": games}
 
+    def _build_series_summary(self, record: Dict) -> Dict:
+        series_id = record.get("series_id") or record.get("game_id")
+        games = [
+            item for item in self._load_all()
+            if (item.get("series_id") or item.get("game_id")) == series_id
+        ]
+        games.sort(key=lambda item: int(item.get("series_game_number", 1)))
+        completed = [item for item in games if item.get("status") == "completed"]
+        return {
+            "series_id": series_id,
+            "current_game_number": int(record.get("series_game_number", 1)),
+            "total_games": len(games),
+            "completed_games": len(completed),
+            "score": {
+                "good": sum(1 for item in completed if item.get("winner") == "good"),
+                "werewolf": sum(1 for item in completed if item.get("winner") == "werewolf"),
+                "draw": sum(1 for item in completed if item.get("winner") == "draw"),
+            },
+            "games": [
+                {
+                    "game_id": item["game_id"],
+                    "game_number": int(item.get("series_game_number", 1)),
+                    "status": item.get("status"),
+                    "winner": item.get("winner"),
+                }
+                for item in games
+            ],
+        }
+
     def get_stats(self) -> Dict:
         """汇总统计。"""
         records = self._load_all()
+        model_stats, personality_stats = _aggregate_performance_stats(records)
         return {
             "total_games": len(records),
             "completed": sum(1 for r in records if r["status"] == "completed"),
@@ -454,6 +596,8 @@ class GameManager:
             "error": sum(1 for r in records if r["status"] == "error"),
             "total_cost": sum(r.get("total_cost", 0.0) for r in records),
             "custom_tokens": sum(r.get("custom_tokens", 0) for r in records),
+            "model_stats": model_stats,
+            "personality_stats": personality_stats,
         }
 
     # ------------------------------------------------------------------
@@ -589,7 +733,134 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _compact_review_event(event: Dict) -> Dict:
+def _sanitize_player_configs(player_configs: List[Dict]) -> List[Dict]:
+    """保留复赛所需配置，但绝不持久化 API Key。"""
+    allowed = {
+        "player_id",
+        "avatar_id",
+        "provider",
+        "model",
+        "api_format",
+        "base_url",
+        "key_env",
+        "personality",
+    }
+    return [
+        {
+            key: value
+            for key, value in config.items()
+            if key in allowed and value is not None
+        }
+        for config in player_configs
+    ]
+
+
+def _aggregate_performance_stats(
+    records: List[Dict],
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """按模型与性格聚合已完成对局；仅使用持久化事实，不调用模型。"""
+    model_buckets: Dict[str, Dict[str, Any]] = {}
+    personality_buckets: Dict[str, Dict[str, Any]] = {}
+    wolf_roles = {"werewolf", "white_wolf_king", "wolf_king", "wolf_beauty"}
+
+    def add(
+        buckets: Dict[str, Dict[str, Any]],
+        key: str,
+        label: str,
+        game_id: str,
+        won: bool,
+        metrics: Dict[str, Any],
+        detail: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        bucket = buckets.setdefault(key, {
+            "id": key,
+            "label": label,
+            "appearances": 0,
+            "wins": 0,
+            "calls": 0,
+            "tokens": 0,
+            "fallbacks": 0,
+            "_games": set(),
+            **(detail or {}),
+        })
+        bucket["appearances"] += 1
+        bucket["wins"] += int(won)
+        bucket["calls"] += int(metrics.get("calls", 0))
+        bucket["tokens"] += int(metrics.get("tokens", 0))
+        bucket["fallbacks"] += int(metrics.get("fallbacks", 0))
+        bucket["_games"].add(game_id)
+
+    for record in records:
+        if record.get("status") != "completed":
+            continue
+        game_id = record.get("game_id", "unknown")
+        winner = record.get("winner")
+        roles = record.get("role_assignment", {})
+        by_player = record.get("llm_metrics", {}).get("by_player", {})
+        configs = {
+            item.get("player_id"): item
+            for item in record.get("replay_config", {}).get("players", [])
+            if item.get("player_id")
+        }
+        personalities = record.get("personality_assignment", {})
+
+        for player_id, config in configs.items():
+            role = roles.get(player_id)
+            player_faction = "werewolf" if role in wolf_roles else "good"
+            won = winner in {"good", "werewolf"} and winner == player_faction
+            metrics = by_player.get(player_id, {})
+            provider = config.get("provider") or "custom"
+            model = config.get("model", "unknown")
+            model_key = ":".join((
+                provider,
+                str(config.get("api_format") or "managed"),
+                model,
+                str(config.get("base_url") or ""),
+            ))
+            add(
+                model_buckets,
+                model_key,
+                f"{provider} · {model}",
+                game_id,
+                won,
+                metrics,
+                {"provider": provider, "model": model},
+            )
+
+            personality = config.get("personality") or personalities.get(player_id)
+            if personality:
+                personality_key = json.dumps(personality, ensure_ascii=False, sort_keys=True)
+                add(
+                    personality_buckets,
+                    personality_key,
+                    personality.get("name", "未命名性格"),
+                    game_id,
+                    won,
+                    metrics,
+                    {
+                        "tone": personality.get("tone"),
+                        "reasoning_style": personality.get("reasoning_style"),
+                    },
+                )
+
+    def finalize(buckets: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+        rows = []
+        for bucket in buckets.values():
+            appearances = bucket["appearances"]
+            calls = bucket["calls"]
+            rows.append({
+                **{key: value for key, value in bucket.items() if key != "_games"},
+                "games": len(bucket["_games"]),
+                "win_rate": round(bucket["wins"] / appearances * 100, 1) if appearances else 0,
+                "fallback_rate": round(bucket["fallbacks"] / calls * 100, 1) if calls else 0,
+            })
+        rows.sort(key=lambda item: (-item["appearances"], -item["win_rate"], item["label"]))
+        return rows
+
+    return finalize(model_buckets), finalize(personality_buckets)
+
+
+def _compact_review_event(event: Dict, event_index: int) -> Dict:
     """去掉传输元数据并限制单段文本，保留完整事件顺序。"""
     def compact(value):
         if isinstance(value, str):
@@ -601,8 +872,185 @@ def _compact_review_event(event: Dict) -> Dict:
         return value
 
     return {
+        "event_index": event_index,
         "type": event.get("event_type", "unknown"),
         "data": compact(event.get("data", {})),
+    }
+
+
+def _event_round(events: List[Dict], target_index: int) -> int:
+    """返回指定事件所属轮次；兼容缺少 round 的早期存档。"""
+    current_round = 1
+    for index, event in enumerate(events):
+        raw_round = event.get("data", {}).get("round")
+        if isinstance(raw_round, int) and raw_round >= 0:
+            current_round = raw_round
+        if index == target_index:
+            return current_round
+    return current_round
+
+
+def _build_match_facts(
+    events: List[Dict],
+    role_assignment: Dict[str, str],
+    winner: Optional[str] = None,
+) -> Dict[str, Any]:
+    """从事件流生成无模型参与、可复核的赛后事实。"""
+    wolf_roles = {"werewolf", "white_wolf_king", "wolf_king", "wolf_beauty"}
+    players: Dict[str, Dict[str, Any]] = {}
+    for player_id, role in role_assignment.items():
+        players[player_id] = {
+            "role": role,
+            "faction": "werewolf" if role in wolf_roles else "good",
+            "survived": True,
+            "death": None,
+            "speech_count": 0,
+            "claims": [],
+            "day_votes": {
+                "cast": 0,
+                "abstained": 0,
+                "targets_werewolf": 0,
+                "targets_good": 0,
+            },
+            "sheriff_votes": {"cast": 0, "abstained": 0},
+            "skill_actions": [],
+            "wolf_chat_messages": 0,
+        }
+
+    deaths: List[Dict[str, Any]] = []
+    vote_rounds: List[Dict[str, Any]] = []
+    key_events: List[Dict[str, Any]] = []
+    skill_actors = {
+        "werewolf_kill": "killer",
+        "seer_investigate": "seer",
+        "guard_action": "guard",
+        "guard_pass": "guard",
+        "witch_heal": "witch",
+        "witch_poison": "witch",
+        "wolf_beauty_charm": "wolf_beauty",
+        "knight_duel": "knight",
+        "wolf_self_destruct": "player",
+        "white_wolf_king_self_destruct": "player",
+    }
+    key_event_types = {
+        *skill_actors,
+        "player_death",
+        "vote_result",
+        "sheriff_election_result",
+        "badge_transferred",
+        "badge_destroyed",
+        "wolf_beauty_charm_triggered",
+        "game_end",
+    }
+
+    current_round = 1
+    for event_index, event in enumerate(events):
+        event_type = event.get("event_type", "unknown")
+        data = event.get("data", {})
+        raw_round = data.get("round")
+        if isinstance(raw_round, int) and raw_round >= 0:
+            current_round = raw_round
+        round_number = current_round
+
+        if event_type == "player_speech":
+            player = players.get(data.get("speaker"))
+            if player:
+                player["speech_count"] += 1
+                claim = data.get("claim_role")
+                if claim and claim != "none":
+                    player["claims"].append({
+                        "role": claim,
+                        "round": round_number,
+                        "event_index": event_index,
+                    })
+        elif event_type == "wolf_discussion":
+            player = players.get(data.get("speaker"))
+            if player:
+                player["wolf_chat_messages"] += 1
+        elif event_type in {"player_vote", "sheriff_vote"}:
+            player = players.get(data.get("voter"))
+            if player:
+                if event_type == "sheriff_vote":
+                    player["sheriff_votes"]["cast"] += 1
+                else:
+                    player["day_votes"]["cast"] += 1
+                    target_role = role_assignment.get(data.get("target"))
+                    if target_role is not None:
+                        target_faction = (
+                            "werewolf" if target_role in wolf_roles else "good"
+                        )
+                        player["day_votes"][f"targets_{target_faction}"] += 1
+        elif event_type in {"player_abstain", "sheriff_abstain"}:
+            player = players.get(data.get("voter"))
+            if player:
+                bucket = "sheriff_votes" if event_type == "sheriff_abstain" else "day_votes"
+                player[bucket]["abstained"] += 1
+        elif event_type == "player_death":
+            player_id = data.get("player")
+            death = {
+                "player_id": player_id,
+                "cause": data.get("cause", "unknown"),
+                "round": round_number,
+                "event_index": event_index,
+            }
+            deaths.append(death)
+            if player_id in players:
+                players[player_id]["survived"] = False
+                players[player_id]["death"] = death
+        elif event_type in {"vote_result", "sheriff_election_result"}:
+            vote_rounds.append({
+                "event_index": event_index,
+                "round": round_number,
+                "phase": data.get("phase"),
+                "kind": "sheriff" if event_type == "sheriff_election_result" else "exile",
+                "result": data.get("result"),
+                "vote_detail": data.get("vote_detail", {}),
+                "eliminated": data.get("eliminated"),
+                "sheriff": data.get("sheriff"),
+                "candidates": data.get("candidates", []),
+            })
+
+        actor_key = skill_actors.get(event_type)
+        if actor_key:
+            actor = data.get(actor_key)
+            if actor in players:
+                action_fact = {
+                    "type": event_type,
+                    "event_index": event_index,
+                    "round": round_number,
+                }
+                for field in ("target", "result", "phase"):
+                    if field in data:
+                        action_fact[field] = data[field]
+                players[actor]["skill_actions"].append(action_fact)
+
+        if event_type in key_event_types:
+            actor = data.get(skill_actors.get(event_type, ""))
+            key_events.append({
+                "event_index": event_index,
+                "round": round_number,
+                "event_type": event_type,
+                "actor": actor,
+                "target": data.get("target") or data.get("player") or data.get("eliminated"),
+                "result": data.get("result") or data.get("cause") or data.get("winner"),
+            })
+
+    recorded_winner = winner
+    if not recorded_winner:
+        game_end = next(
+            (event for event in reversed(events) if event.get("event_type") == "game_end"),
+            None,
+        )
+        recorded_winner = game_end.get("data", {}).get("winner") if game_end else None
+
+    return {
+        "schema_version": 1,
+        "event_count": len(events),
+        "winner": recorded_winner,
+        "players": players,
+        "deaths": deaths,
+        "vote_rounds": vote_rounds,
+        "key_events": key_events,
     }
 
 

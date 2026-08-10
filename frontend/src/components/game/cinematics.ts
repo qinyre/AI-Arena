@@ -4,7 +4,8 @@ export type CinematicKind =
   | 'wolf' | 'wolf-kill' | 'seer' | 'witch-heal' | 'witch-poison' | 'guard'
   | 'hunter-shot' | 'wolf-king' | 'white-wolf' | 'wolf-explode' | 'idiot'
   | 'sheriff-opening' | 'sheriff' | 'badge' | 'badge-destroyed' | 'exile' | 'tie'
-  | 'last-words' | 'victory-good' | 'victory-wolf';
+  | 'last-words' | 'victory-good' | 'victory-wolf'
+  | 'wolf-beauty' | 'wolf-beauty-trigger' | 'knight-duel';
 
 export interface CinematicAction {
   id: string;
@@ -24,6 +25,8 @@ const ROLE_LABEL: Record<string, string> = {
   guard: '守卫',
   white_wolf_king: '白狼王',
   wolf_king: '狼王',
+  wolf_beauty: '狼美人',
+  knight: '骑士',
   villager: '平民',
 };
 
@@ -80,7 +83,24 @@ export function buildCinematics(
       continue;
     }
 
-    if (event.event_type === 'seer_investigate') {
+    if (event.event_type === 'wolf_beauty_charm') {
+      result.push(action(
+        event, index, 'wolf-beauty', data.wolf_beauty, data.target,
+        '绯线缠上命运', '魅惑已在长夜中留下印记',
+      ));
+    } else if (event.event_type === 'wolf_beauty_charm_triggered') {
+      result.push(action(
+        event, index, 'wolf-beauty-trigger', data.wolf_beauty, data.target,
+        '魅惑化作殉情', '狼美人被放逐，昨夜的印记随之收紧',
+      ));
+    } else if (event.event_type === 'knight_duel') {
+      const hitWolf = data.target_faction === 'werewolf';
+      result.push(action(
+        event, index, 'knight-duel', data.knight, data.target,
+        hitWolf ? '长剑指认真狼' : '决斗误判好人',
+        hitWolf ? '目标出局，审判立即转入黑夜' : '骑士为错误的挑战付出代价',
+      ));
+    } else if (event.event_type === 'seer_investigate') {
       result.push(action(
         event, index, 'seer', data.seer, data.target,
         '命运之眼睁开', `查验结果：${String(data.result)}`,
@@ -196,6 +216,13 @@ export function buildCinematics(
         ));
       }
     } else if (event.event_type === 'game_end') {
+      if (data.winner === 'draw') {
+        result.push(action(
+          event, index, 'tie', '全体玩家', undefined,
+          '对局和局', `历经 ${String(data.final_round)} 轮，双方仍未分出胜负`,
+        ));
+        continue;
+      }
       const good = data.winner === 'good';
       result.push(action(
         event,

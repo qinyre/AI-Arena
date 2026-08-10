@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 from urllib.parse import urlparse
 from app.core.werewolf import WerewolfGame
 from app.core.agent import AIAgent
-from app.core.models import ActionType, GameEvent, GamePhase, GameResult
+from app.core.models import ActionType, GameEvent, GamePhase, GameResult, Role
 from app.llm.registry import get_registry
 from app.llm.openai_client import OpenAICompatibleClient
 from app.llm.claude_client import ClaudeClient
@@ -273,6 +273,10 @@ class GameOrchestrator:
             await self.execute_day_phase()
             self._broadcast_events(self.game.advance_phase())
 
+        elif self.game.state.phase == GamePhase.SHERIFF_WITHDRAWAL:
+            await self.execute_sheriff_withdrawal_phase()
+            self._broadcast_events(self.game.advance_phase())
+
         elif self.game.state.phase in (
             GamePhase.VOTING,
             GamePhase.SHERIFF_VOTING,
@@ -294,16 +298,25 @@ class GameOrchestrator:
             await self.execute_death_skill_phase()
             self._broadcast_events(self.game.advance_phase())
 
+        elif self.game.state.phase == GamePhase.LAST_WORDS:
+            await self.execute_last_words_phase()
+            self._broadcast_events(self.game.advance_phase())
+
         elif self.game.state.phase == GamePhase.BADGE_TRANSFER:
             await self.execute_badge_transfer_phase()
+            self._broadcast_events(self.game.advance_phase())
+
+        elif self.game.state.phase == GamePhase.KNIGHT_DUEL:
+            await self.execute_knight_duel_phase()
             self._broadcast_events(self.game.advance_phase())
 
     async def execute_night_phase(self):
         """执行夜晚阶段"""
         print(f"\n=== 第{self.game.state.round}轮 - 夜晚 ===")
 
-        # 主持人口令顺序：守卫 → 狼队密聊 → 狼队投刀 → 女巫 → 预言家。
-        for stage in ("guard", "wolf_discussion", "wolves", "witch", "seer"):
+        # 主持人口令顺序：狼美人魅惑 → 守卫 → 狼队密聊/投刀 → 女巫 → 预言家。
+        # 不含对应角色的板型在该阶段不会产生动作或模型调用。
+        for stage in ("charm", "guard", "wolf_discussion", "wolves", "witch", "seer"):
             self.game.night_stage = stage
             self.game.acted_players = set()
             if stage == "wolf_discussion":
@@ -330,6 +343,23 @@ class GameOrchestrator:
                 await asyncio.gather(*tasks)
             if stage == "wolves":
                 self.game.finalize_wolf_vote()
+
+    async def execute_knight_duel_phase(self):
+        """全员发言后、放逐投票前，给未发动技能的存活骑士一次决斗窗口。"""
+        knight_id = next((
+            player_id
+            for player_id in self.game.state.alive_players
+            if self.game.state.players[player_id].role == Role.KNIGHT
+        ), None)
+        if not knight_id:
+            return
+        actions = self.game.get_available_actions(knight_id)
+        if actions:
+            await self._agent_act(
+                self.agents[knight_id],
+                self.game.get_visible_state(knight_id),
+                actions,
+            )
 
     async def execute_day_phase(self):
         """执行白天发言阶段"""
@@ -377,6 +407,32 @@ class GameOrchestrator:
             and self.game.state.players[player_id].role.value != "white_wolf_king"
         ):
             await self._offer_white_wolf_interrupt()
+
+    async def execute_sheriff_withdrawal_phase(self):
+        """所有警上玩家听完竞选发言后，依次决定退水或继续竞选。"""
+        for player_id in list(self.game.sheriff_candidates):
+            actions = self.game.get_available_actions(player_id)
+            if actions:
+                await self._agent_act(
+                    self.agents[player_id],
+                    self.game.get_visible_state(player_id),
+                    actions,
+                )
+            if self.game.day_interrupted:
+                break
+
+    async def execute_last_words_phase(self):
+        """首夜死亡或白天被放逐的玩家发表遗言。"""
+        player_id = self.game.last_words_actor
+        if not player_id:
+            return
+        actions = self.game.get_available_actions(player_id)
+        if actions:
+            await self._agent_act(
+                self.agents[player_id],
+                self.game.get_visible_state(player_id),
+                actions,
+            )
 
     async def _offer_white_wolf_interrupt(self) -> bool:
         """每次其他玩家发言后，给存活白狼王一个即时自爆窗口。"""

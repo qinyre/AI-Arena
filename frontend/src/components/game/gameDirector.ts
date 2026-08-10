@@ -2,6 +2,7 @@ import type { GameEvent } from '../../types/api';
 import type { CinematicKind } from './cinematics';
 
 export type DirectorTier = 'routine' | 'notable' | 'climax';
+export type EventFilter = 'all' | 'speech' | 'vote' | 'night' | 'death' | 'system';
 export type ArenaSound =
   | 'night' | 'day' | 'speech' | 'vote' | 'gavel' | 'tie'
   | 'death' | 'gunshot' | 'seer' | 'potion' | 'shield'
@@ -17,7 +18,7 @@ const VOICE_BY_EVENT: Record<string, string> = {
   witch_poison: '/audio/voice/witch-poison.mp3',
 };
 
-const VOICE_BY_CINEMATIC: Record<CinematicKind, string> = {
+const VOICE_BY_CINEMATIC: Partial<Record<CinematicKind, string>> = {
   wolf: VOICE_BY_EVENT.werewolf_kill,
   'wolf-kill': '/audio/voice/werewolf-kill.mp3',
   'wolf-king': '/audio/voice/wolf-king-shot.mp3',
@@ -45,6 +46,8 @@ const CLIMAX_EVENTS = new Set([
   'wolf_self_destruct',
   'player_death',
   'game_end',
+  'wolf_beauty_charm_triggered',
+  'knight_duel',
 ]);
 
 const NOTABLE_EVENTS = new Set([
@@ -57,6 +60,7 @@ const NOTABLE_EVENTS = new Set([
   'badge_destroyed',
   'speech_order_decided',
   'agent_fallback',
+  'wolf_beauty_charm',
 ]);
 
 function dataOf(event: GameEvent): Record<string, unknown> {
@@ -117,14 +121,73 @@ export function soundForEvent(event: GameEvent): ArenaSound | null {
   if (event.event_type === 'seer_investigate') return 'seer';
   if (event.event_type === 'guard_action') return 'shield';
   if (event.event_type === 'witch_heal' || event.event_type === 'witch_poison') return 'potion';
+  if (event.event_type === 'wolf_beauty_charm') return 'potion';
+  if (event.event_type === 'wolf_beauty_charm_triggered') return 'death';
+  if (event.event_type === 'knight_duel') return 'gunshot';
   if (event.event_type === 'white_wolf_king_self_destruct' || event.event_type === 'wolf_self_destruct') return 'explosion';
   if (event.event_type === 'player_death') {
     return ['hunter_shot', 'wolf_king_shot'].includes(String(data.cause)) ? 'gunshot' : 'death';
   }
   if (event.event_type === 'game_end') {
+    if (data.winner === 'draw') return 'tie';
     return data.winner === 'good' ? 'victory-good' : 'victory-wolf';
   }
   return null;
+}
+
+export function highlightCursors(
+  events: GameEvent[],
+  reviewEventIndexes: number[] = [],
+): number[] {
+  const cursors = new Set(
+    reviewEventIndexes
+      .filter((index) => Number.isInteger(index) && index >= 0 && index < events.length)
+      .map((index) => index + 1),
+  );
+  events.forEach((event, index) => {
+    const data = dataOf(event);
+    const isDeclaredSpeech = event.event_type === 'player_speech' && (
+      (data.claim_role && data.claim_role !== 'none')
+      || data.last_words
+      || data.sheriff_summary
+    );
+    if (directorTier(event) !== 'routine' || isDeclaredSpeech) {
+      cursors.add(index + 1);
+    }
+  });
+  return [...cursors].sort((a, b) => a - b);
+}
+
+export function eventMatchesFilter(event: GameEvent, filter: EventFilter): boolean {
+  if (filter === 'all' || event.event_type === 'phase_change') return true;
+  const eventType = event.event_type;
+  if (filter === 'speech') {
+    return ['player_speech', 'wolf_discussion', 'speech_order_decided'].includes(eventType);
+  }
+  if (filter === 'vote') {
+    return eventType.includes('vote')
+      || eventType.includes('abstain')
+      || eventType.startsWith('sheriff_')
+      || eventType.startsWith('badge_');
+  }
+  if (filter === 'night') {
+    return [
+      'wolf_discussion', 'werewolf_kill', 'seer_investigate', 'guard_action',
+      'guard_pass', 'witch_heal', 'witch_poison',
+      'wolf_beauty_charm',
+    ].includes(eventType);
+  }
+  if (filter === 'death') {
+    return [
+      'player_death', 'wolf_self_destruct', 'white_wolf_king_self_destruct',
+      'game_end',
+      'wolf_beauty_charm_triggered', 'knight_duel',
+    ].includes(eventType);
+  }
+  return [
+    'game_start', 'game_end', 'player_pass', 'agent_fallback',
+    'speech_order_decided',
+  ].includes(eventType);
 }
 
 export function voiceForEvent(event: GameEvent): string | null {
@@ -147,6 +210,7 @@ export function voiceForEvent(event: GameEvent): string | null {
     if (data.result === 'tie' || data.result === 'no_elimination') return VOICE_BY_CINEMATIC.tie || null;
   }
   if (event.event_type === 'game_end') {
+    if (data.winner === 'draw') return VOICE_BY_CINEMATIC.tie || null;
     return data.winner === 'good'
       ? VOICE_BY_CINEMATIC['victory-good'] || null
       : VOICE_BY_CINEMATIC['victory-wolf'] || null;
@@ -155,7 +219,7 @@ export function voiceForEvent(event: GameEvent): string | null {
 }
 
 export function voiceForCinematic(kind: CinematicKind): string | null {
-  return VOICE_BY_CINEMATIC[kind];
+  return VOICE_BY_CINEMATIC[kind] ?? null;
 }
 
 export function currentSpeaker(events: GameEvent[]): string | null {
@@ -226,6 +290,15 @@ export function playerAttention(events: GameEvent[]): Record<string, PlayerAtten
   } else if (last.event_type === 'witch_poison' || last.event_type === 'werewolf_kill') {
     add(data.witch || data.killer, 'watching');
     add(data.target, 'targeted');
+  } else if (last.event_type === 'wolf_beauty_charm') {
+    add(data.wolf_beauty, 'watching');
+    add(data.target, 'targeted');
+  } else if (last.event_type === 'wolf_beauty_charm_triggered') {
+    add(data.wolf_beauty, 'fallen');
+    add(data.target, 'fallen');
+  } else if (last.event_type === 'knight_duel') {
+    add(data.knight, data.target_faction === 'werewolf' ? 'watching' : 'fallen');
+    add(data.target, data.target_faction === 'werewolf' ? 'fallen' : 'targeted');
   } else if (last.event_type === 'player_vote' || last.event_type === 'sheriff_vote') {
     add(data.voter, 'voting');
     add(data.target, 'targeted');

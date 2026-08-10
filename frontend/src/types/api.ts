@@ -27,6 +27,8 @@ export interface PersonalityProfile {
   verbosity: number;
 }
 
+export type BudgetTier = 'economy' | 'standard' | 'premium';
+
 // /api/providers 返回的类型
 export interface ModelInfo {
   id: string;
@@ -69,7 +71,13 @@ export interface GameReview {
   headline: string;
   overview: string;
   mvp: { player_id: string; reason: string };
-  turning_points: Array<{ round: number; title: string; impact: string }>;
+  turning_points: Array<{
+    round: number;
+    /** 新复盘为精确事件索引；可选是为了兼容旧存档。 */
+    event_index?: number;
+    title: string;
+    impact: string;
+  }>;
   player_reviews: Array<{
     player_id: string;
     score: number;
@@ -83,11 +91,55 @@ export interface GameReview {
   generated_at: string;
 }
 
+export interface MatchFactDeath {
+  player_id: string;
+  cause: string;
+  round: number;
+  event_index: number;
+}
+
+export interface MatchFactPlayer {
+  role: string;
+  faction: 'good' | 'werewolf';
+  survived: boolean;
+  death: MatchFactDeath | null;
+  speech_count: number;
+  claims: Array<{ role: string; round: number; event_index: number }>;
+  day_votes: {
+    cast: number;
+    abstained: number;
+    targets_werewolf: number;
+    targets_good: number;
+  };
+  sheriff_votes: { cast: number; abstained: number };
+  skill_actions: Array<{
+    type: string;
+    event_index: number;
+    round: number;
+    target?: string;
+    result?: string;
+    phase?: string;
+  }>;
+  wolf_chat_messages: number;
+}
+
+export interface MatchFacts {
+  schema_version: number;
+  event_count: number;
+  winner?: 'good' | 'werewolf' | 'draw';
+  players: Record<string, MatchFactPlayer>;
+  deaths: MatchFactDeath[];
+  vote_rounds: Array<Record<string, unknown>>;
+  key_events: Array<Record<string, unknown>>;
+}
+
 export interface CreateGameRequest {
   player_configs: PlayerConfig[];
   board_id: string;
   seed?: number;
   enable_sheriff?: boolean;
+  budget_tier?: BudgetTier;
+  parent_game_id?: string;
 }
 
 export interface CreateGameResponse {
@@ -95,6 +147,30 @@ export interface CreateGameResponse {
   status: string;
   message: string;
   players: string[];
+  board_id: string;
+  series_id: string;
+  series_game_number: number;
+}
+
+export interface ReplayConfig {
+  board_id: string;
+  enable_sheriff: boolean;
+  budget_tier: BudgetTier;
+  players: PlayerConfig[];
+}
+
+export interface SeriesSummary {
+  series_id: string;
+  current_game_number: number;
+  total_games: number;
+  completed_games: number;
+  score: { good: number; werewolf: number; draw: number };
+  games: Array<{
+    game_id: string;
+    game_number: number;
+    status: string;
+    winner?: 'good' | 'werewolf' | 'draw';
+  }>;
 }
 
 export interface GameStatusResponse {
@@ -117,7 +193,7 @@ export interface GameStatusResponse {
 
 export interface GameResultResponse {
   game_id: string;
-  winner: string;
+  winner: 'good' | 'werewolf' | 'draw';
   final_round: number;
   reason: string;
   duration_seconds: number;
@@ -135,6 +211,15 @@ export interface GameResultResponse {
     by_player: Record<string, { calls: number; fallbacks: number; tokens: number }>;
     by_stage: Record<string, { calls: number; fallbacks: number; tokens: number }>;
   };
+  match_facts: MatchFacts;
+  replay_config: ReplayConfig | Record<string, never>;
+  series: SeriesSummary;
+  budget_tier: BudgetTier;
+  budget_profile: {
+    max_output_tokens: number;
+    player_token_budget: number;
+    game_token_budget: number;
+  };
   summary: any;
   ai_review?: GameReview;
 }
@@ -145,6 +230,10 @@ export interface GameListItem {
   created_at: string;
   started_at?: string;
   completed_at?: string;
+  board_id?: string;
+  winner?: 'good' | 'werewolf' | 'draw';
+  series_id?: string;
+  series_game_number: number;
 }
 
 export interface ListGamesResponse {
@@ -159,6 +248,25 @@ export interface StatsResponse {
   error: number;
   total_cost: number;
   custom_tokens: number;
+  model_stats: PerformanceStat[];
+  personality_stats: PerformanceStat[];
+}
+
+export interface PerformanceStat {
+  id: string;
+  label: string;
+  provider?: string;
+  model?: string;
+  tone?: PersonalityProfile['tone'];
+  reasoning_style?: PersonalityProfile['reasoning_style'];
+  appearances: number;
+  games: number;
+  wins: number;
+  win_rate: number;
+  calls: number;
+  tokens: number;
+  fallbacks: number;
+  fallback_rate: number;
 }
 
 // ---- 事件类型(按 event_type 判别的联合类型)----
@@ -178,6 +286,9 @@ export interface GameStartEvent extends GameEventBase {
     game_id?: string;
     players: string[];
     role_assignment: Record<string, string>;
+    board_id?: string;
+    board_name?: string;
+    sheriff_enabled?: boolean;
     timestamp?: string;
   };
 }
@@ -189,12 +300,75 @@ export interface PhaseChangeEvent extends GameEventBase {
 
 export interface WerewolfKillEvent extends GameEventBase {
   event_type: 'werewolf_kill';
-  data: { killer: string; target: string; reasoning: string };
+  data: { killer: string; target: string; reasoning: string; round: number; phase?: string };
 }
 
 export interface SeerInvestigateEvent extends GameEventBase {
   event_type: 'seer_investigate';
-  data: { seer: string; target: string; result: string; reasoning: string };
+  data: { seer: string; target: string; result: string; reasoning: string; round: number; phase?: string };
+}
+
+export interface WolfDiscussionEvent extends GameEventBase {
+  event_type: 'wolf_discussion';
+  data: { speaker: string; content: string; reasoning: string; round: number; phase?: string };
+}
+
+export interface RoleActionEvent extends GameEventBase {
+  event_type: 'guard_action' | 'witch_heal' | 'witch_poison';
+  data: {
+    guard?: string;
+    witch?: string;
+    target: string;
+    reasoning: string;
+    round: number;
+    phase?: string;
+  };
+}
+
+export interface WolfBeautyCharmEvent extends GameEventBase {
+  event_type: 'wolf_beauty_charm';
+  data: {
+    wolf_beauty: string;
+    target: string;
+    reasoning: string;
+    round: number;
+    phase?: string;
+  };
+}
+
+export interface WolfBeautyCharmTriggeredEvent extends GameEventBase {
+  event_type: 'wolf_beauty_charm_triggered';
+  data: {
+    wolf_beauty: string;
+    target: string;
+    round: number;
+    phase?: string;
+  };
+}
+
+export interface KnightDuelEvent extends GameEventBase {
+  event_type: 'knight_duel';
+  data: {
+    knight: string;
+    target: string;
+    target_faction: 'good' | 'werewolf';
+    winner: string;
+    reasoning: string;
+    round: number;
+    phase?: string;
+  };
+}
+
+export interface PassEvent extends GameEventBase {
+  event_type: 'guard_pass' | 'player_pass' | 'sheriff_campaign_pass';
+  data: {
+    player?: string;
+    guard?: string;
+    reasoning?: string;
+    round: number;
+    phase?: string;
+    context?: string;
+  };
 }
 
 export interface PlayerSpeechEvent extends GameEventBase {
@@ -210,6 +384,7 @@ export interface PlayerSpeechEvent extends GameEventBase {
     withdrew?: boolean;
     sheriff_summary?: boolean;
     nomination?: string;
+    last_words?: boolean;
   };
 }
 
@@ -237,19 +412,90 @@ export interface PlayerDeathEvent extends GameEventBase {
     player: string;
     cause: 'werewolf_kill' | 'voted_out' | 'poison' | 'night_death'
       | 'hunter_shot' | 'wolf_king_shot'
-      | 'white_wolf_king' | 'self_destruct';
+      | 'white_wolf_king' | 'self_destruct'
+      | 'wolf_beauty_charm' | 'knight_duel' | 'knight_failed';
     round: number;
+    phase?: string;
     shooter?: string;
   };
+}
+
+export interface PlayerAbstainEvent extends GameEventBase {
+  event_type: 'player_abstain';
+  data: { voter: string; reasoning: string; round: number; phase?: string };
+}
+
+export interface SheriffVoteEvent extends GameEventBase {
+  event_type: 'sheriff_vote' | 'sheriff_abstain';
+  data: { voter: string; target?: string; reasoning: string; round: number; phase?: string };
 }
 
 export interface GameEndEvent extends GameEventBase {
   event_type: 'game_end';
   data: {
-    winner: 'good' | 'werewolf';
+    winner: 'good' | 'werewolf' | 'draw';
     reason: string;
     final_round: number;
     duration_seconds: number;
+  };
+}
+
+export interface SelfDestructEvent extends GameEventBase {
+  event_type: 'white_wolf_king_self_destruct' | 'wolf_self_destruct';
+  data: { player: string; target?: string; round: number; phase?: string };
+}
+
+export interface SheriffElectionResultEvent extends GameEventBase {
+  event_type: 'sheriff_election_result';
+  data: {
+    result: 'elected' | 'tie' | 'no_sheriff' | 'cancelled_by_self_destruct';
+    sheriff?: string;
+    reason?: string;
+    candidates?: string[];
+    votes?: Record<string, number>;
+    vote_detail?: Record<string, string>;
+    round: number;
+    phase?: string;
+  };
+}
+
+export interface SheriffWithdrawalEvent extends GameEventBase {
+  event_type: 'sheriff_withdrawal';
+  data: { player: string; reasoning: string; round: number; phase?: string };
+}
+
+export interface BadgeEvent extends GameEventBase {
+  event_type: 'badge_transferred' | 'badge_destroyed';
+  data: { from?: string; to?: string; player?: string; reasoning?: string; round: number; phase?: string };
+}
+
+export interface SpeechOrderEvent extends GameEventBase {
+  event_type: 'speech_order_decided';
+  data: {
+    chooser: string;
+    direction: 'clockwise' | 'counterclockwise';
+    anchor?: string;
+    anchor_type?: string;
+    order: string[];
+    night_deaths?: string[];
+    reasoning?: string;
+    round: number;
+    phase?: string;
+  };
+}
+
+export interface AgentFallbackEvent extends GameEventBase {
+  event_type: 'agent_fallback';
+  data: {
+    player: string;
+    round: number;
+    phase: string;
+    message: string;
+    attempts: number;
+    usage?: Record<string, number>;
+    response_excerpt?: string;
+    finish_reason?: string;
+    fallback_action?: string;
   };
 }
 
@@ -263,11 +509,25 @@ export type GameEvent =
   | GameStartEvent
   | PhaseChangeEvent
   | WerewolfKillEvent
+  | WolfDiscussionEvent
   | SeerInvestigateEvent
+  | RoleActionEvent
+  | WolfBeautyCharmEvent
+  | WolfBeautyCharmTriggeredEvent
+  | KnightDuelEvent
+  | PassEvent
   | PlayerSpeechEvent
   | PlayerVoteEvent
+  | PlayerAbstainEvent
+  | SheriffVoteEvent
   | VoteResultEvent
   | PlayerDeathEvent
+  | SelfDestructEvent
+  | SheriffElectionResultEvent
+  | SheriffWithdrawalEvent
+  | BadgeEvent
+  | SpeechOrderEvent
+  | AgentFallbackEvent
   | GameEndEvent
   | UnknownEvent;
 
@@ -278,6 +538,9 @@ export function isPlayerSpeech(e: GameEvent): e is PlayerSpeechEvent {
 }
 export function isPlayerVote(e: GameEvent): e is PlayerVoteEvent {
   return e.event_type === 'player_vote';
+}
+export function isPlayerAbstain(e: GameEvent): e is PlayerAbstainEvent {
+  return e.event_type === 'player_abstain';
 }
 export function isVoteResult(e: GameEvent): e is VoteResultEvent {
   return e.event_type === 'vote_result';
@@ -308,7 +571,7 @@ export interface GameEventResponse {
 
 export type Role =
   | 'werewolf' | 'seer' | 'witch' | 'hunter' | 'idiot' | 'guard'
-  | 'white_wolf_king' | 'wolf_king' | 'villager' | string;
+  | 'white_wolf_king' | 'wolf_king' | 'wolf_beauty' | 'knight' | 'villager' | string;
 export type GamePhase = 'night' | 'day' | 'vote' | 'death_skill' | string;
 
 /** 玩家 + 身份 + 存活状态(合并 status.role_assignment 与 alive/dead) */

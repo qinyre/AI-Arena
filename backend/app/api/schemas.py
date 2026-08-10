@@ -45,6 +45,13 @@ class CreateGameRequest(BaseModel):
     board_id: str = "5p"
     seed: Optional[int] = None
     enable_sheriff: bool = False
+    budget_tier: Literal["economy", "standard", "premium"] = "standard"
+    parent_game_id: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-zA-Z0-9_-]+$",
+    )
 
 
 class ModelConnectionTestRequest(BaseModel):
@@ -69,6 +76,9 @@ class CreateGameResponse(BaseModel):
     status: str
     message: str
     players: List[str]
+    board_id: str
+    series_id: str
+    series_game_number: int
 
 
 class GameStatusResponse(BaseModel):
@@ -100,6 +110,7 @@ class GameReviewMVP(BaseModel):
 
 class GameReviewTurningPoint(BaseModel):
     round: int = Field(ge=0)
+    event_index: int = Field(ge=0)
     title: str
     impact: str
 
@@ -146,6 +157,11 @@ class GameResultResponse(BaseModel):
     custom_tokens: int = 0
     player_tokens: Dict[str, int] = Field(default_factory=dict)
     llm_metrics: Dict[str, Any] = Field(default_factory=dict)
+    match_facts: Dict[str, Any] = Field(default_factory=dict)
+    replay_config: Dict[str, Any] = Field(default_factory=dict)
+    series: Dict[str, Any] = Field(default_factory=dict)
+    budget_tier: str = "standard"
+    budget_profile: Dict[str, int] = Field(default_factory=dict)
     summary: Any = None
     ai_review: Optional[GameReview] = None
 
@@ -156,6 +172,10 @@ class GameListItem(BaseModel):
     created_at: str
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
+    board_id: Optional[str] = None
+    winner: Optional[str] = None
+    series_id: Optional[str] = None
+    series_game_number: int = 1
 
 
 class ListGamesResponse(BaseModel):
@@ -164,12 +184,16 @@ class ListGamesResponse(BaseModel):
 
 
 class StatsResponse(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     total_games: int
     completed: int
     running: int
     error: int
     total_cost: float
     custom_tokens: int = 0
+    model_stats: List[Dict[str, Any]] = Field(default_factory=list)
+    personality_stats: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class DeleteResponse(BaseModel):

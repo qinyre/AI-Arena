@@ -107,6 +107,11 @@ export default function GameHistory({ onViewGame }: Props) {
                     <div className="min-w-0">
                       <p className="truncate font-mono text-sm text-paper">{game.game_id}</p>
                       <p className="mt-1 text-xs text-ink-muted">创建于 {formatDate(game.created_at)}</p>
+                      {game.series_game_number > 1 && (
+                        <p className="mt-1 font-label text-[10px] text-[#c4b5fd]/60">
+                          系列赛 · 第 {game.series_game_number} 局
+                        </p>
+                      )}
                     </div>
                     <span className={`shrink-0 rounded px-2 py-1 text-xs font-medium ${status.className}`}>
                       {status.label}
@@ -137,6 +142,7 @@ export default function GameHistory({ onViewGame }: Props) {
                 <tr className="border-b border-gray-700">
                   <th className="text-left py-3 px-4 text-gray-400 font-medium">游戏ID</th>
                   <th className="text-left py-3 px-4 text-gray-400 font-medium">状态</th>
+                  <th className="text-left py-3 px-4 text-gray-400 font-medium">系列</th>
                   <th className="text-left py-3 px-4 text-gray-400 font-medium">创建时间</th>
                   <th className="text-left py-3 px-4 text-gray-400 font-medium">开始时间</th>
                   <th className="text-left py-3 px-4 text-gray-400 font-medium">完成时间</th>
@@ -152,6 +158,9 @@ export default function GameHistory({ onViewGame }: Props) {
                       <span className={`px-2 py-1 rounded text-xs font-medium ${status.className}`}>
                         {status.label}
                       </span>
+                    </td>
+                    <td className="py-3 px-4 text-sm text-gray-300">
+                      {game.series_game_number > 1 ? `第 ${game.series_game_number} 局` : '首局'}
                     </td>
                     <td className="py-3 px-4 text-sm text-gray-300">{formatDate(game.created_at)}</td>
                     <td className="py-3 px-4 text-sm text-gray-300">{formatDate(game.started_at)}</td>

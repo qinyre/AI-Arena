@@ -68,6 +68,12 @@ export default function SpeechBubble({ speech, roleAssignment, avatarAssignment,
             </span>
           )}
 
+          {speech.data.last_words && (
+            <span className="border border-slate-400/25 bg-slate-400/[0.06] px-1.5 py-0.5 font-label text-[10px] text-slate-300">
+              最后陈词
+            </span>
+          )}
+
           {time && <span className="ml-auto font-label text-[10px] text-ink-muted/60">{time}</span>}
         </div>
 

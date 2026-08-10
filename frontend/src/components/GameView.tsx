@@ -25,15 +25,17 @@ import {
   currentSpeaker as speakerAt,
   playerAttention,
 } from './game/gameDirector';
+import type { EventFilter } from './game/gameDirector';
 import { isPhaseChange, isPlayerDeath } from '../types/api';
 import type { GameEvent, GameReview, GameStatusResponse, RoundData } from '../types/api';
 import { cn } from '../utils/cn';
 
 interface Props {
   gameId: string;
+  onGameCreated?: (gameId: string) => void;
 }
 
-export default function GameView({ gameId }: Props) {
+export default function GameView({ gameId, onGameCreated }: Props) {
   const { status, result, events, players, rounds, loading, error, refetch } =
     useGameStream(gameId);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -46,6 +48,7 @@ export default function GameView({ gameId }: Props) {
   const [directorEnabled, setDirectorEnabled] = useState(
     () => localStorage.getItem('ai-arena:director') !== '0',
   );
+  const [eventFilter, setEventFilter] = useState<EventFilter>('all');
   const isCompleted = status?.status === 'completed';
   const isPaused = status?.status === 'paused';
 
@@ -56,6 +59,7 @@ export default function GameView({ gameId }: Props) {
   useEffect(() => {
     setReplayCursor(null);
     setGeneratedReview(undefined);
+    setEventFilter('all');
   }, [gameId]);
 
   const cursor = isCompleted ? (replayCursor ?? events.length) : events.length;
@@ -218,6 +222,8 @@ export default function GameView({ gameId }: Props) {
           turningPoints={activeReview?.turning_points ?? []}
           directorEnabled={directorEnabled}
           blocked={cinematicActive}
+          eventFilter={eventFilter}
+          onEventFilterChange={setEventFilter}
         />
       )}
 
@@ -264,6 +270,7 @@ export default function GameView({ gameId }: Props) {
             rounds={displayRounds}
             status={displayStatus}
             followPlayback={isCompleted}
+            eventFilter={isCompleted ? eventFilter : 'all'}
           />
         </main>
 
@@ -286,6 +293,7 @@ export default function GameView({ gameId }: Props) {
           result={result}
           status={status}
           onReviewGenerated={setGeneratedReview}
+          onGameCreated={onGameCreated}
         />
       )}
     </div>

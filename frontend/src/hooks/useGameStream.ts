@@ -17,10 +17,12 @@ import type {
 import {
   isPlayerSpeech,
   isPlayerVote,
+  isPlayerAbstain,
   isWerewolfKill,
   isSeerInvestigate,
   isVoteResult,
   isPlayerDeath,
+  isPhaseChange,
 } from '../types/api';
 
 const POLL_INTERVAL = 2000;
@@ -44,6 +46,7 @@ function buildDeathMap(events: GameEvent[]): Record<string, DeathInfo> {
 /** 把原始事件按 round 聚合成单轮结构化数据 */
 function buildRounds(events: GameEvent[]): RoundData[] {
   const roundMap = new Map<number, RoundData>();
+  let currentRound = 1;
   const get = (round: number): RoundData => {
     let r = roundMap.get(round);
     if (!r) {
@@ -61,19 +64,22 @@ function buildRounds(events: GameEvent[]): RoundData[] {
   };
 
   for (const e of events) {
-    if (isPlayerSpeech(e)) {
+    if (isPhaseChange(e)) {
+      currentRound = Number.isFinite(e.data.round) ? e.data.round : currentRound;
+    } else if (isPlayerSpeech(e)) {
       get(e.data.round).speeches.push(e);
     } else if (isPlayerVote(e)) {
       get(e.data.round).votes.push(e);
+    } else if (isPlayerAbstain(e)) {
+      get(e.data.round);
     } else if (isVoteResult(e)) {
       get(e.data.round).voteResult = e;
     } else if (isPlayerDeath(e)) {
       get(e.data.round).deaths.push(e);
     } else if (isWerewolfKill(e) || isSeerInvestigate(e)) {
-      // 夜晚行动不自带 round，归到当前已知的最大轮次
-      // (事件流顺序保证夜晚行动紧跟 phase_change(round N) 之后)
-      const maxRound = roundMap.size > 0 ? Math.max(...roundMap.keys()) : 1;
-      get(maxRound).nightActions.push(e);
+      // 新事件直接携带 round；currentRound 兼容尚未补齐坐标的旧存档。
+      const eventRound = Number.isFinite(e.data.round) ? e.data.round : currentRound;
+      get(eventRound).nightActions.push(e);
     }
   }
   return Array.from(roundMap.values()).sort((a, b) => a.round - b.round);
@@ -98,6 +104,7 @@ function buildLatestReasoning(
 function eventInvolvesPlayer(e: GameEvent, pid: string): boolean {
   if (isPlayerSpeech(e)) return e.data.speaker === pid;
   if (isPlayerVote(e)) return e.data.voter === pid;
+  if (isPlayerAbstain(e)) return e.data.voter === pid;
   if (isWerewolfKill(e)) return e.data.killer === pid;
   if (isSeerInvestigate(e)) return e.data.seer === pid;
   return false;
@@ -110,6 +117,11 @@ function reasoningFromEvent(e: GameEvent): PlayerReasoning | null {
       : null;
   }
   if (isPlayerVote(e)) {
+    return e.data.reasoning
+      ? { playerId: e.data.voter, text: e.data.reasoning, kind: 'vote', round: e.data.round, timestamp: e.timestamp }
+      : null;
+  }
+  if (isPlayerAbstain(e)) {
     return e.data.reasoning
       ? { playerId: e.data.voter, text: e.data.reasoning, kind: 'vote', round: e.data.round, timestamp: e.timestamp }
       : null;

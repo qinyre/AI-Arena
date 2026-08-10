@@ -7,8 +7,12 @@ from app.core.models import (
     GamePhase, Role, ActionType, GameEvent
 )
 
-WOLF_ROLES = {Role.WEREWOLF, Role.WHITE_WOLF_KING, Role.WOLF_KING}
-GOD_ROLES = {Role.SEER, Role.WITCH, Role.HUNTER, Role.IDIOT, Role.GUARD}
+WOLF_ROLES = {
+    Role.WEREWOLF, Role.WHITE_WOLF_KING, Role.WOLF_KING, Role.WOLF_BEAUTY,
+}
+GOD_ROLES = {
+    Role.SEER, Role.WITCH, Role.HUNTER, Role.IDIOT, Role.GUARD, Role.KNIGHT,
+}
 
 # 单一板型数据源；顺序只用于构成，发牌前会洗牌。
 BOARD_PRESETS = {
@@ -45,6 +49,13 @@ BOARD_PRESETS = {
         + [Role.VILLAGER] * 4,
         "win_rule": "edge",
     },
+    "12p_wolf_beauty_knight": {
+        "name": "12人狼美骑士",
+        "roles": [Role.WEREWOLF] * 3
+        + [Role.WOLF_BEAUTY, Role.SEER, Role.WITCH, Role.GUARD, Role.KNIGHT]
+        + [Role.VILLAGER] * 4,
+        "win_rule": "edge",
+    },
 }
 
 
@@ -62,8 +73,8 @@ class WerewolfGame(BaseGame):
         self.rng = random.Random()
         self.board_id = "5p"
         self.night_stage = (
-            "guard"
-            if Role.GUARD in BOARD_PRESETS[self.board_id]["roles"]
+            "charm" if Role.WOLF_BEAUTY in BOARD_PRESETS[self.board_id]["roles"]
+            else "guard" if Role.GUARD in BOARD_PRESETS[self.board_id]["roles"]
             else "wolves"
         )
         self.wolf_votes: Dict[str, str] = {}
@@ -75,6 +86,8 @@ class WerewolfGame(BaseGame):
         self.witch_poison_available = True
         self.pending_death_skills: List[str] = []
         self.death_skill_actor: Optional[str] = None
+        self.pending_last_words: List[str] = []
+        self.last_words_actor: Optional[str] = None
         self.sheriff_enabled = False
         self.sheriff_election_done = False
         self.sheriff_id: Optional[str] = None
@@ -94,6 +107,9 @@ class WerewolfGame(BaseGame):
         self.day_interrupt_window = False
         self.forced_winner: Optional[str] = None
         self.forced_win_reason: Optional[str] = None
+        self.charmed_target: Optional[str] = None
+        self.knight_duel_used = False
+        self.knight_duel_ends_day = False
 
     def initialize(self, players: List[str], config: Dict) -> None:
         """初始化游戏"""
@@ -114,7 +130,11 @@ class WerewolfGame(BaseGame):
         self.rng = random.Random(seed)
 
         roles = list(board["roles"])
-        self.night_stage = "guard" if Role.GUARD in roles else "wolves"
+        self.night_stage = (
+            "charm" if Role.WOLF_BEAUTY in roles
+            else "guard" if Role.GUARD in roles
+            else "wolves"
+        )
         self.rng.shuffle(roles)
 
         # 创建玩家对象
@@ -182,6 +202,7 @@ class WerewolfGame(BaseGame):
             "your_status": "alive" if player.is_alive else "dead",
             "alive_players": alive,
             "dead_players": list(self.state.dead_players),
+            "public_dossier": self._build_public_dossier(),
             "public_events": self._filter_public_events(limit=20)
         }
 
@@ -203,6 +224,8 @@ class WerewolfGame(BaseGame):
                 if event.event_type == "wolf_discussion"
                 and event.data.get("round") == self.state.round
             ]
+            if player.role == Role.WOLF_BEAUTY:
+                visible["charmed_target"] = self.charmed_target
 
         elif player.role == Role.SEER:
             # 预言家看到查验历史
@@ -217,8 +240,13 @@ class WerewolfGame(BaseGame):
         elif player.role == Role.GUARD:
             visible["last_guard_target"] = self.guard_last_target
 
+        elif player.role == Role.KNIGHT:
+            visible["duel_available"] = not self.knight_duel_used
+
         if self.state.phase == GamePhase.DEATH_SKILL:
             visible["death_skill_actor"] = self.death_skill_actor
+        elif self.state.phase == GamePhase.LAST_WORDS:
+            visible["last_words_actor"] = self.last_words_actor
         elif self.state.phase == GamePhase.BADGE_TRANSFER:
             visible["badge_transfer_actor"] = self.badge_transfer_actor
 
@@ -285,12 +313,17 @@ class WerewolfGame(BaseGame):
             self.state.phase == GamePhase.BADGE_TRANSFER
             and player_id == self.badge_transfer_actor
         )
+        may_leave_last_words = (
+            self.state.phase == GamePhase.LAST_WORDS
+            and player_id == self.last_words_actor
+        )
         if (
             not player
             or (
                 not player.is_alive
                 and not may_use_death_skill
                 and not may_transfer_badge
+                and not may_leave_last_words
             )
             or player_id in self.acted_players
         ):
@@ -335,8 +368,56 @@ class WerewolfGame(BaseGame):
                 "parameters": {"reasoning": {"type": "string", "description": "撕徽理由"}},
             })
 
+        elif self.state.phase == GamePhase.LAST_WORDS and may_leave_last_words:
+            actions.append({
+                "action_type": "speak",
+                "description": "发表最后陈词",
+                "target_required": False,
+                "parameters": {
+                    "content": {"type": "string", "description": "留给场上玩家的遗言"},
+                    "claim_role": {
+                        "type": "string",
+                        "enum": ["none", "villager"] + [
+                            role.value for role in GOD_ROLES
+                            if role in BOARD_PRESETS[self.board_id]["roles"]
+                        ],
+                    },
+                },
+            })
+        elif (
+            self.state.phase == GamePhase.KNIGHT_DUEL
+            and player.role == Role.KNIGHT
+            and not self.knight_duel_used
+        ):
+            actions.append({
+                "action_type": "duel",
+                "description": "翻牌决斗一名玩家：命中狼人则其出局并立即入夜，命中好人则骑士出局且白天继续",
+                "target_required": True,
+                "valid_targets": [
+                    target for target in self.state.alive_players
+                    if target != player_id
+                ],
+                "parameters": {
+                    "reasoning": {"type": "string", "description": "发动决斗及选择目标的公开依据"}
+                },
+            })
+            actions.append(self._pass_action("本轮暂不发动一次性决斗"))
         elif self.state.phase == GamePhase.NIGHT:
-            if self.night_stage == "wolf_discussion" and player.role in WOLF_ROLES:
+            if self.night_stage == "charm" and player.role == Role.WOLF_BEAUTY:
+                actions.append({
+                    "action_type": "charm",
+                    "description": "魅惑一名其他存活玩家；若你本轮被白天放逐，该玩家随之殉情",
+                    "target_required": True,
+                    "valid_targets": [
+                        target for target in self.state.alive_players
+                        if target != player_id
+                    ],
+                    "parameters": {
+                        "reasoning": {"type": "string", "description": "魅惑目标的内部策略"}
+                    },
+                })
+
+            elif self.night_stage == "wolf_discussion" and player.role in WOLF_ROLES:
                 actions.append({
                     "action_type": "wolf_speak",
                     "description": "仅在能补充新目标、新依据或新风险时向存活狼队友发言",
@@ -365,7 +446,11 @@ class WerewolfGame(BaseGame):
                 actions.append(self._pass_action("本晚不守护"))
 
             elif self.night_stage == "wolves" and player.role in WOLF_ROLES:
-                targets = list(self.state.alive_players)
+                # 狼美骑士口径：狼美人不能成为狼刀目标，因此不能自刀。
+                targets = [
+                    target for target in self.state.alive_players
+                    if self.state.players[target].role != Role.WOLF_BEAUTY
+                ]
                 actions.append({
                     "action_type": "kill",
                     "description": "向狼队提交刀人目标（允许自刀或刀狼队友），按狼队多数票统一刀口",
@@ -429,7 +514,6 @@ class WerewolfGame(BaseGame):
             actions.append(self._pass_action("放弃发动死亡技能"))
 
         elif self.state.phase == GamePhase.SHERIFF_CAMPAIGN:
-            # 一次调用同时完成上警、竞选发言和退水选择，避免额外模型开销。
             actions.append(self._pass_action("不上警"))
             actions.append({
                 "action_type": "speak",
@@ -445,19 +529,15 @@ class WerewolfGame(BaseGame):
                         "enum": ["none", "villager"] + [
                             role.value for role in (
                                 Role.SEER, Role.WITCH, Role.HUNTER,
-                                Role.IDIOT, Role.GUARD
+                                Role.IDIOT, Role.GUARD, Role.KNIGHT
                             )
                             if role in BOARD_PRESETS[self.board_id]["roles"]
                         ],
                         "description": "竞选时公开声明的身份",
                     },
-                    "withdraw_after_speech": {
-                        "type": "boolean",
-                        "description": "发言后是否退水；退水者不能参与警长投票",
-                    },
                 },
             })
-            if player.role in WOLF_ROLES:
+            if player.role in WOLF_ROLES and player.role != Role.WOLF_BEAUTY:
                 is_white_wolf_king = player.role == Role.WHITE_WOLF_KING
                 actions.append({
                     "action_type": "self_destruct",
@@ -469,6 +549,30 @@ class WerewolfGame(BaseGame):
                     ),
                     "parameters": {"reasoning": {"type": "string", "description": "自爆理由"}},
                 })
+
+        elif self.state.phase == GamePhase.SHERIFF_WITHDRAWAL:
+            if player_id in self.sheriff_candidates:
+                actions.append({
+                    "action_type": "withdraw",
+                    "description": "退出警长竞选",
+                    "target_required": False,
+                    "parameters": {
+                        "reasoning": {"type": "string", "description": "听完全部竞选发言后的退水理由"}
+                    },
+                })
+                actions.append(self._pass_action("继续竞选警长"))
+                if player.role in WOLF_ROLES and player.role != Role.WOLF_BEAUTY:
+                    is_white_wolf_king = player.role == Role.WHITE_WOLF_KING
+                    actions.append({
+                        "action_type": "self_destruct",
+                        "description": "在退水阶段自爆并终止警长竞选",
+                        "target_required": is_white_wolf_king,
+                        "valid_targets": (
+                            [p for p in self.state.alive_players if p != player_id]
+                            if is_white_wolf_king else []
+                        ),
+                        "parameters": {"reasoning": {"type": "string", "description": "自爆理由"}},
+                    })
 
         elif self.state.phase == GamePhase.SHERIFF_VOTING:
             if player_id in self.sheriff_voters and player.can_vote:
@@ -503,7 +607,7 @@ class WerewolfGame(BaseGame):
                         },
                     },
                 })
-                if player.role in WOLF_ROLES:
+                if player.role in WOLF_ROLES and player.role != Role.WOLF_BEAUTY:
                     is_white_wolf_king = player.role == Role.WHITE_WOLF_KING
                     actions.append({
                         "action_type": "self_destruct",
@@ -587,7 +691,7 @@ class WerewolfGame(BaseGame):
                     },
                 },
             })
-            if player.role in WOLF_ROLES:
+            if player.role in WOLF_ROLES and player.role != Role.WOLF_BEAUTY:
                 is_white_wolf_king = player.role == Role.WHITE_WOLF_KING
                 actions.append({
                     "action_type": "self_destruct",
@@ -618,7 +722,7 @@ class WerewolfGame(BaseGame):
                         "enum": ["none", "villager"] + [
                             role.value for role in (
                                 Role.SEER, Role.WITCH, Role.HUNTER,
-                                Role.IDIOT, Role.GUARD
+                                Role.IDIOT, Role.GUARD, Role.KNIGHT
                             )
                             if role in BOARD_PRESETS[self.board_id]["roles"]
                         ],
@@ -626,7 +730,7 @@ class WerewolfGame(BaseGame):
                     }
                 }
             })
-            if player.role in WOLF_ROLES:
+            if player.role in WOLF_ROLES and player.role != Role.WOLF_BEAUTY:
                 is_white_wolf_king = player.role == Role.WHITE_WOLF_KING
                 actions.append({
                     "action_type": "self_destruct",
@@ -683,7 +787,7 @@ class WerewolfGame(BaseGame):
                     "target_required": False,
                     "parameters": {"content": {"type": "string", "description": "公开发言"}}
                 })
-                if player.role in WOLF_ROLES:
+                if player.role in WOLF_ROLES and player.role != Role.WOLF_BEAUTY:
                     is_white_wolf_king = player.role == Role.WHITE_WOLF_KING
                     actions.append({
                         "action_type": "self_destruct",
@@ -739,10 +843,15 @@ class WerewolfGame(BaseGame):
             self.state.phase == GamePhase.BADGE_TRANSFER
             and action.actor_id == self.badge_transfer_actor
         )
+        may_leave_last_words = (
+            self.state.phase == GamePhase.LAST_WORDS
+            and action.actor_id == self.last_words_actor
+        )
         if not player or (
             not player.is_alive
             and not may_use_death_skill
             and not may_transfer_badge
+            and not may_leave_last_words
         ):
             return False
 
@@ -775,10 +884,6 @@ class WerewolfGame(BaseGame):
                 if role in BOARD_PRESETS[self.board_id]["roles"]
             }
             if action.parameters.get("claim_role", "none") not in claimable:
-                return False
-            if self.state.phase == GamePhase.SHERIFF_CAMPAIGN and not isinstance(
-                action.parameters.get("withdraw_after_speech", False), bool
-            ):
                 return False
         reasoning = action.parameters.get("reasoning", "")
         if not isinstance(reasoning, str) or len(reasoning) > 500:
@@ -847,6 +952,19 @@ class WerewolfGame(BaseGame):
                     "reasoning": action.parameters.get("reasoning", ""),
                 },
                 "visibility": "public",
+            })
+
+        elif action.action_type == ActionType.CHARM:
+            self.charmed_target = action.target_id
+            events.append({
+                "event_type": "wolf_beauty_charm",
+                "data": {
+                    "wolf_beauty": action.actor_id,
+                    "target": action.target_id,
+                    "reasoning": action.parameters.get("reasoning", ""),
+                },
+                "visibility": "private",
+                "visible_to": [action.actor_id],
             })
 
         elif action.action_type == ActionType.KILL:
@@ -941,6 +1059,18 @@ class WerewolfGame(BaseGame):
                 "visible_to": [action.actor_id],
             })
 
+        elif action.action_type == ActionType.WITHDRAW:
+            self.sheriff_candidates.remove(action.actor_id)
+            self.sheriff_withdrawn.append(action.actor_id)
+            events.append({
+                "event_type": "sheriff_withdrawal",
+                "data": {
+                    "player": action.actor_id,
+                    "reasoning": action.parameters.get("reasoning", ""),
+                },
+                "visibility": "public",
+            })
+
         elif action.action_type == ActionType.SHOOT:
             victim = action.target_id
             shooter_role = self.state.players[action.actor_id].role
@@ -957,6 +1087,37 @@ class WerewolfGame(BaseGame):
                          "shooter": action.actor_id},
                 "visibility": "public",
             })
+
+        elif action.action_type == ActionType.DUEL:
+            self.knight_duel_used = True
+            target_role = self.state.players[action.target_id].role
+            hit_werewolf = target_role in WOLF_ROLES
+            self.knight_duel_ends_day = hit_werewolf
+            victim = action.target_id if hit_werewolf else action.actor_id
+            cause = "knight_duel" if hit_werewolf else "knight_failed"
+            self._kill_player(victim, cause)
+            events.extend([
+                {
+                    "event_type": "knight_duel",
+                    "data": {
+                        "knight": action.actor_id,
+                        "target": action.target_id,
+                        "target_faction": "werewolf" if hit_werewolf else "good",
+                        "winner": action.actor_id if hit_werewolf else action.target_id,
+                        "reasoning": action.parameters.get("reasoning", ""),
+                    },
+                    "visibility": "public",
+                },
+                {
+                    "event_type": "player_death",
+                    "data": {
+                        "player": victim,
+                        "cause": cause,
+                        "round": self.state.round,
+                    },
+                    "visibility": "public",
+                },
+            ])
 
         elif action.action_type == ActionType.SELF_DESTRUCT:
             actor_role = self.state.players[action.actor_id].role
@@ -1032,14 +1193,11 @@ class WerewolfGame(BaseGame):
                 "phase": self.state.phase.value
             }
             if self.state.phase == GamePhase.SHERIFF_CAMPAIGN:
-                withdrew = action.parameters.get("withdraw_after_speech", False)
                 speech["sheriff_campaign"] = True
-                speech["withdrew"] = withdrew
                 self.sheriff_runners.append(action.actor_id)
-                if withdrew:
-                    self.sheriff_withdrawn.append(action.actor_id)
-                else:
-                    self.sheriff_candidates.append(action.actor_id)
+                self.sheriff_candidates.append(action.actor_id)
+            elif self.state.phase == GamePhase.LAST_WORDS:
+                speech["last_words"] = True
             elif self.state.phase == GamePhase.SHERIFF_SUMMARY:
                 self.sheriff_nomination = action.target_id
                 speech["sheriff_summary"] = True
@@ -1095,6 +1253,9 @@ class WerewolfGame(BaseGame):
 
         # 将事件添加到游戏状态
         for event_data in events:
+            # 所有玩家动作共享同一事件坐标，避免前端复盘靠“最近轮次”猜测归属。
+            event_data["data"].setdefault("round", self.state.round)
+            event_data["data"].setdefault("phase", self.state.phase.value)
             self.state.events.append(GameEvent(**event_data))
         self.acted_players.add(action.actor_id)
 
@@ -1111,6 +1272,7 @@ class WerewolfGame(BaseGame):
                 GamePhase.SHERIFF_SUMMARY,
                 GamePhase.TIEBREAK_SPEECH,
                 GamePhase.SHERIFF_CAMPAIGN,
+                GamePhase.SHERIFF_WITHDRAWAL,
                 GamePhase.SHERIFF_TIEBREAK_SPEECH,
             )
         ):
@@ -1118,6 +1280,7 @@ class WerewolfGame(BaseGame):
             self.day_interrupted = False
             if self.state.phase in (
                 GamePhase.SHERIFF_CAMPAIGN,
+                GamePhase.SHERIFF_WITHDRAWAL,
                 GamePhase.SHERIFF_TIEBREAK_SPEECH,
             ):
                 self.sheriff_election_done = True
@@ -1140,10 +1303,19 @@ class WerewolfGame(BaseGame):
                 else:
                     self._begin_next_night(events, from_phase)
 
-        elif self.state.phase in (GamePhase.DEATH_SKILL, GamePhase.BADGE_TRANSFER):
+        elif self.state.phase in (
+            GamePhase.DEATH_SKILL,
+            GamePhase.BADGE_TRANSFER,
+            GamePhase.LAST_WORDS,
+        ):
             self._start_next_death_skill_or_resume(events)
 
         elif self.state.phase == GamePhase.SHERIFF_CAMPAIGN:
+            self._change_phase(
+                events, self.state.phase.value, GamePhase.SHERIFF_WITHDRAWAL
+            )
+
+        elif self.state.phase == GamePhase.SHERIFF_WITHDRAWAL:
             self.sheriff_voters = [
                 player_id
                 for player_id in self.state.alive_players
@@ -1209,6 +1381,26 @@ class WerewolfGame(BaseGame):
             events.append(vote_result)
             self._finish_voting(events, vote_result)
 
+        elif self.state.phase == GamePhase.KNIGHT_DUEL:
+            from_phase = self.state.phase.value
+            continue_phase = (
+                GamePhase.SHERIFF_SUMMARY
+                if self.sheriff_id in self.state.alive_players
+                else GamePhase.VOTING
+            )
+            next_phase = (
+                GamePhase.NIGHT if self.knight_duel_ends_day else continue_phase
+            )
+            self.knight_duel_ends_day = False
+            if self._has_pending_resolution():
+                self.resume_phase = next_phase
+                self._start_next_death_skill_or_resume(events, from_phase)
+            elif next_phase == GamePhase.NIGHT:
+                self._begin_next_night(events, from_phase)
+            else:
+                self.current_votes = {}
+                self._change_phase(events, from_phase, next_phase)
+
         elif self.state.phase == GamePhase.NIGHT:
             if (
                 self.sheriff_enabled
@@ -1270,7 +1462,14 @@ class WerewolfGame(BaseGame):
 
         elif self.state.phase == GamePhase.DAY:
             from_phase = self.state.phase.value
-            next_phase = (
+            knight_can_duel = (
+                not self.knight_duel_used
+                and any(
+                    player.is_alive and player.role == Role.KNIGHT
+                    for player in self.state.players.values()
+                )
+            )
+            next_phase = GamePhase.KNIGHT_DUEL if knight_can_duel else (
                 GamePhase.SHERIFF_SUMMARY
                 if self.sheriff_id in self.state.alive_players
                 else GamePhase.VOTING
@@ -1297,25 +1496,7 @@ class WerewolfGame(BaseGame):
                 for event_data in events:
                     self.state.events.append(GameEvent(**event_data))
                 return events
-            # 投票放逐补发死亡事件（原 vote_result 只声明结果，无独立 player_death）
-            if vote_result["data"].get("result") == "eliminated":
-                eliminated = vote_result["data"]["eliminated"]
-                events.append({
-                    "event_type": "player_death",
-                    "data": {
-                        "player": eliminated,
-                        "cause": "voted_out",
-                        "round": self.state.round
-                    },
-                    "visibility": "public"
-                })
-
-            from_phase = self.state.phase.value
-            if self._has_pending_resolution():
-                self.resume_phase = GamePhase.NIGHT
-                self._start_next_death_skill_or_resume(events, from_phase)
-            else:
-                self._begin_next_night(events, from_phase)
+            self._finish_voting(events, vote_result)
 
         # 将阶段推进产生的事件追加到游戏状态事件流
         # (apply_action 内部已有 append，但 advance_phase 此前遗漏，导致
@@ -1366,6 +1547,8 @@ class WerewolfGame(BaseGame):
 
         resolved.sort(key=lambda item: self.seat_order.index(item[0]))
         self.last_night_deaths = [victim for victim, _ in resolved]
+        if self.state.round == 1:
+            self.pending_last_words.extend(self.last_night_deaths)
         events.extend({
             "event_type": "player_death",
             "data": {"player": victim, "cause": cause, "round": self.state.round},
@@ -1384,6 +1567,7 @@ class WerewolfGame(BaseGame):
 
         data: Dict[str, Any] = {
             "round": self.state.round,
+            "phase": self.state.phase.value,
             "votes": counts,
             "vote_detail": vote_detail,
         }
@@ -1442,7 +1626,10 @@ class WerewolfGame(BaseGame):
     def _finish_voting(self, events: List[Dict], vote_result: Dict) -> None:
         if vote_result["data"].get("result") == "eliminated":
             eliminated = vote_result["data"]["eliminated"]
+            self.pending_last_words.append(eliminated)
             events.append({"event_type": "player_death", "data": {"player": eliminated, "cause": "voted_out", "round": self.state.round}, "visibility": "public"})
+            if self.state.players[eliminated].role == Role.WOLF_BEAUTY:
+                self._resolve_wolf_beauty_charm(events, eliminated)
         self.tie_candidates = []
         from_phase = self.state.phase.value
         if self._has_pending_resolution():
@@ -1450,6 +1637,40 @@ class WerewolfGame(BaseGame):
             self._start_next_death_skill_or_resume(events, from_phase)
         else:
             self._begin_next_night(events, from_phase)
+
+    def _resolve_wolf_beauty_charm(
+        self,
+        events: List[Dict],
+        wolf_beauty: str,
+    ) -> None:
+        """本版型仅在狼美人被白天放逐时结算上一夜魅惑。"""
+        target = self.charmed_target
+        self.charmed_target = None
+        if not target or target not in self.state.alive_players:
+            return
+        self._kill_player(target, "wolf_beauty_charm")
+        events.extend([
+            {
+                "event_type": "wolf_beauty_charm_triggered",
+                "data": {
+                    "wolf_beauty": wolf_beauty,
+                    "target": target,
+                    "round": self.state.round,
+                },
+                "visibility": "public",
+            },
+            {
+                "event_type": "player_death",
+                "data": {
+                    "player": target,
+                    "cause": "wolf_beauty_charm",
+                    "round": self.state.round,
+                },
+                "visibility": "public",
+            },
+        ])
+        if self._edge_completed():
+            self._force_winner("werewolf", "wolf_beauty_charm_completed_edge")
 
     def finalize_wolf_vote(self) -> None:
         """狼队按多数票形成唯一刀口；同票按座位顺序确定，保证种子可复现。"""
@@ -1471,8 +1692,8 @@ class WerewolfGame(BaseGame):
         self.witch_healed = False
         self.witch_poison_target = None
         self.night_stage = (
-            "guard"
-            if Role.GUARD in BOARD_PRESETS[self.board_id]["roles"]
+            "charm" if Role.WOLF_BEAUTY in BOARD_PRESETS[self.board_id]["roles"]
+            else "guard" if Role.GUARD in BOARD_PRESETS[self.board_id]["roles"]
             else "wolves"
         )
         self.acted_players = set()
@@ -1505,8 +1726,8 @@ class WerewolfGame(BaseGame):
         self.speech_direction = None
         self.sheriff_nomination = None
         self.night_stage = (
-            "guard"
-            if Role.GUARD in BOARD_PRESETS[self.board_id]["roles"]
+            "charm" if Role.WOLF_BEAUTY in BOARD_PRESETS[self.board_id]["roles"]
+            else "guard" if Role.GUARD in BOARD_PRESETS[self.board_id]["roles"]
             else "wolves"
         )
         self._change_phase(events, from_phase, GamePhase.NIGHT)
@@ -1522,8 +1743,13 @@ class WerewolfGame(BaseGame):
             self.death_skill_actor = self.pending_death_skills.pop(0)
             self._change_phase(events, previous, GamePhase.DEATH_SKILL)
             return
-
         self.death_skill_actor = None
+        if self.pending_last_words:
+            self.last_words_actor = self.pending_last_words.pop(0)
+            self._change_phase(events, previous, GamePhase.LAST_WORDS)
+            return
+
+        self.last_words_actor = None
         target_phase = self.resume_phase or GamePhase.DAY
         self.resume_phase = None
         if target_phase == GamePhase.NIGHT:
@@ -1568,7 +1794,12 @@ class WerewolfGame(BaseGame):
         return order, anchor, anchor_type
 
     def _has_pending_resolution(self) -> bool:
-        return bool(self.badge_transfer_actor or self.pending_death_skills)
+        return bool(
+            self.badge_transfer_actor
+            or self.pending_death_skills
+            or self.pending_last_words
+            or self.last_words_actor
+        )
 
     def check_win_condition(self) -> Optional[GameResult]:
         """检查胜利条件"""
@@ -1732,7 +1963,12 @@ class WerewolfGame(BaseGame):
         if not cast_votes:
             return {
                 "event_type": "vote_result",
-                "data": {"result": "no_votes", "round": self.state.round, "vote_detail": vote_detail},
+                "data": {
+                    "result": "no_votes",
+                    "round": self.state.round,
+                    "phase": self.state.phase.value,
+                    "vote_detail": vote_detail,
+                },
                 "visibility": "public"
             }
 
@@ -1760,7 +1996,8 @@ class WerewolfGame(BaseGame):
                     "candidates": candidates,
                     "votes": vote_counts,
                     "vote_detail": vote_detail,
-                    "round": self.state.round
+                    "round": self.state.round,
+                    "phase": self.state.phase.value,
                 },
                 "visibility": "public"
             }
@@ -1778,6 +2015,7 @@ class WerewolfGame(BaseGame):
                     "votes": vote_counts,
                     "vote_detail": vote_detail,
                     "round": self.state.round,
+                    "phase": self.state.phase.value,
                 },
                 "visibility": "public",
             }
@@ -1797,7 +2035,8 @@ class WerewolfGame(BaseGame):
                 "eliminated": eliminated,
                 "votes": vote_counts,
                 "vote_detail": vote_detail,
-                "round": self.state.round
+                "round": self.state.round,
+                "phase": self.state.phase.value,
             },
             "visibility": "public"
         }
@@ -1830,6 +2069,7 @@ class WerewolfGame(BaseGame):
                 "player_speech",
                 "sheriff_vote",
                 "sheriff_abstain",
+                "sheriff_withdrawal",
                 "badge_transferred",
                 "badge_destroyed",
                 "speech_order_decided",
@@ -1845,3 +2085,100 @@ class WerewolfGame(BaseGame):
                 d["data"] = data
             result.append(d)
         return result[-limit:]
+
+    def _build_public_dossier(self) -> Dict[str, Any]:
+        """从完整公开事件流生成长期局势档案，不依赖模型总结。"""
+        # ponytail: 每次决策线性扫描事件；单局达到数千事件后再改为增量缓存。
+        claim_history: Dict[str, List[Dict[str, Any]]] = {}
+        statement_history: Dict[str, List[Dict[str, Any]]] = {}
+        vote_history: List[Dict[str, Any]] = []
+        death_history: List[Dict[str, Any]] = []
+        sheriff_history: List[Dict[str, Any]] = []
+
+        for event in self.state.events:
+            if event.visibility != "public":
+                continue
+            data = event.data
+            if event.event_type == "player_speech":
+                speaker = data.get("speaker")
+                if not speaker:
+                    continue
+                statement_history.setdefault(speaker, []).append({
+                    "round": data.get("round"),
+                    "phase": data.get("phase"),
+                    "content": data.get("content", ""),
+                })
+                claim = data.get("claim_role")
+                if claim and claim != "none":
+                    entries = claim_history.setdefault(speaker, [])
+                    if not entries or entries[-1]["role"] != claim:
+                        entries.append({
+                            "round": data.get("round"),
+                            "phase": data.get("phase"),
+                            "role": claim,
+                        })
+            elif event.event_type in {"vote_result", "sheriff_election_result"}:
+                if data.get("vote_detail"):
+                    vote_history.append({
+                        "round": data.get("round"),
+                        "phase": data.get("phase"),
+                        "result": data.get("result"),
+                        "vote_detail": dict(data["vote_detail"]),
+                        "eliminated": data.get("eliminated"),
+                        "candidates": data.get("candidates", []),
+                    })
+                if event.event_type == "sheriff_election_result":
+                    sheriff_history.append({
+                        key: data.get(key)
+                        for key in ("round", "result", "sheriff", "reason", "candidates")
+                        if data.get(key) is not None
+                    })
+            elif event.event_type == "player_death":
+                cause = data.get("cause")
+                death_history.append({
+                    "player": data.get("player"),
+                    "round": data.get("round"),
+                    "cause": "night_death" if cause in {"werewolf_kill", "poison"} else cause,
+                })
+            elif event.event_type == "sheriff_withdrawal":
+                sheriff_history.append({
+                    "round": data.get("round"),
+                    "result": "withdrew",
+                    "player": data.get("player"),
+                })
+            elif event.event_type in {"badge_transferred", "badge_destroyed"}:
+                sheriff_history.append({
+                    "round": data.get("round"),
+                    "result": event.event_type,
+                    "from": data.get("from") or data.get("player"),
+                    "to": data.get("to"),
+                })
+
+        latest_claims = {
+            player: entries[-1]["role"]
+            for player, entries in claim_history.items()
+        }
+        claimants: Dict[str, List[str]] = {}
+        for player, role in latest_claims.items():
+            if role != "villager" and player in self.state.alive_players:
+                claimants.setdefault(role, []).append(player)
+
+        return {
+            "latest_claims": latest_claims,
+            "claim_history": claim_history,
+            "claim_conflicts": {
+                role: players for role, players in claimants.items() if len(players) > 1
+            },
+            "claim_changes": {
+                player: [entry["role"] for entry in entries]
+                for player, entries in claim_history.items()
+                if len(entries) > 1
+            },
+            "recent_statements_by_player": {
+                player: entries[-2:]
+                for player, entries in statement_history.items()
+            },
+            "vote_history": vote_history,
+            "death_history": death_history,
+            "sheriff_history": sheriff_history,
+        }

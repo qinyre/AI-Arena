@@ -92,6 +92,26 @@ const ROLE_MAP: Record<string, RoleConfig> = {
     ringClass: 'ring-[#a63b35]/55',
     team: 'werewolf',
   },
+  wolf_beauty: {
+    icon: '美',
+    symbol: 'connect_without_contact',
+    label: '狼美人',
+    color: '#a84f72',
+    badgeClass: 'bg-[#a84f72]/12 text-[#d49ab2] border border-[#a84f72]/30',
+    cardClass: 'active-wolf',
+    ringClass: 'ring-[#a84f72]/55',
+    team: 'werewolf',
+  },
+  knight: {
+    icon: '骑',
+    symbol: 'swords',
+    label: '骑士',
+    color: '#9c906e',
+    badgeClass: 'bg-[#9c906e]/12 text-[#cfc29a] border border-[#9c906e]/30',
+    cardClass: '',
+    ringClass: 'ring-[#9c906e]/55',
+    team: 'good',
+  },
   villager: {
     icon: '民',
     symbol: 'person',
@@ -117,6 +137,9 @@ export function deathCauseLabel(cause?: string): string {
   if (cause === 'wolf_king_shot') return '被狼王带走';
   if (cause === 'white_wolf_king') return '被白狼王带走';
   if (cause === 'self_destruct') return '自爆';
+  if (cause === 'wolf_beauty_charm') return '被狼美人殉情带走';
+  if (cause === 'knight_duel') return '在骑士决斗中落败';
+  if (cause === 'knight_failed') return '发动决斗失败';
   return '已淘汰';
 }
 

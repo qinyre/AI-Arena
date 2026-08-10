@@ -8,9 +8,9 @@ import app.api.game_manager as game_manager_module
 from app.api.schemas import PersonalityConfig, PlayerConfig
 from app.api.game_manager import GameManager
 from app.core.agent import AIAgent
-from app.core.models import ActionType, GameAction, GamePhase, Role
+from app.core.models import ActionType, GameAction, GameEvent, GamePhase, Role
 from app.core.orchestrator import GameOrchestrator
-from app.core.werewolf import BOARD_PRESETS, WerewolfGame
+from app.core.werewolf import BOARD_PRESETS, WOLF_ROLES, WerewolfGame
 
 
 PLAYERS = [f"AI-{i}" for i in range(1, 6)]
@@ -90,6 +90,19 @@ def test_required_target_and_duplicate_action_are_rejected():
     assert not game.is_valid_action(GameAction(ActionType.KILL, wolf, target, {}))
 
 
+def test_action_events_include_round_and_phase_coordinates():
+    game = make_game()
+    wolf = next(pid for pid, player in game.state.players.items() if player.role == Role.WEREWOLF)
+    target = next(pid for pid in PLAYERS if pid != wolf)
+
+    event = game.apply_action(GameAction(ActionType.KILL, wolf, target, {}))[0]
+
+    assert event["data"]["round"] == 1
+    assert event["data"]["phase"] == "night"
+    assert game.state.events[-1].data["round"] == 1
+    assert game.state.events[-1].data["phase"] == "night"
+
+
 def test_sheriff_mode_is_optional_and_starts_after_first_night():
     normal = make_game()
     normal.advance_phase()
@@ -120,9 +133,18 @@ def test_first_night_death_is_announced_after_sheriff_election():
             parameters={"reasoning": "不上警"},
         ))
     game.advance_phase()
-    assert game.state.phase == GamePhase.SPEECH_ORDER
+    assert game.state.phase == GamePhase.SHERIFF_WITHDRAWAL
+    game.advance_phase()
+    assert game.state.phase == GamePhase.LAST_WORDS
     assert victim in game.state.dead_players
     assert game.last_night_deaths == [victim]
+    game.apply_action(GameAction(
+        ActionType.SPEAK,
+        victim,
+        parameters={"content": "首夜倒牌，请关注警上发言。", "claim_role": "villager"},
+    ))
+    game.advance_phase()
+    assert game.state.phase == GamePhase.SPEECH_ORDER
     game.advance_phase()
     assert game.state.phase == GamePhase.DAY
 
@@ -137,7 +159,6 @@ def test_sheriff_election_second_tie_ends_without_sheriff():
             parameters={
                 "content": "我竞选警长",
                 "claim_role": "none",
-                "withdraw_after_speech": False,
             },
         ))
     for player in PLAYERS[2:]:
@@ -145,6 +166,14 @@ def test_sheriff_election_second_tie_ends_without_sheriff():
             ActionType.PASS,
             player,
             parameters={"reasoning": "不上警"},
+        ))
+    game.advance_phase()
+    assert game.state.phase == GamePhase.SHERIFF_WITHDRAWAL
+    for player in PLAYERS[:2]:
+        game.apply_action(GameAction(
+            ActionType.PASS,
+            player,
+            parameters={"reasoning": "继续竞选"},
         ))
     game.advance_phase()
     assert game.state.phase == GamePhase.SHERIFF_VOTING
@@ -178,6 +207,50 @@ def test_sheriff_election_second_tie_ends_without_sheriff():
         if event.event_type == "sheriff_election_result"
     )
     assert result.data["reason"] == "second_tie"
+
+
+def test_sheriff_withdrawal_uses_all_campaign_speeches_and_hides_reasoning():
+    game = make_sheriff_game()
+    game.state.phase = GamePhase.SHERIFF_CAMPAIGN
+    for player in PLAYERS[:2]:
+        game.apply_action(GameAction(
+            ActionType.SPEAK,
+            player,
+            parameters={"content": f"{player} 的竞选发言", "claim_role": "none"},
+        ))
+    for player in PLAYERS[2:]:
+        game.apply_action(GameAction(ActionType.PASS, player, parameters={"reasoning": "不上警"}))
+
+    game.advance_phase()
+
+    assert game.state.phase == GamePhase.SHERIFF_WITHDRAWAL
+    visible = game.get_visible_state("AI-1")
+    campaign_speeches = [
+        event for event in visible["public_events"]
+        if event["event_type"] == "player_speech"
+    ]
+    assert [event["data"]["speaker"] for event in campaign_speeches] == PLAYERS[:2]
+    assert {action["action_type"] for action in game.get_available_actions("AI-1")} >= {
+        "withdraw", "pass"
+    }
+
+    event = game.apply_action(GameAction(
+        ActionType.WITHDRAW,
+        "AI-1",
+        parameters={"reasoning": "听完 AI-2 后决定退水"},
+    ))[0]
+    assert event["event_type"] == "sheriff_withdrawal"
+    assert game.sheriff_candidates == ["AI-2"]
+    assert game.sheriff_withdrawn == ["AI-1"]
+    public_event = next(
+        item for item in game.get_visible_state("AI-2")["public_events"]
+        if item["event_type"] == "sheriff_withdrawal"
+    )
+    assert "reasoning" not in public_event["data"]
+
+    game.apply_action(GameAction(ActionType.PASS, "AI-2", parameters={"reasoning": "继续竞选"}))
+    game.advance_phase()
+    assert game.sheriff_id == "AI-2"
 
 
 def test_sheriff_orders_from_single_night_death_seat():
@@ -311,7 +384,6 @@ def test_seer_sheriff_prompt_requires_badge_flow():
         "parameters": {
             "content": {"type": "string"},
             "claim_role": {"enum": ["none", "seer"]},
-            "withdraw_after_speech": {"type": "boolean"},
         },
     }])
     assert "警徽流" in system_prompt
@@ -356,16 +428,23 @@ def test_voting_out_last_wolf_ends_in_current_round():
         game.apply_action(GameAction(ActionType.VOTE, player_id, target, {}))
 
     events = game.advance_phase()
-    result = game.check_win_condition()
-
-    assert result and result.winner == "good"
-    assert result.final_round == 1
+    assert game.state.phase == GamePhase.LAST_WORDS
+    assert game.check_win_condition() is None
     assert game.state.round == 1
-    assert game.state.phase == GamePhase.VOTING
     assert not any(
         event["event_type"] == "phase_change" and event["data"].get("to") == "night"
         for event in events
     )
+    game.apply_action(GameAction(
+        ActionType.SPEAK,
+        wolf,
+        parameters={"content": "我已出局，游戏结束。", "claim_role": "villager"},
+    ))
+    game.advance_phase()
+    result = game.check_win_condition()
+    assert result and result.winner == "good"
+    assert result.final_round == 1
+    assert game.state.round == 1
 
 
 class FailingClient:
@@ -533,7 +612,12 @@ def test_game_review_validates_all_players_and_persists(tmp_path, monkeypatch):
                     "headline": "预言家带队取胜",
                     "overview": "AI-1 精准锁定狼人。",
                     "mvp": {"player_id": "AI-1", "reason": "给出关键查杀"},
-                    "turning_points": [{"round": 1, "title": "查杀", "impact": "统一票型"}],
+                    "turning_points": [{
+                        "round": 1,
+                        "event_index": 0,
+                        "title": "查杀",
+                        "impact": "统一票型",
+                    }],
                     "player_reviews": [
                         {
                             "player_id": "AI-1", "score": 92, "verdict": "优秀",
@@ -560,9 +644,209 @@ def test_game_review_validates_all_players_and_persists(tmp_path, monkeypatch):
     }))
 
     assert review["mvp"]["player_id"] == "AI-1"
+    assert review["turning_points"][0]["event_index"] == 0
     assert manager.get_result("review-test")["ai_review"] == review
+    assert manager.get_result("review-test")["match_facts"]["event_count"] == 1
+    assert '"match_facts"' in captured["prompt"]
+    assert '"event_index":0' in captured["prompt"]
     assert "证据" * 251 not in captured["prompt"]
     assert captured["max_tokens"] == 5000
+
+
+def test_match_facts_are_deterministic_and_exclude_reasoning():
+    events = [
+        {
+            "event_type": "player_speech",
+            "data": {
+                "speaker": "AI-1",
+                "claim_role": "seer",
+                "round": 1,
+                "reasoning": "不应进入事实表",
+            },
+        },
+        {
+            "event_type": "seer_investigate",
+            "data": {"seer": "AI-1", "target": "AI-2", "result": "狼人", "round": 1},
+        },
+        {
+            "event_type": "werewolf_kill",
+            "data": {"killer": "AI-2", "target": "AI-3", "round": 1},
+        },
+        {
+            "event_type": "wolf_beauty_charm",
+            "data": {
+                "wolf_beauty": "AI-4",
+                "target": "AI-1",
+                "round": 1,
+                "reasoning": "同样不应进入事实表",
+            },
+        },
+        {
+            "event_type": "knight_duel",
+            "data": {
+                "knight": "AI-5",
+                "target": "AI-2",
+                "target_faction": "werewolf",
+                "winner": "AI-5",
+                "round": 1,
+            },
+        },
+        {
+            "event_type": "player_vote",
+            "data": {"voter": "AI-1", "target": "AI-2", "round": 1},
+        },
+        {
+            "event_type": "player_abstain",
+            "data": {"voter": "AI-2", "round": 1},
+        },
+        {
+            "event_type": "vote_result",
+            "data": {
+                "result": "eliminated",
+                "eliminated": "AI-2",
+                "vote_detail": {"AI-1": "AI-2", "AI-2": "abstain"},
+                "round": 1,
+            },
+        },
+        {
+            "event_type": "player_death",
+            "data": {"player": "AI-2", "cause": "voted_out", "round": 1},
+        },
+        {
+            "event_type": "game_end",
+            "data": {"winner": "good", "final_round": 1},
+        },
+    ]
+    facts = game_manager_module._build_match_facts(
+        events,
+        {
+            "AI-1": "seer",
+            "AI-2": "werewolf",
+            "AI-3": "villager",
+            "AI-4": "wolf_beauty",
+            "AI-5": "knight",
+        },
+    )
+
+    assert facts["event_count"] == len(events)
+    assert facts["winner"] == "good"
+    assert facts["players"]["AI-1"]["speech_count"] == 1
+    assert facts["players"]["AI-1"]["day_votes"]["targets_werewolf"] == 1
+    assert facts["players"]["AI-2"]["day_votes"]["abstained"] == 1
+    assert facts["players"]["AI-2"]["death"]["event_index"] == 8
+    assert facts["players"]["AI-1"]["skill_actions"][0]["event_index"] == 1
+    assert facts["players"]["AI-4"]["skill_actions"][0]["type"] == "wolf_beauty_charm"
+    assert facts["players"]["AI-5"]["skill_actions"][0]["type"] == "knight_duel"
+    assert facts["key_events"][-1]["event_index"] == 9
+    assert "不应进入事实表" not in json.dumps(facts, ensure_ascii=False)
+
+
+def test_rematch_persists_redacted_config_and_tracks_series(tmp_path, monkeypatch):
+    monkeypatch.setattr(game_manager_module, "_STORAGE_PATH", tmp_path / "games.json")
+
+    async def scenario():
+        manager = GameManager()
+
+        async def skip_game(_game_id):
+            return None
+
+        manager._run_game_safe = skip_game
+        players = [
+            {
+                "player_id": f"AI-{index}",
+                "api_format": "openai",
+                "base_url": "https://example.com/v1",
+                "api_key": f"secret-{index}",
+                "model": "test-model",
+            }
+            for index in range(1, 6)
+        ]
+        first = await manager.create_game(
+            players,
+            seed=None,
+            board_id="5p",
+            enable_sheriff=False,
+            budget_tier="economy",
+        )
+        await asyncio.sleep(0)
+        persisted = (tmp_path / "games.json").read_text(encoding="utf-8")
+        assert "secret-" not in persisted
+        assert first["series_game_number"] == 1
+        assert manager._orchestrators[first["game_id"]].max_output_tokens == 700
+
+        replay_players = [{**player, "api_key": "rotated-secret"} for player in players]
+        second = await manager.create_game(
+            replay_players,
+            seed=None,
+            board_id="5p",
+            enable_sheriff=False,
+            budget_tier="economy",
+            parent_game_id=first["game_id"],
+        )
+        await asyncio.sleep(0)
+        assert second["series_id"] == first["series_id"]
+        assert second["series_game_number"] == 2
+
+        await manager._update_status(first["game_id"], status="completed", winner="good")
+        await manager._update_status(second["game_id"], status="completed", winner="werewolf")
+        result = manager.get_result(second["game_id"])
+        assert result["series"]["score"] == {"good": 1, "werewolf": 1, "draw": 0}
+        assert result["series"]["total_games"] == 2
+        assert result["replay_config"]["players"][0]["model"] == "test-model"
+        assert result["budget_tier"] == "economy"
+        assert result["budget_profile"]["game_token_budget"] == 240000
+        assert "api_key" not in result["replay_config"]["players"][0]
+
+        changed_players = [{**player} for player in replay_players]
+        changed_players[0]["model"] = "different-model"
+        with pytest.raises(ValueError, match="必须沿用原局"):
+            await manager.create_game(
+                changed_players,
+                seed=None,
+                board_id="5p",
+                enable_sheriff=False,
+                budget_tier="economy",
+                parent_game_id=first["game_id"],
+            )
+
+    asyncio.run(scenario())
+
+
+def test_performance_stats_aggregate_models_and_personalities():
+    personality = {
+        "name": "证据派",
+        "tone": "calm",
+        "reasoning_style": "evidence",
+        "risk_tolerance": 2,
+        "assertiveness": 3,
+        "verbosity": 3,
+    }
+    records = [{
+        "game_id": "stats-game",
+        "status": "completed",
+        "winner": "good",
+        "role_assignment": {"AI-1": "seer", "AI-2": "werewolf"},
+        "replay_config": {"players": [
+            {"player_id": "AI-1", "provider": "demo", "model": "model-a", "personality": personality},
+            {"player_id": "AI-2", "provider": "demo", "model": "model-a", "personality": personality},
+        ]},
+        "llm_metrics": {"by_player": {
+            "AI-1": {"calls": 4, "fallbacks": 0, "tokens": 400},
+            "AI-2": {"calls": 6, "fallbacks": 2, "tokens": 600},
+        }},
+    }]
+
+    model_stats, personality_stats = game_manager_module._aggregate_performance_stats(records)
+
+    assert model_stats[0]["label"] == "demo · model-a"
+    assert model_stats[0]["appearances"] == 2
+    assert model_stats[0]["games"] == 1
+    assert model_stats[0]["wins"] == 1
+    assert model_stats[0]["win_rate"] == 50.0
+    assert model_stats[0]["tokens"] == 1000
+    assert model_stats[0]["fallback_rate"] == 20.0
+    assert personality_stats[0]["label"] == "证据派"
+    assert personality_stats[0]["appearances"] == 2
 
 
 def test_board_presets_have_expected_compositions():
@@ -572,6 +856,7 @@ def test_board_presets_have_expected_compositions():
         "12p_idiot": 12,
         "12p_white_wolf_guard": 12,
         "12p_wolf_king_guard": 12,
+        "12p_wolf_beauty_knight": 12,
     }
     for board_id, count in expected.items():
         roles = BOARD_PRESETS[board_id]["roles"]
@@ -580,6 +865,159 @@ def test_board_presets_have_expected_compositions():
     assert Role.IDIOT in BOARD_PRESETS["12p_idiot"]["roles"]
     assert Role.WHITE_WOLF_KING in BOARD_PRESETS["12p_white_wolf_guard"]["roles"]
     assert Role.WOLF_KING in BOARD_PRESETS["12p_wolf_king_guard"]["roles"]
+    assert BOARD_PRESETS["12p_wolf_beauty_knight"]["roles"].count(Role.WEREWOLF) == 3
+    assert Role.WOLF_BEAUTY in BOARD_PRESETS["12p_wolf_beauty_knight"]["roles"]
+    assert Role.KNIGHT in BOARD_PRESETS["12p_wolf_beauty_knight"]["roles"]
+
+
+def make_wolf_beauty_game():
+    players = [f"AI-{index}" for index in range(1, 13)]
+    game = WerewolfGame()
+    game.initialize(players, {
+        "game_id": "wolf-beauty-test",
+        "board_id": "12p_wolf_beauty_knight",
+        "seed": 17,
+    })
+    return game
+
+
+def player_with_role(game, role):
+    return next(
+        player_id
+        for player_id, player in game.state.players.items()
+        if player.role == role
+    )
+
+
+def test_wolf_beauty_charms_before_wolves_and_cannot_self_kill_or_explode():
+    game = make_wolf_beauty_game()
+    beauty = player_with_role(game, Role.WOLF_BEAUTY)
+    target = next(player for player in game.state.alive_players if player != beauty)
+
+    game.night_stage = "charm"
+    charm_actions = game.get_available_actions(beauty)
+    assert [action["action_type"] for action in charm_actions] == ["charm"]
+    assert beauty not in charm_actions[0]["valid_targets"]
+    game.apply_action(GameAction(
+        ActionType.CHARM,
+        beauty,
+        target,
+        {"reasoning": "选择高价值好人"},
+    ))
+    assert game.charmed_target == target
+
+    game.night_stage = "wolves"
+    game.acted_players = set()
+    for wolf_id, player in game.state.players.items():
+        if player.role in WOLF_ROLES:
+            kill = next(
+                action for action in game.get_available_actions(wolf_id)
+                if action["action_type"] == "kill"
+            )
+            assert beauty not in kill["valid_targets"]
+
+    game.state.phase = GamePhase.DAY
+    game.acted_players = set()
+    assert "self_destruct" not in {
+        action["action_type"] for action in game.get_available_actions(beauty)
+    }
+
+
+def test_voted_wolf_beauty_triggers_charm_but_night_death_does_not():
+    game = make_wolf_beauty_game()
+    beauty = player_with_role(game, Role.WOLF_BEAUTY)
+    target = next(
+        player_id for player_id, player in game.state.players.items()
+        if player.role == Role.VILLAGER
+    )
+    game.charmed_target = target
+    game.state.phase = GamePhase.VOTING
+    game.current_votes = {
+        voter: beauty for voter in game.state.alive_players if voter != beauty
+    }
+
+    events = game.advance_phase()
+
+    assert beauty in game.state.dead_players
+    assert target in game.state.dead_players
+    trigger = next(event for event in events if event["event_type"] == "wolf_beauty_charm_triggered")
+    assert trigger["data"]["target"] == target
+    target_death = next(
+        event for event in events
+        if event["event_type"] == "player_death" and event["data"]["player"] == target
+    )
+    assert target_death["data"]["cause"] == "wolf_beauty_charm"
+
+    night_game = make_wolf_beauty_game()
+    night_beauty = player_with_role(night_game, Role.WOLF_BEAUTY)
+    night_target = next(
+        player_id for player_id, player in night_game.state.players.items()
+        if player.role == Role.VILLAGER
+    )
+    night_game.charmed_target = night_target
+    night_game.witch_poison_target = night_beauty
+    night_events = night_game.advance_phase()
+    assert night_beauty in night_game.state.dead_players
+    assert night_target in night_game.state.alive_players
+    assert not any(
+        event["event_type"] == "wolf_beauty_charm_triggered"
+        for event in night_events
+    )
+
+
+def test_knight_duel_hit_enters_night_without_triggering_charm():
+    game = make_wolf_beauty_game()
+    knight = player_with_role(game, Role.KNIGHT)
+    beauty = player_with_role(game, Role.WOLF_BEAUTY)
+    charmed = next(
+        player_id for player_id, player in game.state.players.items()
+        if player.role == Role.VILLAGER
+    )
+    game.charmed_target = charmed
+    game.state.phase = GamePhase.DAY
+
+    game.advance_phase()
+    assert game.state.phase == GamePhase.KNIGHT_DUEL
+    events = game.apply_action(GameAction(
+        ActionType.DUEL,
+        knight,
+        beauty,
+        {"reasoning": "发言逻辑与狼队一致"},
+    ))
+    duel = next(event for event in events if event["event_type"] == "knight_duel")
+    assert duel["data"]["target_faction"] == "werewolf"
+    assert beauty in game.state.dead_players
+    assert charmed in game.state.alive_players
+    assert not any(event["event_type"] == "wolf_beauty_charm_triggered" for event in events)
+
+    game.advance_phase()
+    assert game.state.phase == GamePhase.NIGHT
+    assert game.state.round == 2
+
+
+def test_knight_duel_miss_kills_knight_and_day_continues():
+    game = make_wolf_beauty_game()
+    knight = player_with_role(game, Role.KNIGHT)
+    villager = next(
+        player_id for player_id, player in game.state.players.items()
+        if player.role == Role.VILLAGER
+    )
+    game.state.phase = GamePhase.DAY
+    game.advance_phase()
+
+    events = game.apply_action(GameAction(
+        ActionType.DUEL,
+        knight,
+        villager,
+        {"reasoning": "错误判断"},
+    ))
+
+    assert knight in game.state.dead_players
+    assert villager in game.state.alive_players
+    assert next(event for event in events if event["event_type"] == "knight_duel")["data"]["target_faction"] == "good"
+    game.advance_phase()
+    assert game.state.phase == GamePhase.VOTING
+    assert game.state.round == 1
 
 
 def test_werewolf_may_target_self_or_teammate():
@@ -666,7 +1104,12 @@ def test_guard_pass_records_empty_guard_reason():
 
     assert events == [{
         "event_type": "guard_pass",
-        "data": {"guard": guard, "round": 1, "reasoning": "首夜信息不足，选择空守"},
+        "data": {
+            "guard": guard,
+            "round": 1,
+            "phase": "night",
+            "reasoning": "首夜信息不足，选择空守",
+        },
         "visibility": "private",
         "visible_to": [guard],
     }]
@@ -723,6 +1166,25 @@ def test_hunter_poisoned_cannot_shoot_but_night_killed_can():
     assert game.pending_death_skills == [other]
 
 
+def test_hunter_death_skill_resolves_before_last_words():
+    players = [f"AI-{i}" for i in range(1, 10)]
+    game = WerewolfGame()
+    game.initialize(players, {"game_id": "hunter-last-words", "board_id": "9p", "seed": 3})
+    hunter = next(pid for pid, player in game.state.players.items() if player.role == Role.HUNTER)
+    game.state.phase = GamePhase.VOTING
+    game.current_votes = {pid: hunter for pid in game.state.alive_players if pid != hunter}
+
+    game.advance_phase()
+
+    assert game.state.phase == GamePhase.DEATH_SKILL
+    assert game.death_skill_actor == hunter
+    assert game.pending_last_words == [hunter]
+    game.apply_action(GameAction(ActionType.PASS, hunter, parameters={"reasoning": "不盲开枪"}))
+    game.advance_phase()
+    assert game.state.phase == GamePhase.LAST_WORDS
+    assert game.last_words_actor == hunter
+
+
 def test_gun_and_function_kill_triggers_match_online_rules():
     game = make_game()
     hunter, wolf_king = PLAYERS[:2]
@@ -759,6 +1221,50 @@ def test_night_death_cause_is_hidden_from_player_view():
     assert visible_death["data"]["cause"] == "night_death"
 
 
+def test_public_dossier_keeps_long_term_claims_votes_and_hidden_death_cause():
+    game = make_game()
+    public_events = [
+        GameEvent("player_speech", {
+            "speaker": "AI-1", "content": "我是预言家", "claim_role": "seer",
+            "reasoning": "私密推理", "round": 1, "phase": "day",
+        }),
+        GameEvent("player_speech", {
+            "speaker": "AI-2", "content": "我才是预言家", "claim_role": "seer",
+            "reasoning": "私密推理", "round": 1, "phase": "day",
+        }),
+        GameEvent("player_speech", {
+            "speaker": "AI-3", "content": "我也跳预言家", "claim_role": "seer",
+            "reasoning": "私密推理", "round": 1, "phase": "day",
+        }),
+        GameEvent("vote_result", {
+            "result": "eliminated", "eliminated": "AI-4", "round": 1,
+            "phase": "voting", "vote_detail": {"AI-1": "AI-4", "AI-2": "abstain"},
+        }),
+        GameEvent("player_death", {
+            "player": "AI-5", "cause": "poison", "round": 2,
+        }),
+        GameEvent("player_speech", {
+            "speaker": "AI-1", "content": "我改口是女巫", "claim_role": "witch",
+            "reasoning": "仍是私密推理", "round": 2, "phase": "day",
+        }),
+    ]
+    public_events.extend(
+        GameEvent("phase_change", {"from": "day", "to": "day", "phase": "day", "round": 2})
+        for _ in range(20)
+    )
+    game.state.events.extend(public_events)
+
+    visible = game.get_visible_state("AI-4")
+    dossier = visible["public_dossier"]
+
+    assert len(visible["public_events"]) == 20
+    assert dossier["claim_changes"]["AI-1"] == ["seer", "witch"]
+    assert dossier["claim_conflicts"]["seer"] == ["AI-2", "AI-3"]
+    assert dossier["vote_history"][0]["vote_detail"]["AI-2"] == "abstain"
+    assert dossier["death_history"][0]["cause"] == "night_death"
+    assert "reasoning" not in json.dumps(dossier, ensure_ascii=False)
+
+
 def test_ordinary_wolf_can_self_destruct_without_target():
     players = [f"AI-{i}" for i in range(1, 10)]
     game = WerewolfGame()
@@ -776,6 +1282,7 @@ def test_ordinary_wolf_can_self_destruct_without_target():
     ))
     assert game.day_interrupted
     assert wolf in game.state.dead_players
+    assert wolf not in game.pending_last_words
 
 
 def test_last_wolf_king_cannot_shoot_after_elimination():

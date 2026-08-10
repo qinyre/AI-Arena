@@ -172,6 +172,11 @@ function ReviewReport({
                 <div>
                   <h6 className="font-display text-base text-[#d3e4fe]">{point.title}</h6>
                   <p className="mt-1 text-sm leading-relaxed text-[#c8c5cb]/60">{point.impact}</p>
+                  {point.event_index !== undefined && (
+                    <p className="mt-1 font-label text-[10px] text-[#c4b5fd]/50">
+                      事件 #{point.event_index + 1}
+                    </p>
+                  )}
                 </div>
               </article>
             ))}

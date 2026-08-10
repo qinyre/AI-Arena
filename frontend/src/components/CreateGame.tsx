@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { apiClient } from '../api/client';
-import type { PlayerConfig, ProvidersResponse } from '../types/api';
+import type { BudgetTier, PlayerConfig, ProvidersResponse } from '../types/api';
 import {
   loadModelPresets,
   requiresApiKey,
@@ -28,7 +28,34 @@ const BOARD_OPTIONS = [
   { id: '12p_idiot', name: '12人预女猎白', count: 12, roles: '4狼 · 预言家/女巫/猎人/白痴 · 4民' },
   { id: '12p_white_wolf_guard', name: '12人白狼王守卫', count: 12, roles: '3狼+白狼王 · 预言家/女巫/猎人/守卫 · 4民' },
   { id: '12p_wolf_king_guard', name: '12人狼王守卫', count: 12, roles: '3狼+狼王 · 预言家/女巫/猎人/守卫 · 4民' },
+  { id: '12p_wolf_beauty_knight', name: '12人狼美骑士', count: 12, roles: '3狼+狼美人 · 预言家/女巫/守卫/骑士 · 4民' },
 ] as const;
+
+const BUDGET_OPTIONS: Array<{
+  id: BudgetTier;
+  name: string;
+  description: string;
+  limits: string;
+}> = [
+  {
+    id: 'economy',
+    name: '节制',
+    description: '优先控制长局消耗，达到上限后使用本地合法动作完成对局',
+    limits: '单次 700 · 单人 3万 · 全局 24万 tokens',
+  },
+  {
+    id: 'standard',
+    name: '标准',
+    description: '保留完整推理与发言，适合大多数 5—12 人对局',
+    limits: '单次 1200 · 单人 8万 · 全局 50万 tokens',
+  },
+  {
+    id: 'premium',
+    name: '宽裕',
+    description: '允许更长表达和长局博弈，消耗上限明显提高',
+    limits: '单次 1800 · 单人 20万 · 全局 150万 tokens',
+  },
+];
 
 // 快速开始预设（基于 2026-07 最新模型）
 const QUICK_START_PRESETS = [
@@ -97,6 +124,7 @@ export default function CreateGame({ onGameCreated }: Props) {
   const [playerConfigs, setPlayerConfigs] = useState<PlayerConfig[]>([]);
   const [boardId, setBoardId] = useState('5p');
   const [enableSheriff, setEnableSheriff] = useState(false);
+  const [budgetTier, setBudgetTier] = useState<BudgetTier>('standard');
   const [seed, setSeed] = useState<number | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -350,6 +378,7 @@ export default function CreateGame({ onGameCreated }: Props) {
         board_id: boardId,
         seed: seed || undefined,
         enable_sheriff: enableSheriff,
+        budget_tier: budgetTier,
       });
 
       onGameCreated(response.game_id);
@@ -469,6 +498,36 @@ export default function CreateGame({ onGameCreated }: Props) {
               </span>
             </span>
           </label>
+
+          <fieldset>
+            <legend className="mb-2 text-sm font-medium text-gray-300">本局模型预算</legend>
+            <div className="grid gap-2 md:grid-cols-3">
+              {BUDGET_OPTIONS.map((option) => (
+                <label
+                  key={option.id}
+                  className={`cursor-pointer border p-3 transition-colors ${
+                    budgetTier === option.id
+                      ? 'border-antique-gold/55 bg-antique-gold/[0.07]'
+                      : 'border-white/10 bg-black/10 hover:border-white/20'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="budget-tier"
+                      value={option.id}
+                      checked={budgetTier === option.id}
+                      onChange={() => setBudgetTier(option.id)}
+                      className="accent-[#b99758]"
+                    />
+                    <strong className="font-display text-sm text-paper">{option.name}</strong>
+                  </span>
+                  <span className="mt-2 block text-xs leading-relaxed text-ink-muted">{option.description}</span>
+                  <span className="mt-2 block font-label text-[9px] text-antique-gold/65">{option.limits}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
 
           {/* Player Configurations */}
           <div>

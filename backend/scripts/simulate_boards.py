@@ -74,6 +74,8 @@ class AuditOrchestrator(GameOrchestrator):
             self.game.death_skill_actor,
             self.game.badge_transfer_actor,
             tuple(self.game.pending_death_skills),
+            self.game.last_words_actor,
+            tuple(self.game.pending_last_words),
         )
         await super().execute_round()
         state = self.game.state
@@ -84,6 +86,8 @@ class AuditOrchestrator(GameOrchestrator):
             self.game.death_skill_actor,
             self.game.badge_transfer_actor,
             tuple(self.game.pending_death_skills),
+            self.game.last_words_actor,
+            tuple(self.game.pending_last_words),
         )
         if before == after and not self.game.is_ended():
             raise AssertionError(
@@ -125,6 +129,7 @@ def assert_invariants(
         ActionType.WOLF_SPEAK,
         ActionType.INVESTIGATE,
         ActionType.GUARD,
+        ActionType.CHARM,
     }
     seen = set()
     for round_number, phase, night_stage, actor, action_type in action_log:

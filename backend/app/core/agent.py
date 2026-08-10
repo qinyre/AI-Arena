@@ -388,6 +388,17 @@ class AIAgent:
 - 若你是场上最后一名存活狼人，出局后不能发动带人
 - 被毒或自爆时不能发动；白天也可像普通狼人一样自爆入夜""",
 
+            "wolf_beauty": """你是狼美人，属于狼人阵营。
+- 每晚先单独魅惑一名其他存活玩家，随后与狼队密聊并参与刀人
+- 你不能自爆，也不能成为狼队刀口
+- 只有被白天投票放逐时才会令上一夜魅惑目标殉情；夜死、毒杀、枪杀或骑士决斗均不触发
+- 公开发言不得泄露狼人身份或魅惑目标""",
+
+            "knight": """你是骑士，属于好人阵营。
+- 全员白天发言结束后、放逐投票前，可且仅可发动一次公开决斗
+- 决斗狼人：目标立即出局并直接入夜；决斗好人：你出局，白天流程继续
+- 决斗只公开目标阵营，不公开具体身份；可以暂不发动，把技能保留到后续白天""",
+
             "villager": """你是一名普通村民。
 - 目标：帮助好人阵营找出并放逐狼人
 - 能力：无特殊能力，依靠观察和推理
@@ -401,7 +412,7 @@ class AIAgent:
                     "\n- 本局启用警长：优先考虑上警，公开首夜验人；竞选时安排一至两名未来查验对象，"
                     "明确说明查到好人/狼人时分别把警徽移交给谁或是否撕徽，这就是警徽流。"
                 )
-            elif role in ("werewolf", "white_wolf_king", "wolf_king"):
+            elif role in ("werewolf", "white_wolf_king", "wolf_king", "wolf_beauty"):
                 role_descriptions[role] += (
                     "\n- 本局启用警长：可以上警争夺 1.5 票权，也可冒充预言家报假验人和假警徽流，"
                     "但公开说法必须与已知信息保持一致。"
@@ -415,7 +426,7 @@ class AIAgent:
 
         # 角色 + 队伍身份自述
         identity_lines = [f"你的玩家编号是 **{your_id}**。"]
-        if role in ("werewolf", "white_wolf_king", "wolf_king"):
+        if role in ("werewolf", "white_wolf_king", "wolf_king", "wolf_beauty"):
             teammates = visible_state.get("werewolf_teammates", [])
             wc = visible_state.get("werewolf_count", 1)
             if wc <= 1 or not teammates:
@@ -446,6 +457,16 @@ class AIAgent:
                 f"解药：{antidote} ｜ 毒药：{poison}\n"
                 "发言和推理必须与此状态及个人行动记录一致；已使用的药不能再次使用，"
                 "也不能声称本夜使用了未出现在个人行动记录中的药。\n"
+            )
+        elif role == "wolf_beauty":
+            role_status = (
+                "\n# 当前角色资源（权威状态）\n"
+                f"本轮魅惑目标：{visible_state.get('charmed_target') or '尚未选择'}\n"
+            )
+        elif role == "knight":
+            role_status = (
+                "\n# 当前角色资源（权威状态）\n"
+                f"决斗技能：{'可用' if visible_state.get('duel_available') else '已使用'}\n"
             )
 
         # 白天发言顺序提示
@@ -497,6 +518,8 @@ class AIAgent:
 - 守卫与女巫同时保护狼队刀口时属于“同守同救”，两种保护互相抵消，目标仍然死亡。
 - 女巫的解药和毒药各只有一瓶，每晚至多使用一瓶。
 - 夜间守护、用药等私密行动只有行动者本人知道；没有对应私密信息时不得假定具体目标。
+- 狼美人仅在被白天投票放逐时触发魅惑殉情；骑士决斗导致的死亡不触发魅惑。
+- 骑士决斗狼人后立即入夜，决斗好人则骑士出局且白天继续。
 
 # 你的性格
 {personality}
@@ -517,6 +540,8 @@ class AIAgent:
 2. 严格按照你的角色行事，不要泄露隐藏信息（如狼人身份）。
 3. 使用逻辑推理做出决策，推理要基于本局已知事实，不要套用多狼局才成立的套路（如"队友灭口"）。
 4. 在公开发言中保持角色一致性。
+5. 当前局势中的 public_dossier 来自整局公开记录，历史身份声明、票型和死亡公告以它为准；
+   recent public_history 只用于补充最近细节，不能因为旧事件被截断就声称它没有发生。
 
 请基于当前局势做出决策。
 """
@@ -672,6 +697,10 @@ class AIAgent:
                 "现在是【夜晚】阶段。你只能从当前角色可见的夜间行动中选择，"
                 "不能公开发言、不能放逐投票、不能跳身份。wolf_speak 是仅狼队可见的密聊。"
             ),
+            "knight_duel": (
+                "现在是【骑士决斗窗口】。只有骑士行动：duel 会公开翻牌并消耗全局唯一一次技能，"
+                "pass 表示本轮保留技能。应依据整轮发言、身份声明和票型历史判断，证据不足时可以保留。"
+            ),
             "day": (
                 "现在是【白天发言】阶段。你只能【发言】一次（speak 动作），"
                 "在 parameters.content 里写出你的公开发言内容。"
@@ -699,6 +728,10 @@ class AIAgent:
                 "现在是【死亡技能】阶段。你已死亡，只能选择带走一名存活玩家，"
                 "或选择 pass 放弃发动。"
             ),
+            "last_words": (
+                "现在是【遗言】阶段。你已经出局，只能用 speak 留下最后陈词。"
+                "应总结身份、关键判断、验人或票型信息，不得假装自己仍能参与后续投票和行动。"
+            ),
         }
         guide = phase_guide.get(phase, f"当前阶段: {phase}。只能从可选动作中选择。")
 
@@ -717,9 +750,13 @@ class AIAgent:
             ),
             "sheriff_campaign": (
                 "现在是【警长竞选】。pass 表示不上警；speak 表示上警并发表公开竞选发言。"
-                "上警发言必须填写 parameters.content、claim_role 和 withdraw_after_speech。"
+                "上警发言必须填写 parameters.content 和 claim_role。"
                 "预言家应报告首夜验人并安排一至两名未来查验对象，明确好人/狼人结果对应的警徽移交或撕徽方案。"
-                "悍跳狼可给出自洽的假验人和假警徽流。withdraw_after_speech=true 表示发言后退水，且不能投警长票。"
+                "悍跳狼可给出自洽的假验人和假警徽流。全部候选人发言后会另行进入退水阶段。"
+            ),
+            "sheriff_withdrawal": (
+                "现在是【警上退水】。你已听完全部竞选发言。withdraw 表示退出竞选，"
+                "pass 表示继续竞选；狼人还可按角色规则自爆。请根据完整警上信息决定。"
             ),
             "sheriff_voting": (
                 "现在是【警长投票】。只能盲投一名候选人或有理由地弃票；候选人和退水玩家不能投票。"
@@ -862,5 +899,14 @@ parameters 里通常只需 reasoning（如需），不要硬塞 content。
             return f"[用药] 你已使用毒药毒杀 {data.get('target')}"
         elif event_type == "guard_action":
             return f"[守护] 你守护了 {data.get('target')}"
+        elif event_type == "wolf_beauty_charm":
+            return f"[魅惑] 你魅惑了 {data.get('target')}"
+        elif event_type == "wolf_beauty_charm_triggered":
+            return f"[魅惑殉情] {data.get('wolf_beauty')} 出局并带走了 {data.get('target')}"
+        elif event_type == "knight_duel":
+            return (
+                f"[骑士决斗] {data.get('knight')} 决斗 {data.get('target')}，"
+                f"目标阵营为 {data.get('target_faction')}"
+            )
         else:
             return f"[{event_type}] {json.dumps(data, ensure_ascii=False)}"

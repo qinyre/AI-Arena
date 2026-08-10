@@ -10,6 +10,7 @@ interface Props {
 
 const PHASE_LABEL: Record<string, string> = {
   sheriff_campaign: '警长竞选',
+  sheriff_withdrawal: '警上退水',
   sheriff_voting: '警长投票',
   sheriff_tiebreak_speech: '警长平票发言',
   sheriff_tiebreak_voting: '警长加赛投票',
@@ -23,6 +24,7 @@ const PHASE_LABEL: Record<string, string> = {
   tiebreak_speech: '平票发言',
   tiebreak_voting: '加赛投票',
   death_skill: '死亡技能',
+  last_words: '最后陈词',
   ended: '终局',
 };
 

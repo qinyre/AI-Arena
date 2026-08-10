@@ -4,8 +4,9 @@ import GameView from './components/GameView';
 import GameHistory from './components/GameHistory';
 import Stats from './components/Stats';
 import Settings from './components/Settings';
+import ArenaAnalytics from './components/ArenaAnalytics';
 
-type Tab = 'create' | 'view' | 'history' | 'settings';
+type Tab = 'create' | 'view' | 'history' | 'analytics' | 'settings';
 
 function App() {
   const [currentGameId, setCurrentGameId] = useState<string | null>(null);
@@ -65,6 +66,9 @@ function App() {
           <button type="button" onClick={() => setActiveTab('history')} className={tabClass('history')}>
             对局档案
           </button>
+          <button type="button" onClick={() => setActiveTab('analytics')} className={tabClass('analytics')}>
+            模型排行
+          </button>
           <button
             type="button"
             onClick={() => setActiveTab('settings')}
@@ -77,8 +81,11 @@ function App() {
 
       <main className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 sm:py-8">
         {activeTab === 'create' && <CreateGame onGameCreated={handleGameCreated} />}
-        {activeTab === 'view' && currentGameId && <GameView gameId={currentGameId} />}
+        {activeTab === 'view' && currentGameId && (
+          <GameView gameId={currentGameId} onGameCreated={handleGameCreated} />
+        )}
         {activeTab === 'history' && <GameHistory onViewGame={handleViewGame} />}
+        {activeTab === 'analytics' && <ArenaAnalytics />}
         {activeTab === 'settings' && <Settings />}
       </main>
 

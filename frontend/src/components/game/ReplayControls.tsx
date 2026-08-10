@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { GameEvent, GameReview } from '../../types/api';
 import { cn } from '../../utils/cn';
-import { directorDelay, nextDirectorCursor } from './gameDirector';
+import {
+  directorDelay,
+  highlightCursors,
+  nextDirectorCursor,
+  type EventFilter,
+} from './gameDirector';
 
 interface Props {
   events: GameEvent[];
@@ -10,6 +15,8 @@ interface Props {
   turningPoints: GameReview['turning_points'];
   directorEnabled: boolean;
   blocked?: boolean;
+  eventFilter: EventFilter;
+  onEventFilterChange: (filter: EventFilter) => void;
 }
 
 const SPEEDS = [0.5, 1, 2, 4];
@@ -22,13 +29,28 @@ export default function ReplayControls({
   turningPoints,
   directorEnabled,
   blocked = false,
+  eventFilter,
+  onEventFilterChange,
 }: Props) {
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
+  const [highlightsOnly, setHighlightsOnly] = useState(false);
   const total = events.length;
   const markers = useMemo(
     () => buildMarkers(events, turningPoints),
     [events, turningPoints],
+  );
+  const highlights = useMemo(
+    () => highlightCursors(
+      events,
+      turningPoints.flatMap((point) => point.event_index === undefined ? [] : [point.event_index]),
+    ),
+    [events, turningPoints],
+  );
+  const rounds = useMemo(() => buildRoundStarts(events), [events]);
+  const currentRound = [...rounds.entries()].reduce(
+    (active, [round, roundCursor]) => roundCursor <= cursor ? round : active,
+    1,
   );
 
   useEffect(() => {
@@ -38,11 +60,13 @@ export default function ReplayControls({
       return;
     }
     const timer = window.setTimeout(
-      () => onCursorChange(Math.min(nextDirectorCursor(events, cursor, directorEnabled), total)),
+      () => onCursorChange(highlightsOnly
+        ? nextHighlightCursor(highlights, cursor, total)
+        : Math.min(nextDirectorCursor(events, cursor, directorEnabled), total)),
       directorDelay(events[cursor], speed, directorEnabled),
     );
     return () => window.clearTimeout(timer);
-  }, [blocked, cursor, directorEnabled, events, onCursorChange, playing, speed, total]);
+  }, [blocked, cursor, directorEnabled, events, highlights, highlightsOnly, onCursorChange, playing, speed, total]);
 
   const togglePlayback = () => {
     if (cursor >= total) onCursorChange(0);
@@ -52,6 +76,17 @@ export default function ReplayControls({
   const seek = (next: number) => {
     setPlaying(false);
     onCursorChange(Math.max(0, Math.min(next, total)));
+  };
+
+  const step = (direction: -1 | 1) => {
+    if (!highlightsOnly) {
+      seek(cursor + direction);
+      return;
+    }
+    const candidates = direction > 0
+      ? highlights.filter((value) => value > cursor)
+      : highlights.filter((value) => value < cursor).reverse();
+    seek(candidates[0] ?? (direction > 0 ? total : 0));
   };
 
   return (
@@ -70,7 +105,7 @@ export default function ReplayControls({
         <button type="button" onClick={() => seek(0)} aria-label="回到开局" className={TRANSPORT_BUTTON}>
           <span className="material-symbols-outlined text-[18px]">first_page</span>
         </button>
-        <button type="button" onClick={() => seek(cursor - 1)} aria-label="上一个事件" className={TRANSPORT_BUTTON}>
+        <button type="button" onClick={() => step(-1)} aria-label="上一个事件" className={TRANSPORT_BUTTON}>
           <span className="material-symbols-outlined text-[18px]">skip_previous</span>
         </button>
         <button
@@ -81,7 +116,7 @@ export default function ReplayControls({
         >
           <span className="material-symbols-outlined text-[21px]">{playing ? 'pause' : 'play_arrow'}</span>
         </button>
-        <button type="button" onClick={() => seek(cursor + 1)} aria-label="下一个事件" className={TRANSPORT_BUTTON}>
+        <button type="button" onClick={() => step(1)} aria-label="下一个事件" className={TRANSPORT_BUTTON}>
           <span className="material-symbols-outlined text-[18px]">skip_next</span>
         </button>
         <button type="button" onClick={() => seek(total)} aria-label="跳到结局" className={TRANSPORT_BUTTON}>
@@ -98,6 +133,53 @@ export default function ReplayControls({
             {SPEEDS.map((value) => <option key={value} value={value}>{value}×</option>)}
           </select>
         </label>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[#47464b]/20 pt-3">
+        <button
+          type="button"
+          onClick={() => setHighlightsOnly((value) => !value)}
+          aria-pressed={highlightsOnly}
+          className={cn(
+            'inline-flex min-h-11 items-center gap-1.5 rounded border px-3 font-label text-[11px] transition-colors',
+            highlightsOnly
+              ? 'border-[#c4b5fd]/45 bg-[#c4b5fd]/10 text-[#d8ccff]'
+              : 'border-[#47464b]/35 bg-[#102034]/55 text-[#c8c5cb]/60',
+          )}
+        >
+          <span className="material-symbols-outlined text-[16px]">auto_awesome_motion</span>
+          精华回放 · {highlights.length}
+        </button>
+        <label className="flex min-h-11 items-center gap-2 rounded border border-[#47464b]/30 bg-[#102034]/55 px-3 font-label text-[11px] text-[#c8c5cb]/55">
+          轮次
+          <select
+            value={currentRound}
+            onChange={(event) => seek(rounds.get(Number(event.target.value)) ?? 0)}
+            className="bg-transparent text-xs text-[#d3e4fe] outline-none"
+          >
+            {[...rounds.keys()].map((round) => <option key={round} value={round}>R{round}</option>)}
+          </select>
+        </label>
+        <label className="flex min-h-11 items-center gap-2 rounded border border-[#47464b]/30 bg-[#102034]/55 px-3 font-label text-[11px] text-[#c8c5cb]/55">
+          纪要筛选
+          <select
+            value={eventFilter}
+            onChange={(event) => onEventFilterChange(event.target.value as EventFilter)}
+            className="bg-transparent text-xs text-[#d3e4fe] outline-none"
+          >
+            <option value="all">全部事件</option>
+            <option value="speech">发言与狼聊</option>
+            <option value="vote">投票与警徽</option>
+            <option value="night">夜间技能</option>
+            <option value="death">出局与终局</option>
+            <option value="system">系统事件</option>
+          </select>
+        </label>
+        {eventFilter !== 'all' && (
+          <button type="button" onClick={() => onEventFilterChange('all')} className="min-h-11 px-2 text-xs text-[#c8c5cb]/45 hover:text-[#ffe16d]">
+            清除筛选
+          </button>
+        )}
       </div>
 
       <div className="relative mt-3 px-1">
@@ -153,15 +235,30 @@ export default function ReplayControls({
 }
 
 function buildMarkers(events: GameEvent[], points: GameReview['turning_points']) {
-  const roundStarts = new Map<number, number>([[1, 0]]);
-  events.forEach((event, index) => {
-    const round = Number('round' in event.data ? event.data.round : NaN);
-    if (Number.isFinite(round) && !roundStarts.has(round)) {
-      roundStarts.set(round, index + 1);
-    }
-  });
+  const roundStarts = buildRoundStarts(events);
   return points.map((point) => ({
     ...point,
-    cursor: roundStarts.get(point.round) ?? events.length,
+    cursor: (
+      Number.isInteger(point.event_index)
+      && Number(point.event_index) >= 0
+      && Number(point.event_index) < events.length
+    )
+      ? Number(point.event_index) + 1
+      : roundStarts.get(point.round) ?? events.length,
   }));
+}
+
+function buildRoundStarts(events: GameEvent[]) {
+  const roundStarts = new Map<number, number>([[1, 0]]);
+  let currentRound = 1;
+  events.forEach((event, index) => {
+    const round = Number('round' in event.data ? event.data.round : NaN);
+    if (Number.isFinite(round)) currentRound = round;
+    if (!roundStarts.has(currentRound)) roundStarts.set(currentRound, index + 1);
+  });
+  return roundStarts;
+}
+
+function nextHighlightCursor(highlights: number[], cursor: number, total: number) {
+  return highlights.find((value) => value > cursor) ?? total;
 }

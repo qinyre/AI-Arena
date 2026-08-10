@@ -12,6 +12,7 @@ class GamePhase(Enum):
     SETUP = "setup"
     NIGHT = "night"
     SHERIFF_CAMPAIGN = "sheriff_campaign"
+    SHERIFF_WITHDRAWAL = "sheriff_withdrawal"
     SHERIFF_VOTING = "sheriff_voting"
     SHERIFF_TIEBREAK_SPEECH = "sheriff_tiebreak_speech"
     SHERIFF_TIEBREAK_VOTING = "sheriff_tiebreak_voting"
@@ -23,6 +24,8 @@ class GamePhase(Enum):
     TIEBREAK_SPEECH = "tiebreak_speech"
     TIEBREAK_VOTING = "tiebreak_voting"
     DEATH_SKILL = "death_skill"
+    LAST_WORDS = "last_words"
+    KNIGHT_DUEL = "knight_duel"
     ENDED = "ended"
 
 
@@ -36,6 +39,8 @@ class Role(Enum):
     GUARD = "guard"
     WHITE_WOLF_KING = "white_wolf_king"
     WOLF_KING = "wolf_king"
+    WOLF_BEAUTY = "wolf_beauty"
+    KNIGHT = "knight"
     VILLAGER = "villager"
 
 
@@ -47,12 +52,15 @@ class ActionType(Enum):
     HEAL = "heal"
     POISON = "poison"
     GUARD = "guard"
+    CHARM = "charm"
+    DUEL = "duel"
     SHOOT = "shoot"
     SELF_DESTRUCT = "self_destruct"
     PASS = "pass"
     SPEAK = "speak"
     VOTE = "vote"
     ABSTAIN = "abstain"
+    WITHDRAW = "withdraw"
     TRANSFER_BADGE = "transfer_badge"
     DESTROY_BADGE = "destroy_badge"
     ORDER_CLOCKWISE = "order_clockwise"

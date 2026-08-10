@@ -17,6 +17,8 @@ const {
   currentSpeaker,
   directorDelay,
   directorTier,
+  eventMatchesFilter,
+  highlightCursors,
   nextDirectorCursor,
   playerAttention,
   soundForEvent,
@@ -31,6 +33,9 @@ const actions = buildCinematics([
   event('guard_action', { guard: 'AI-4', target: 'AI-3' }),
   event('witch_heal', { witch: 'AI-5', target: 'AI-8' }),
   event('witch_poison', { witch: 'AI-5', target: 'AI-2' }),
+  event('wolf_beauty_charm', { wolf_beauty: 'AI-11', target: 'AI-3' }),
+  event('wolf_beauty_charm_triggered', { wolf_beauty: 'AI-11', target: 'AI-3' }),
+  event('knight_duel', { knight: 'AI-12', target: 'AI-2', target_faction: 'werewolf' }),
   event('white_wolf_king_self_destruct', { player: 'AI-6', target: 'AI-3' }),
   event('wolf_self_destruct', { player: 'AI-1' }),
   event('player_death', { player: 'AI-2', shooter: 'AI-7', cause: 'hunter_shot' }),
@@ -45,14 +50,16 @@ const actions = buildCinematics([
   event('vote_result', { result: 'eliminated', eliminated: 'AI-10' }),
   event('vote_result', { result: 'tie', candidates: ['AI-5', 'AI-6'] }),
   event('game_end', { winner: 'good', final_round: 4 }),
+  event('game_end', { winner: 'draw', final_round: 20 }),
 ], { 'AI-10': 'seer' });
 
 assert.deepEqual(
   actions.map(({ kind }) => kind),
   [
-    'wolf', 'seer', 'guard', 'witch-heal', 'witch-poison', 'white-wolf',
+    'wolf', 'seer', 'guard', 'witch-heal', 'witch-poison',
+    'wolf-beauty', 'wolf-beauty-trigger', 'knight-duel', 'white-wolf',
     'wolf-explode', 'hunter-shot', 'wolf-king', 'wolf-kill', 'idiot', 'sheriff-opening',
-    'sheriff', 'badge', 'badge-destroyed', 'last-words', 'exile', 'tie', 'victory-good',
+    'sheriff', 'badge', 'badge-destroyed', 'last-words', 'exile', 'tie', 'victory-good', 'tie',
   ],
 );
 assert.equal(actions[0].target, 'AI-8');
@@ -85,6 +92,8 @@ assert.equal(currentSpeaker([
 assert.equal(directorTier(voteEvents[3]), 'climax');
 assert(directorDelay(voteEvents[1], 1, true) < directorDelay(voteEvents[3], 1, true));
 assert.equal(soundForEvent(voteEvents[3]), 'gavel');
+assert.equal(soundForEvent(event('game_end', { winner: 'draw' })), 'tie');
+assert.equal(voiceForEvent(event('game_end', { winner: 'draw' })), '/audio/voice/vote-tie.mp3');
 assert.equal(voiceForEvent(event('seer_investigate', {})), '/audio/voice/seer-investigate.mp3');
 assert.equal(
   voiceForEvent(event('player_death', { cause: 'hunter_shot' })),
@@ -93,10 +102,27 @@ assert.equal(
 assert.equal(voiceForEvent(event('player_death', { cause: 'poison' })), null);
 assert.equal(voiceForCinematic('witch-heal'), '/audio/voice/witch-heal.mp3');
 assert.equal(voiceForCinematic('victory-good'), '/audio/voice/victory-good.mp3');
-assert(actions.every(({ kind }) => voiceForCinematic(kind)), 'every cinematic must have a voice');
+const visualOnlyKinds = new Set(['wolf-beauty', 'wolf-beauty-trigger', 'knight-duel']);
+assert(
+  actions.filter(({ kind }) => !visualOnlyKinds.has(kind)).every(({ kind }) => voiceForCinematic(kind)),
+  'existing cinematic voices must stay connected',
+);
+assert([...visualOnlyKinds].every((kind) => voiceForCinematic(kind) === null));
 assert.equal(nextDirectorCursor([
   event('werewolf_kill', {}),
   event('werewolf_kill', {}),
   event('seer_investigate', {}),
 ], 0, true), 2);
+assert.deepEqual(highlightCursors([
+  event('player_speech', { speaker: 'AI-1', claim_role: 'none' }),
+  event('player_speech', { speaker: 'AI-2', claim_role: 'seer' }),
+  event('player_vote', { voter: 'AI-3', target: 'AI-2' }),
+  event('vote_result', { result: 'eliminated', eliminated: 'AI-2' }),
+  event('game_end', { winner: 'good' }),
+]), [2, 4, 5]);
+assert(eventMatchesFilter(event('player_speech', {}), 'speech'));
+assert(!eventMatchesFilter(event('player_speech', {}), 'night'));
+assert(eventMatchesFilter(event('phase_change', { to: 'day' }), 'night'));
+assert(eventMatchesFilter(event('wolf_beauty_charm', {}), 'night'));
+assert(eventMatchesFilter(event('knight_duel', {}), 'death'));
 console.log('cinematic and director checks passed');

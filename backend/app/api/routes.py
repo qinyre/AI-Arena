@@ -35,6 +35,8 @@ async def create_game(request: CreateGameRequest):
             board_id=request.board_id,
             seed=request.seed,
             enable_sheriff=request.enable_sheriff,
+            budget_tier=request.budget_tier,
+            parent_game_id=request.parent_game_id,
         )
     except ValueError as e:
         # 5 人校验等业务错误 → 422

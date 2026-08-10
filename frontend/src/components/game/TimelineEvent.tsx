@@ -17,6 +17,7 @@ import {
   isSeerInvestigate,
   isPlayerSpeech,
   isPlayerVote,
+  isPlayerAbstain,
   isPlayerDeath,
   isVoteResult,
   isGameEnd,
@@ -81,6 +82,36 @@ function getEventStyle(e: GameEvent): EventStyle | null {
       label: '预言家行动',
     };
   }
+  if (e.event_type === 'wolf_beauty_charm') {
+    return {
+      dotBorder: 'border-[#c45b86]',
+      dotCore: 'bg-[#c45b86] shadow-[0_0_5px_rgba(196,91,134,0.9)]',
+      cardClass: 'wolf-action',
+      headColor: 'text-[#e9a9c1]',
+      symbol: 'connect_without_contact',
+      label: '狼美人魅惑',
+    };
+  }
+  if (e.event_type === 'wolf_beauty_charm_triggered') {
+    return {
+      dotBorder: 'border-[#eb2445]',
+      dotCore: 'bg-[#eb2445] shadow-[0_0_5px_rgba(235,36,69,0.9)]',
+      cardClass: 'death-action',
+      headColor: 'text-[#ffb3b3]',
+      symbol: 'heart_broken',
+      label: '魅惑殉情',
+    };
+  }
+  if (e.event_type === 'knight_duel') {
+    return {
+      dotBorder: 'border-[#c7b477]',
+      dotCore: 'bg-[#c7b477] shadow-[0_0_5px_rgba(199,180,119,0.9)]',
+      cardClass: 'seer-action',
+      headColor: 'text-[#e4d39d]',
+      symbol: 'swords',
+      label: '骑士决斗',
+    };
+  }
   if (e.event_type === 'guard_action' || e.event_type === 'witch_heal' || e.event_type === 'witch_poison') {
     return {
       dotBorder: 'border-violet-400',
@@ -141,6 +172,16 @@ function getEventStyle(e: GameEvent): EventStyle | null {
       label: '不上警',
     };
   }
+  if (e.event_type === 'sheriff_withdrawal') {
+    return {
+      dotBorder: 'border-[#e9c400]',
+      dotCore: 'bg-[#e9c400]',
+      cardClass: '',
+      headColor: 'text-[#ffe16d]',
+      symbol: 'person_remove',
+      label: '警上退水',
+    };
+  }
   if (e.event_type === 'badge_transferred' || e.event_type === 'badge_destroyed') {
     return {
       dotBorder: 'border-[#e9c400]',
@@ -181,6 +222,16 @@ function getEventStyle(e: GameEvent): EventStyle | null {
       label: '投票',
     };
   }
+  if (isPlayerAbstain(e)) {
+    return {
+      dotBorder: 'border-[#64748b]',
+      dotCore: 'bg-[#64748b]',
+      cardClass: '',
+      headColor: 'text-[#c8c5cb]',
+      symbol: 'how_to_vote',
+      label: '弃票',
+    };
+  }
   if (isVoteResult(e)) {
     return {
       dotBorder: 'border-[#929095]',
@@ -202,13 +253,14 @@ function getEventStyle(e: GameEvent): EventStyle | null {
     };
   }
   if (isGameEnd(e)) {
+    const draw = e.data.winner === 'draw';
     const good = e.data.winner === 'good';
     return {
-      dotBorder: good ? 'border-[#e9c400]' : 'border-[#eb2445]',
-      dotCore: good ? 'bg-[#e9c400]' : 'bg-[#eb2445]',
-      cardClass: good ? 'end-action good' : 'end-action evil',
-      headColor: good ? 'text-[#ffe16d]' : 'text-[#ffb3b3]',
-      symbol: 'emoji_events',
+      dotBorder: draw ? 'border-[#64748b]' : good ? 'border-[#e9c400]' : 'border-[#eb2445]',
+      dotCore: draw ? 'bg-[#64748b]' : good ? 'bg-[#e9c400]' : 'bg-[#eb2445]',
+      cardClass: draw ? '' : good ? 'end-action good' : 'end-action evil',
+      headColor: draw ? 'text-[#c8c5cb]' : good ? 'text-[#ffe16d]' : 'text-[#ffb3b3]',
+      symbol: draw ? 'balance' : 'emoji_events',
       label: '对局结束',
     };
   }
@@ -246,15 +298,22 @@ function getReasoning(e: GameEvent): string | null {
   if (isSeerInvestigate(e)) return e.data.reasoning;
   if (isPlayerSpeech(e)) return e.data.reasoning;
   if (isPlayerVote(e)) return e.data.reasoning;
+  if (isPlayerAbstain(e)) return e.data.reasoning;
   if (['guard_action', 'witch_heal', 'witch_poison'].includes(e.event_type)) {
     const data = e.data as Record<string, unknown>;
     return typeof data.reasoning === 'string' ? data.reasoning : null;
+  }
+  if (e.event_type === 'wolf_beauty_charm' || e.event_type === 'knight_duel') {
+    return typeof e.data.reasoning === 'string' ? e.data.reasoning : null;
   }
   if (e.event_type === 'wolf_discussion') {
     const data = e.data as Record<string, unknown>;
     return typeof data.reasoning === 'string' ? data.reasoning : null;
   }
   if (e.event_type === 'sheriff_vote' || e.event_type === 'sheriff_abstain') {
+    return typeof e.data.reasoning === 'string' ? e.data.reasoning : null;
+  }
+  if (e.event_type === 'sheriff_withdrawal') {
     return typeof e.data.reasoning === 'string' ? e.data.reasoning : null;
   }
   if (e.event_type === 'badge_transferred' || e.event_type === 'badge_destroyed') {
@@ -275,7 +334,10 @@ function getReasoningPlayer(e: GameEvent): string | null {
   if (isSeerInvestigate(e)) return e.data.seer;
   if (isPlayerSpeech(e)) return e.data.speaker;
   if (isPlayerVote(e)) return e.data.voter;
+  if (isPlayerAbstain(e)) return e.data.voter;
   if (e.event_type === 'guard_action') return String(e.data.guard || '');
+  if (e.event_type === 'wolf_beauty_charm') return String(e.data.wolf_beauty || '');
+  if (e.event_type === 'knight_duel') return String(e.data.knight || '');
   if (e.event_type === 'witch_heal' || e.event_type === 'witch_poison') {
     return String(e.data.witch || '');
   }
@@ -283,6 +345,7 @@ function getReasoningPlayer(e: GameEvent): string | null {
   if (e.event_type === 'sheriff_vote' || e.event_type === 'sheriff_abstain') {
     return String(e.data.voter || '');
   }
+  if (e.event_type === 'sheriff_withdrawal') return String(e.data.player || '');
   if (e.event_type === 'badge_transferred') return String(e.data.from || '');
   if (e.event_type === 'badge_destroyed') return String(e.data.player || '');
   if (e.event_type === 'speech_order_decided' && e.data.chooser !== 'judge') {
@@ -335,6 +398,8 @@ export default function TimelineEvent({
     || event.event_type === 'badge_transferred'
     || event.event_type === 'badge_destroyed'
     || event.event_type === 'agent_fallback'
+    || event.event_type === 'wolf_beauty_charm_triggered'
+    || event.event_type === 'knight_duel'
   );
   const isChat = isPlayerSpeech(event) || event.event_type === 'wolf_discussion';
 
@@ -487,6 +552,42 @@ function EventBody({
       </p>
     );
   }
+  if (event.event_type === 'wolf_beauty_charm') {
+    return (
+      <p className="font-body text-body-lg text-[#d3e4fe]">
+        <span className="mr-2 inline-block rounded border border-[#c45b86]/30 bg-[#c45b86]/15 px-1.5 py-0.5 align-middle font-label text-[10px] text-[#e9a9c1]">
+          私密
+        </span>
+        <b className="text-[#e9a9c1]">{String(event.data.wolf_beauty)}</b>
+        {' '}将魅惑印记留给了 <b>{String(event.data.target)}</b>
+      </p>
+    );
+  }
+  if (event.event_type === 'wolf_beauty_charm_triggered') {
+    return (
+      <p className="font-body text-body-lg italic text-[#ffb3b3]">
+        狼美人 <b className="not-italic">{String(event.data.wolf_beauty)}</b> 被放逐，
+        魅惑生效，<b className="not-italic">{String(event.data.target)}</b> 随之殉情出局。
+      </p>
+    );
+  }
+  if (event.event_type === 'knight_duel') {
+    const hitWolf = event.data.target_faction === 'werewolf';
+    return (
+      <div className="space-y-1 font-body text-body-lg text-[#d3e4fe]">
+        <p>
+          <b className="text-[#e4d39d]">{String(event.data.knight)}</b>
+          {' '}翻牌决斗 <b>{String(event.data.target)}</b> ——
+          <span className={hitWolf ? 'font-bold text-[#ffb3b3]' : 'font-bold text-[#c8c5cb]'}>
+            {hitWolf ? ' 命中狼人阵营，目标出局并立即入夜' : ' 目标属于好人阵营，骑士决斗失败出局'}
+          </span>
+        </p>
+        <p className="font-label text-[10px] tracking-wider text-[#c8c5cb]/55">
+          仅公开阵营，不公开目标具体身份
+        </p>
+      </div>
+    );
+  }
   if (event.event_type === 'guard_action') {
     return <p className="font-body text-body-lg text-[#d3e4fe]">
       <b className="text-green-200">{String(event.data.guard)}</b> 守护了{' '}
@@ -549,6 +650,13 @@ function EventBody({
     return (
       <p className="font-body text-[13px] text-[#c8c5cb]">
         <b>{String(event.data.player)}</b> 选择不上警
+      </p>
+    );
+  }
+  if (event.event_type === 'sheriff_withdrawal') {
+    return (
+      <p className="font-body text-[13px] text-[#d3e4fe]">
+        <b>{String(event.data.player)}</b> 听完全部竞选发言后选择退水
       </p>
     );
   }
@@ -621,6 +729,14 @@ function EventBody({
     );
   }
 
+  if (isPlayerAbstain(event)) {
+    return (
+      <p className="font-body text-[13px] text-[#c8c5cb]">
+        <b>{event.data.voter}</b> 选择弃票
+      </p>
+    );
+  }
+
   // 投票结果(带本轮所有投票)
   if (isVoteResult(event)) {
     return (
@@ -652,11 +768,12 @@ function EventBody({
 
   // 游戏结束
   if (isGameEnd(event)) {
+    const draw = event.data.winner === 'draw';
     const good = event.data.winner === 'good';
     return (
       <div className="flex flex-col gap-1">
-        <p className={cn('font-display text-title-md', good ? 'text-[#ffe16d]' : 'text-[#ffb3b3]')}>
-          {good ? '👥 好人阵营胜利' : '🐺 狼人阵营胜利'}
+        <p className={cn('font-display text-title-md', draw ? 'text-[#c8c5cb]' : good ? 'text-[#ffe16d]' : 'text-[#ffb3b3]')}>
+          {draw ? '⚖ 对局和局' : good ? '👥 好人阵营胜利' : '🐺 狼人阵营胜利'}
         </p>
         <p className="font-body text-body-md text-[#c8c5cb]">
           历经 {event.data.final_round} 轮 · {event.data.duration_seconds.toFixed(1)}s

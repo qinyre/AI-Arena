@@ -7,11 +7,15 @@ import { getRoleConfig } from './roleConfig';
 import type { GameResultResponse, GameStatusResponse } from '../../types/api';
 import GameReviewPanel from './GameReviewPanel';
 import { LobeAvatar } from '../LobeAvatar';
+import { apiClient } from '../../api/client';
+import { loadModelPresets } from '../../utils/modelPresets';
+import { useState } from 'react';
 
 interface Props {
   result: GameResultResponse | null;
   status: GameStatusResponse | null;
   onReviewGenerated?: (review: NonNullable<GameResultResponse['ai_review']>) => void;
+  onGameCreated?: (gameId: string) => void;
 }
 
 /** 后端 reason 是蛇形枚举,这里映射成人类可读中文 */
@@ -22,14 +26,23 @@ function reasonLabel(reason: string): string {
     all_villagers_or_gods_eliminated: '全部平民或全部神职已经出局',
     werewolf_kill_completed_edge: '狼刀率先完成屠边',
     wolf_skill_completed_edge: '狼方技能结算后完成屠边',
+    max_rounds_reached: '达到最大轮数，双方未分胜负',
   };
   return map[reason] || reason;
 }
 
-export default function ResultPanel({ result, status, onReviewGenerated }: Props) {
+export default function ResultPanel({
+  result,
+  status,
+  onReviewGenerated,
+  onGameCreated,
+}: Props) {
+  const [rematchPending, setRematchPending] = useState(false);
+  const [rematchError, setRematchError] = useState('');
   if (!result) return null;
 
   const winnerGood = result.winner === 'good';
+  const winnerDraw = result.winner === 'draw';
   const roleAssignment = status?.role_assignment || {};
   const customPlayers = new Set(result.custom_model_players);
   const hasCustomModels = customPlayers.size > 0;
@@ -37,6 +50,47 @@ export default function ResultPanel({ result, status, onReviewGenerated }: Props
   const successRate = metrics?.total_calls
     ? Math.round((metrics.successful_calls / metrics.total_calls) * 100)
     : 0;
+  const factPlayers = Object.entries(result.match_facts?.players ?? {});
+  const replayPlayers = 'players' in result.replay_config
+    ? result.replay_config.players
+    : [];
+
+  const startRematch = async () => {
+    if (!('players' in result.replay_config)) return;
+    setRematchPending(true);
+    setRematchError('');
+    try {
+      const presets = loadModelPresets();
+      const players = result.replay_config.players.map((player) => {
+        if (!player.base_url) return player;
+        const endpoint = normalizeEndpoint(player.base_url);
+        const preset = presets.find((item) => (
+          item.model === player.model
+          && item.apiFormat === player.api_format
+          && normalizeEndpoint(item.baseUrl) === endpoint
+        ));
+        if (!preset && !player.key_env) {
+          throw new Error(`${player.player_id} 的模型预设已不存在，请先在设置中恢复该预设`);
+        }
+        return {
+          ...player,
+          ...(preset?.apiKey ? { api_key: preset.apiKey } : {}),
+        };
+      });
+      const created = await apiClient.createGame({
+        player_configs: players,
+        board_id: result.replay_config.board_id,
+        enable_sheriff: result.replay_config.enable_sheriff,
+        budget_tier: result.replay_config.budget_tier,
+        parent_game_id: result.game_id,
+      });
+      onGameCreated?.(created.game_id);
+    } catch (error) {
+      setRematchError(error instanceof Error ? error.message : '复赛创建失败');
+    } finally {
+      setRematchPending(false);
+    }
+  };
 
   return (
     <div className="glass-panel rounded-lg p-6 animate-fade-in">
@@ -50,7 +104,9 @@ export default function ResultPanel({ result, status, onReviewGenerated }: Props
         <div
           className={cn(
             'p-4 rounded-lg border',
-            winnerGood
+            winnerDraw
+              ? 'bg-[#64748b]/10 border-[#64748b]/40'
+              : winnerGood
               ? 'bg-[#e9c400]/10 border-[#e9c400]/40'
               : 'bg-[#eb2445]/10 border-[#eb2445]/40',
           )}
@@ -60,10 +116,12 @@ export default function ResultPanel({ result, status, onReviewGenerated }: Props
             <span
               className={cn(
                 'px-3 py-1 rounded-full font-label text-label-md uppercase tracking-wider shrink-0',
-                winnerGood ? 'bg-[#e9c400] text-[#0a0a0f]' : 'bg-[#eb2445] text-white',
+                winnerDraw
+                  ? 'bg-[#64748b] text-white'
+                  : winnerGood ? 'bg-[#e9c400] text-[#0a0a0f]' : 'bg-[#eb2445] text-white',
               )}
             >
-              {winnerGood ? '👥 好人阵营' : '🐺 狼人阵营'}
+              {winnerDraw ? '⚖ 和局' : winnerGood ? '👥 好人阵营' : '🐺 狼人阵营'}
             </span>
           </div>
           <p className="font-body text-body-md text-[#c8c5cb]">{reasonLabel(result.reason)}</p>
@@ -89,9 +147,57 @@ export default function ResultPanel({ result, status, onReviewGenerated }: Props
               {result.total_cost > 0 && `$${result.total_cost.toFixed(4)}`}
               {result.total_cost > 0 && hasCustomModels && ' · '}
               {hasCustomModels && `${result.custom_tokens.toLocaleString()} tokens`}
+              {!hasCustomModels && result.total_cost === 0 && '—'}
+            </div>
+            <div className="mt-1 font-label text-[9px] text-[#c8c5cb]/35">
+              {result.budget_tier === 'economy' ? '节制' : result.budget_tier === 'premium' ? '宽裕' : '标准'}预算
+              {' · '}{result.budget_profile.game_token_budget.toLocaleString()} 上限
             </div>
           </div>
         </div>
+
+        {result.series?.series_id && (
+          <section className="flex flex-col gap-3 rounded-lg border border-[#c4b5fd]/20 bg-[#c4b5fd]/[0.04] p-4 sm:flex-row sm:items-center">
+            <div className="min-w-0 flex-1">
+              <p className="font-label text-[10px] uppercase tracking-[0.2em] text-[#c4b5fd]/55">
+                Series · 第 {result.series.current_game_number} 局
+              </p>
+              <div className="mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                <span className="font-display text-lg text-[#d3e4fe]">阵容系列赛</span>
+                <span className="text-sm text-[#c8c5cb]/60">
+                  好人 <strong className="text-[#ffe16d]">{result.series.score.good}</strong>
+                  <span className="mx-2 text-[#c8c5cb]/20">:</span>
+                  狼人 <strong className="text-[#ff8a9d]">{result.series.score.werewolf}</strong>
+                  {result.series.score.draw > 0 && (
+                    <span className="ml-3">和局 {result.series.score.draw}</span>
+                  )}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-[#c8c5cb]/38">
+                复赛沿用板型、玩家模型、头像和性格，重新随机身份与对局进程
+              </p>
+            </div>
+            {replayPlayers.length > 0 && onGameCreated && (
+              <button
+                type="button"
+                onClick={startRematch}
+                disabled={rematchPending}
+                className="btn-primary inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 disabled:cursor-wait disabled:opacity-50"
+              >
+                <span className={cn('material-symbols-outlined text-[17px]', rematchPending && 'animate-spin')}>
+                  {rematchPending ? 'progress_activity' : 'replay'}
+                </span>
+                {rematchPending ? '正在开局' : '原阵容再战'}
+              </button>
+            )}
+          </section>
+        )}
+
+        {rematchError && (
+          <div role="alert" className="border border-[#eb2445]/35 bg-[#eb2445]/10 px-3 py-2 text-xs text-[#ffb3b3]">
+            {rematchError}
+          </div>
+        )}
 
         {metrics?.total_calls > 0 && (
           <div>
@@ -115,6 +221,75 @@ export default function ResultPanel({ result, status, onReviewGenerated }: Props
               ))}
             </div>
           </div>
+        )}
+
+        {factPlayers.length > 0 && (
+          <section>
+            <div className="mb-2 flex items-end justify-between gap-3">
+              <div>
+                <h4 className="font-label text-label-sm uppercase tracking-wider text-[#c8c5cb]/60">
+                  可核验赛后事实
+                </h4>
+                <p className="mt-1 text-xs text-[#c8c5cb]/40">
+                  由完整事件流直接计算，不经过复盘模型
+                </p>
+              </div>
+              <span className="font-label text-[10px] text-[#c4b5fd]/45">
+                {result.match_facts.event_count} 个事件
+              </span>
+            </div>
+            <div className="overflow-x-auto rounded-md border border-[#47464b]/25 bg-[#071523]/45">
+              <table className="w-full min-w-[680px] border-collapse text-left">
+                <thead className="bg-[#102034]/80 font-label text-[10px] uppercase tracking-[0.14em] text-[#c8c5cb]/45">
+                  <tr>
+                    <th className="px-3 py-2 font-normal">玩家</th>
+                    <th className="px-3 py-2 font-normal">结局</th>
+                    <th className="px-3 py-2 text-center font-normal">发言</th>
+                    <th className="px-3 py-2 text-center font-normal">公投</th>
+                    <th className="px-3 py-2 text-center font-normal">投狼 / 投好</th>
+                    <th className="px-3 py-2 text-center font-normal">弃票</th>
+                    <th className="px-3 py-2 text-center font-normal">技能行动</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#47464b]/15">
+                  {factPlayers.map(([playerId, fact]) => {
+                    const role = getRoleConfig(fact.role);
+                    return (
+                      <tr key={playerId} className="text-sm text-[#c8c5cb]/70">
+                        <td className="px-3 py-2.5">
+                          <div className="flex items-center gap-2">
+                            <LobeAvatar
+                              avatarId={status?.avatar_assignment?.[playerId]}
+                              playerId={playerId}
+                              className="h-6 w-6 rounded-full text-[10px] font-bold text-white"
+                            />
+                            <span className="font-display text-[#d3e4fe]">{playerId}</span>
+                            <span className={cn('rounded px-1.5 py-0.5 font-label text-[10px]', role.badgeClass)}>
+                              {role.icon} {role.label}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          {fact.survived
+                            ? <span className="text-[#8de7b0]">存活</span>
+                            : <span title={fact.death?.cause}>R{fact.death?.round} 出局</span>}
+                        </td>
+                        <td className="px-3 py-2.5 text-center">{fact.speech_count}</td>
+                        <td className="px-3 py-2.5 text-center">{fact.day_votes.cast}</td>
+                        <td className="px-3 py-2.5 text-center">
+                          <span className="text-[#ffb3b3]">{fact.day_votes.targets_werewolf}</span>
+                          <span className="mx-1 text-[#c8c5cb]/25">/</span>
+                          <span>{fact.day_votes.targets_good}</span>
+                        </td>
+                        <td className="px-3 py-2.5 text-center">{fact.day_votes.abstained}</td>
+                        <td className="px-3 py-2.5 text-center">{fact.skill_actions.length}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
         )}
 
         {/* 各玩家成本 + 身份 */}
@@ -165,4 +340,8 @@ export default function ResultPanel({ result, status, onReviewGenerated }: Props
       </div>
     </div>
   );
+}
+
+function normalizeEndpoint(url: string): string {
+  return url.trim().replace(/\/+$/, '').toLowerCase();
 }

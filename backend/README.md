@@ -7,13 +7,11 @@
 - AI智能体系统（AIAgent）
 - 多家 LLM 接入（OpenAI、Anthropic、DeepSeek、Gemini、Qwen、Kimi、MiMo、MiniMax、GLM、SiliconFlow）
 - 游戏编排器（GameOrchestrator）
-- 完整的5人狼人杀游戏流程
+- 完整的多板型狼人杀游戏流程（5/9/12人）
 
 ⏳ **待完成**:
 - WebSocket实时观战系统
-- React前端界面
 - 数据库持久化
-- REST API端点
 
 ## 快速测试
 
@@ -175,7 +173,6 @@ print(f"    推理: {action.parameters.get('reasoning', '')}")
 ## 下一步
 
 - [ ] 实现WebSocket服务器
-- [ ] 创建React前端观战界面
 - [ ] 添加数据库持久化
 - [ ] 优化AI推理质量
 

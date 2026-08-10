@@ -4,7 +4,7 @@ AI Arena的前端界面 - React + TypeScript + Vite + Tailwind CSS
 
 ---
 
-## 🚀 快速开始
+## 快速开始
 
 ### 1. 安装依赖
 
@@ -28,7 +28,7 @@ npm run build
 
 ---
 
-## 📦 技术栈
+## 技术栈
 
 - **React 18** - UI框架
 - **TypeScript** - 类型安全
@@ -38,40 +38,40 @@ npm run build
 
 ---
 
-## 🎮 功能特性
+## 功能特性
 
-### ✅ 创建游戏
-- 配置5个AI玩家
-- 选择模型提供商（OpenAI / Anthropic / Ollama）
+### 创建游戏
+- 选择场别（5人/9人/12人板型，按板型自动确定玩家数）
+- 选择模型提供商（DeepSeek / OpenAI / Anthropic / Gemini / 通义千问 / Kimi / 小米 / MiniMax / 智谱 / 硅基流动，或自定义端点）
 - 选择具体模型
-- 可选随机种子
+- 可选随机种子与警长玩法
 
-### ✅ 实时观战
-- 游戏状态实时更新（每3秒）
+### 实时观战
+- 游戏状态实时更新（每2秒）
 - 显示当前轮次和阶段
 - 存活/死亡玩家列表
 - 自动刷新直到游戏完成
 
-### ✅ 游戏结果
+### 游戏结果
 - 胜利方和原因
 - 游戏时长
 - 总成本和玩家成本
 - 详细统计信息
 
-### ✅ 历史记录
+### 历史记录
 - 所有游戏列表
 - 状态筛选
 - 查看详情
 - 删除游戏
 
-### ✅ 统计仪表盘
+### 统计仪表盘
 - 总游戏数
 - 完成/运行中/错误数量
 - 总成本追踪
 
 ---
 
-## 📂 项目结构
+## 项目结构
 
 ```
 frontend/
@@ -84,7 +84,7 @@ frontend/
 │   │   ├── GameHistory.tsx    # 历史记录组件
 │   │   └── Stats.tsx          # 统计组件
 │   ├── hooks/
-│   │   └── useGame.ts         # 游戏Hook
+│   │   └── useGameStream.ts   # 游戏Hook
 │   ├── types/
 │   │   └── api.ts             # API类型定义
 │   ├── App.tsx                # 主应用
@@ -99,7 +99,7 @@ frontend/
 
 ---
 
-## 🔧 配置
+## 配置
 
 ### API端点
 
@@ -115,15 +115,13 @@ frontend/
 
 ---
 
-## 🎨 UI设计
+## UI 设计
 
 ### 色彩方案
-- 背景：深色主题（gray-900）
-- 卡片：gray-800
-- 强调色：blue-500（主按钮）
-- 成功：green-500
-- 警告：yellow-500
-- 错误：red-500
+- Nocturne Stage 色板（见 `tailwind.config.js`）
+- 背景：深海军蓝舞台（`nocturne.stage`），容器按层级递浅做深度感
+- 角色语义色：金（预言家/真相）、绯红（狼人/危险）、蓝灰（村民/中性）
+- 字体：Noto Serif SC / Noto Sans SC 三套体系
 
 ### 组件风格
 - 圆角卡片
@@ -133,7 +131,7 @@ frontend/
 
 ---
 
-## 📝 API集成
+## API 集成
 
 ### 使用示例
 
@@ -142,8 +140,9 @@ import { apiClient } from './api/client';
 
 // 创建游戏
 const response = await apiClient.createGame({
+  board_id: '5p',
   player_configs: [
-    { player_id: 'AI-1', provider: 'openai', model: 'gpt-4o-mini' },
+    { player_id: 'AI-1', provider: 'deepseek', model: 'deepseek-v4-flash' },
     // ... 4 more players
   ],
   seed: 42
@@ -159,10 +158,10 @@ const result = await apiClient.getGameResult(gameId);
 ### 自定义Hook
 
 ```typescript
-import { useGame } from './hooks/useGame';
+import { useGameStream } from './hooks/useGameStream';
 
 function MyComponent() {
-  const { status, result, loading, error } = useGame(gameId);
+  const { status, result, loading, error } = useGameStream(gameId);
   
   // 自动轮询，游戏完成后停止
 }
@@ -170,7 +169,7 @@ function MyComponent() {
 
 ---
 
-## 🧪 开发
+## 开发
 
 ### 运行开发服务器
 
@@ -192,7 +191,7 @@ npm run lint
 
 ---
 
-## 🚀 部署
+## 部署
 
 ### 构建
 
@@ -219,7 +218,7 @@ npm run preview
 
 ---
 
-## 🎯 功能路线图
+## 功能路线图
 
 ### MVP (已完成)
 - ✅ 创建游戏界面
@@ -227,17 +226,17 @@ npm run preview
 - ✅ 结果展示
 - ✅ 历史记录
 - ✅ 统计仪表盘
+- ✅ 对局回放与 AI 复盘
 
 ### v1.0 (计划中)
 - [ ] WebSocket实时推送
-- [ ] 游戏回放
 - [ ] 用户登录
 - [ ] 房间管理
 - [ ] 多语言支持
 
 ---
 
-## 🐛 故障排除
+## 故障排除
 
 ### 问题：无法连接到API
 
@@ -262,20 +261,19 @@ npm run preview
 
 ---
 
-## 📚 相关文档
+## 相关文档
 
-- [后端API文档](../backend/API.md)
+- [后端文档](../backend/README.md)
 - [项目README](../README.md)
-- [MVP完成报告](../docs/MVP_COMPLETION_REPORT.md)
 
 ---
 
-## 💡 提示
+## 提示
 
 1. **开发时先启动后端**: 确保 `http://localhost:8000` 可访问
-2. **使用本地模型测试**: Ollama模型免费且快速
+2. **用 DeepSeek 等模型测试**: 国内直连、成本极低，适合开发调试
 3. **浏览器开发工具**: 打开Network标签查看API请求
 
 ---
 
-**准备就绪！启动前端开始对战！** 🚀
+**启动前端开始对战。**

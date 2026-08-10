@@ -10,7 +10,76 @@ LLM Model Client Interface
 与 config/models.yaml 及业界报价口径一致。
 """
 from abc import ABC, abstractmethod
-from typing import Dict, Optional
+import json
+import re
+from typing import Any, Dict, Optional, Tuple
+
+
+def parse_json_response(content: Optional[str]) -> Tuple[Optional[Any], Optional[str], bool]:
+    """解析模型 JSON；对代码围栏、前后说明和尾部截断做保守的本地修复。"""
+    text = (content or "").strip()
+    if not text:
+        return None, "模型返回了空内容", False
+
+    try:
+        return json.loads(text), None, False
+    except json.JSONDecodeError as original_error:
+        pass
+
+    fenced = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+    fenced = re.sub(r"\s*```$", "", fenced).strip()
+    decoder = json.JSONDecoder()
+    for start in (index for index, char in enumerate(fenced) if char == "{"):
+        try:
+            value, _ = decoder.raw_decode(fenced[start:])
+            return value, None, True
+        except json.JSONDecodeError:
+            repaired = _close_truncated_json(fenced[start:])
+            if repaired:
+                try:
+                    return json.loads(repaired), None, True
+                except json.JSONDecodeError:
+                    pass
+
+    return None, str(original_error), False
+
+
+def _close_truncated_json(candidate: str) -> Optional[str]:
+    """只补齐未闭合的字符串/括号，不猜测缺失字段或修改已有值。"""
+    stack = []
+    in_string = False
+    escaped = False
+
+    for char in candidate:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char in "[{":
+            stack.append(char)
+        elif char in "]}":
+            expected = "[" if char == "]" else "{"
+            if not stack or stack.pop() != expected:
+                return None
+
+    if not stack and not in_string:
+        return None
+
+    result = candidate.rstrip()
+    if in_string:
+        if escaped and result.endswith("\\"):
+            result = result[:-1]
+        result += '"'
+    for opener in reversed(stack):
+        result = re.sub(r",\s*$", "", result)
+        result += "]" if opener == "[" else "}"
+    return result
 
 
 class LLMError(RuntimeError):

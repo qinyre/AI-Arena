@@ -194,6 +194,7 @@ class GameManager:
                 "custom_model_players": custom_model_players,
                 "custom_tokens": custom_tokens,
                 "player_tokens": player_tokens,
+                "llm_metrics": orch.get_model_metrics(),
                 "summary": result.get("summary"),  # 原本漏存，导致 get_result() 永远返回 null
                 # 终局玩家状态(复盘用)
                 "role_assignment": final_role_assignment,
@@ -325,6 +326,7 @@ class GameManager:
             "custom_model_players": record.get("custom_model_players", []),
             "custom_tokens": record.get("custom_tokens", 0),
             "player_tokens": record.get("player_tokens", {}),
+            "llm_metrics": record.get("llm_metrics", {}),
             "summary": record.get("summary"),
             "ai_review": record.get("ai_review"),
         }

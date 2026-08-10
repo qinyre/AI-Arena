@@ -12,9 +12,13 @@ OpenAI 兼容协议客户端实现。
 只需 openai SDK，无需为每家单独装 SDK。
 """
 from openai import AsyncOpenAI
-import json
 from typing import Dict, Optional
-from app.llm.client import ModelClient, RetryableError, NonRetryableError
+from app.llm.client import (
+    ModelClient,
+    NonRetryableError,
+    RetryableError,
+    parse_json_response,
+)
 
 
 class OpenAICompatibleClient(ModelClient):
@@ -102,21 +106,11 @@ class OpenAICompatibleClient(ModelClient):
 
             # 如果是 JSON 模式，解析 JSON
             if json_mode:
-                try:
-                    result["parsed"] = json.loads(result["content"])
-                except (json.JSONDecodeError, TypeError) as e:
-                    # 降级：正则抽取首个 JSON 对象（兼容各家 JSON mode 差异）
-                    import re
-                    json_match = re.search(r'\{.*\}', result["content"] or "", re.DOTALL)
-                    if json_match:
-                        try:
-                            result["parsed"] = json.loads(json_match.group())
-                        except json.JSONDecodeError:
-                            result["parse_error"] = str(e)
-                            result["parsed"] = None
-                    else:
-                        result["parse_error"] = str(e)
-                        result["parsed"] = None
+                parsed, parse_error, repaired = parse_json_response(result["content"])
+                result["parsed"] = parsed
+                result["json_repaired"] = repaired
+                if parse_error:
+                    result["parse_error"] = parse_error
 
             return result
 

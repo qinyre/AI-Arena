@@ -33,6 +33,10 @@ export default function ResultPanel({ result, status, onReviewGenerated }: Props
   const roleAssignment = status?.role_assignment || {};
   const customPlayers = new Set(result.custom_model_players);
   const hasCustomModels = customPlayers.size > 0;
+  const metrics = result.llm_metrics;
+  const successRate = metrics?.total_calls
+    ? Math.round((metrics.successful_calls / metrics.total_calls) * 100)
+    : 0;
 
   return (
     <div className="glass-panel rounded-lg p-6 animate-fade-in">
@@ -88,6 +92,30 @@ export default function ResultPanel({ result, status, onReviewGenerated }: Props
             </div>
           </div>
         </div>
+
+        {metrics?.total_calls > 0 && (
+          <div>
+            <h4 className="font-label text-label-sm text-[#c8c5cb]/60 mb-2 uppercase tracking-wider">
+              模型运行质量
+            </h4>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              {[
+                ['有效决策', `${successRate}%`],
+                ['降级动作', metrics.fallback_calls.toLocaleString()],
+                ['本地救回', metrics.repaired_json_calls.toLocaleString()],
+                ['平均延迟', `${(metrics.average_latency_ms / 1000).toFixed(1)}s`],
+              ].map(([label, value]) => (
+                <div
+                  key={label}
+                  className="bg-[#0b1c30]/50 border border-[#47464b]/20 px-3 py-2 rounded-md"
+                >
+                  <div className="font-label text-label-sm text-[#c8c5cb]/55">{label}</div>
+                  <div className="font-display text-title-sm text-[#d3e4fe] mt-0.5">{value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* 各玩家成本 + 身份 */}
         <div>

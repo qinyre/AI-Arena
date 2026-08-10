@@ -6,9 +6,13 @@ Claude 是项目中唯一使用非 OpenAI 协议的 provider，故单独实现�
 走 OpenAICompatibleClient。
 """
 import anthropic
-import json
 from typing import Dict, Optional
-from app.llm.client import ModelClient, RetryableError, NonRetryableError
+from app.llm.client import (
+    ModelClient,
+    NonRetryableError,
+    RetryableError,
+    parse_json_response,
+)
 
 
 class ClaudeClient(ModelClient):
@@ -97,21 +101,11 @@ class ClaudeClient(ModelClient):
 
             # 如果是 JSON 模式，解析 JSON
             if json_mode:
-                try:
-                    result["parsed"] = json.loads(content)
-                except (json.JSONDecodeError, TypeError) as e:
-                    # Claude 有时会在 JSON 前后添加说明文字，尝试提取
-                    import re
-                    json_match = re.search(r'\{.*\}', content or "", re.DOTALL)
-                    if json_match:
-                        try:
-                            result["parsed"] = json.loads(json_match.group())
-                        except json.JSONDecodeError:
-                            result["parse_error"] = str(e)
-                            result["parsed"] = None
-                    else:
-                        result["parse_error"] = str(e)
-                        result["parsed"] = None
+                parsed, parse_error, repaired = parse_json_response(content)
+                result["parsed"] = parsed
+                result["json_repaired"] = repaired
+                if parse_error:
+                    result["parse_error"] = parse_error
 
             return result
 

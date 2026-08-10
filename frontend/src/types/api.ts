@@ -126,6 +126,15 @@ export interface GameResultResponse {
   custom_model_players: string[];
   custom_tokens: number;
   player_tokens: Record<string, number>;
+  llm_metrics: {
+    total_calls: number;
+    successful_calls: number;
+    fallback_calls: number;
+    repaired_json_calls: number;
+    average_latency_ms: number;
+    by_player: Record<string, { calls: number; fallbacks: number; tokens: number }>;
+    by_stage: Record<string, { calls: number; fallbacks: number; tokens: number }>;
+  };
   summary: any;
   ai_review?: GameReview;
 }

@@ -4,7 +4,7 @@ Manages game lifecycle and coordinates AI agents
 """
 import asyncio
 import os
-from typing import Dict, List
+from typing import Dict, List, Optional
 from urllib.parse import urlparse
 from app.core.werewolf import WerewolfGame
 from app.core.agent import AIAgent
@@ -32,6 +32,20 @@ class GameOrchestrator:
         self.agents: Dict[str, AIAgent] = {}
         self.start_time = None
         self.end_time = None
+        self.call_metrics: List[Dict] = []
+        self.max_output_tokens = int(
+            config.get("ai_max_output_tokens") or os.getenv("AI_MAX_OUTPUT_TOKENS", "1200")
+        )
+        self.player_token_budget = int(
+            config.get("ai_player_token_budget") or os.getenv("AI_PLAYER_TOKEN_BUDGET", "80000")
+        )
+        self.game_token_budget = int(
+            config.get("ai_game_token_budget") or os.getenv("AI_GAME_TOKEN_BUDGET", "500000")
+        )
+        self.circuit_breaker_failures = int(
+            config.get("ai_circuit_breaker_failures")
+            or os.getenv("AI_CIRCUIT_BREAKER_FAILURES", "2")
+        )
         self._run_gate = asyncio.Event()
         self._run_gate.set()
 
@@ -65,6 +79,10 @@ class GameOrchestrator:
                 player_id,
                 client,
                 personality=model_config.get("personality"),
+                max_output_tokens=self.max_output_tokens,
+                player_token_budget=self.player_token_budget,
+                game_budget_check=self._game_budget_reason,
+                circuit_breaker_failures=self.circuit_breaker_failures,
             )
 
     def _create_client(self, model_config: Dict, registry):
@@ -451,6 +469,16 @@ class GameOrchestrator:
             await self.wait_if_paused()
             # AI决策
             action = await agent.decide(visible_state, available_actions)
+            decision_metrics = dict(getattr(agent, "last_decision_metrics", {}))
+            decision_metrics.update({
+                "player": agent.agent_id,
+                "round": self.game.state.round,
+                "phase": self.game.state.phase.value,
+                "night_stage": self.game.night_stage,
+                "action": action.action_type.value,
+                "fallback": bool(getattr(agent, "last_decision_error", None)),
+            })
+            self.call_metrics.append(decision_metrics)
 
             # 应用动作
             events = self.game.apply_action(action)
@@ -521,3 +549,43 @@ class GameOrchestrator:
             usage = agent.model_client.get_total_usage()
             total_cost += usage.get("estimated_cost", 0.0)
         return total_cost
+
+    def _game_budget_reason(self) -> Optional[str]:
+        if self.game_token_budget <= 0:
+            return None
+        total_tokens = sum(
+            agent.model_client.get_total_usage().get("total_tokens", 0)
+            for agent in self.agents.values()
+        )
+        if total_tokens >= self.game_token_budget:
+            return f"本局 token 预算已达到 {self.game_token_budget}，停止继续调用模型"
+        return None
+
+    def get_model_metrics(self) -> Dict:
+        """返回不污染对局事件流的模型调用明细与聚合统计。"""
+        by_player: Dict[str, Dict] = {}
+        by_stage: Dict[str, Dict] = {}
+        for call in self.call_metrics:
+            usage = call.get("usage", {})
+            for bucket, key in (
+                (by_player, call.get("player") or "unknown"),
+                (by_stage, call.get("night_stage") or call.get("phase") or "unknown"),
+            ):
+                stats = bucket.setdefault(key, {"calls": 0, "fallbacks": 0, "tokens": 0})
+                stats["calls"] += 1
+                stats["fallbacks"] += int(bool(call.get("fallback")))
+                stats["tokens"] += int(usage.get("total_tokens", 0))
+
+        calls = len(self.call_metrics)
+        return {
+            "total_calls": calls,
+            "successful_calls": sum(bool(call.get("success")) for call in self.call_metrics),
+            "fallback_calls": sum(bool(call.get("fallback")) for call in self.call_metrics),
+            "repaired_json_calls": sum(bool(call.get("json_repaired")) for call in self.call_metrics),
+            "average_latency_ms": round(
+                sum(call.get("latency_ms", 0) for call in self.call_metrics) / calls
+            ) if calls else 0,
+            "by_player": by_player,
+            "by_stage": by_stage,
+            "calls": self.call_metrics,
+        }

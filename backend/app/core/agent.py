@@ -1,9 +1,10 @@
 """
 AI Agent Implementation
 """
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 import asyncio
 import logging
+import time
 from app.llm.client import ModelClient, RetryableError, NonRetryableError
 from app.core.models import GameAction, ActionType
 import json
@@ -19,6 +20,10 @@ class AIAgent:
         agent_id: str,
         model_client: ModelClient,
         personality: Optional[Dict] = None,
+        max_output_tokens: int = 1200,
+        player_token_budget: int = 80_000,
+        game_budget_check: Optional[Callable[[], Optional[str]]] = None,
+        circuit_breaker_failures: int = 2,
     ):
         """
         初始化AI智能体
@@ -30,14 +35,21 @@ class AIAgent:
         self.agent_id = agent_id
         self.model_client = model_client
         self.personality = personality
+        self.max_output_tokens = max_output_tokens
+        self.player_token_budget = player_token_budget
+        self.game_budget_check = game_budget_check
+        self.circuit_breaker_failures = max(1, circuit_breaker_failures)
         self.memory: List[Dict] = []
         self.last_decision_error: Optional[Dict] = None
+        self.last_decision_metrics: Dict = {}
+        self._consecutive_failures = 0
+        self._circuit_open_round: Optional[int] = None
 
     def update_memory(self, event: Dict):
         """更新记忆"""
         self.memory.append(event)
 
-    def get_recent_memory(self, limit: int = 20) -> str:
+    def get_recent_memory(self, limit: int = 12) -> str:
         """获取最近的记忆（压缩）"""
         recent = self.memory[-limit:]
         return "\n".join([self._format_event(e) for e in recent])
@@ -57,6 +69,23 @@ class AIAgent:
         Returns:
             选择的动作
         """
+        started_at = time.perf_counter()
+        round_no = int(visible_state.get("round", 0))
+        usage_before = self._usage_snapshot()
+        self.last_decision_error = None
+        self.last_decision_metrics = {}
+
+        blocked_reason = self._request_block_reason(round_no, usage_before)
+        if blocked_reason:
+            return self._fallback_with_diagnostic(
+                available_actions,
+                blocked_reason,
+                usage_before,
+                started_at,
+                {},
+                0,
+            )
+
         # 构建提示词
         system_prompt = self._build_system_prompt(visible_state)
         action_prompt = self._build_action_prompt(
@@ -64,57 +93,48 @@ class AIAgent:
             available_actions
         )
 
-        self.last_decision_error = None
-        usage_before = self._usage_snapshot()
-        last_reason = "模型未返回有效动作"
-        last_response: Dict = {}
-        request_attempts = 0
-        for attempt in range(1, 3):
-            response = await self._generate_with_retry(
-                action_prompt,
-                system_prompt,
-                temperature=self._decision_temperature(),
-            )
-            last_response = response
-            request_attempts += int(response.get("_request_attempts", 1))
-            if response.get("_last_error"):
-                last_reason = response["_last_error"]
-                break
-            parsed = response.get("parsed")
-            if not parsed:
-                last_reason = response.get("parse_error") or "模型响应不是有效 JSON"
-                logger.warning("[%s] LLM 响应未解析成功（attempt %d）: %s",
-                               self.agent_id, attempt, last_reason)
-            elif not isinstance(parsed, dict):
-                last_reason = "模型响应的 JSON 顶层不是对象"
-                logger.warning("[%s] LLM 响应结构无效（attempt %d）", self.agent_id, attempt)
-            else:
-                action, ok, reason = self._build_action(parsed, available_actions)
-                if ok and action is not None:
-                    return action
-                last_reason = reason
-                logger.warning("[%s] 动作语义校验失败（attempt %d）: %s",
-                               self.agent_id, attempt, reason)
+        response = await self._generate_with_retry(
+            action_prompt,
+            system_prompt,
+            temperature=self._decision_temperature(),
+        )
+        request_attempts = int(response.get("_request_attempts", 1))
+        last_reason = response.get("_last_error")
+        parsed = response.get("parsed")
 
-            if attempt == 1:
-                action_prompt += (
-                    f"\n\n上次响应无效：{last_reason}。"
-                    "请严格按上述 JSON 结构重新作答，只返回一个 JSON 对象。"
+        if not last_reason and isinstance(parsed, dict):
+            action, ok, last_reason = self._build_action(parsed, available_actions)
+            if ok and action is not None:
+                self._consecutive_failures = 0
+                self._circuit_open_round = None
+                self.last_decision_metrics = self._decision_metrics(
+                    True,
+                    usage_before,
+                    started_at,
+                    response,
+                    request_attempts,
                 )
+                return action
+            logger.warning("[%s] 动作语义校验失败: %s", self.agent_id, last_reason)
+        elif not last_reason:
+            last_reason = (
+                response.get("parse_error")
+                if parsed is None
+                else "模型响应的 JSON 顶层不是对象"
+            ) or "模型响应不是有效 JSON"
+            logger.warning("[%s] LLM 响应未解析成功: %s", self.agent_id, last_reason)
 
-        action = self._fallback_action(available_actions)
-        usage_after = self._usage_snapshot()
-        self.last_decision_error = {
-            "reason": last_reason,
-            "attempts": request_attempts,
-            "usage": {
-                key: max(0, usage_after.get(key, 0) - usage_before.get(key, 0))
-                for key in ("total_input_tokens", "total_output_tokens", "total_tokens", "estimated_cost")
-            },
-            "response_excerpt": str(last_response.get("content") or "")[:300],
-            "finish_reason": last_response.get("finish_reason"),
-        }
-        return action
+        self._consecutive_failures += 1
+        if self._consecutive_failures >= self.circuit_breaker_failures:
+            self._circuit_open_round = round_no
+        return self._fallback_with_diagnostic(
+            available_actions,
+            last_reason or "模型未返回有效动作",
+            usage_before,
+            started_at,
+            response,
+            request_attempts,
+        )
 
     def _build_action(
         self,
@@ -200,7 +220,8 @@ class AIAgent:
             try:
                 response = await self.model_client.generate(
                     prompt=prompt, system_prompt=system_prompt,
-                    json_mode=True, temperature=temperature
+                    json_mode=True, temperature=temperature,
+                    max_tokens=self.max_output_tokens,
                 )
                 response["_request_attempts"] = attempt
                 return response
@@ -220,11 +241,8 @@ class AIAgent:
                                self.agent_id, attempt, max_attempts, delay, e)
                 await asyncio.sleep(delay)
             except Exception as e:
-                last_error = e
-                logger.warning("[%s] LLM 未知错误（attempt %d）: %s", self.agent_id, attempt, e)
-                if attempt >= max_attempts:
-                    break
-                await asyncio.sleep(base_delay)
+                logger.exception("[%s] LLM 未知错误，放弃重试: %s", self.agent_id, e)
+                return {"parsed": None, "_last_error": str(e), "_request_attempts": attempt}
 
         return {
             "parsed": None,
@@ -237,6 +255,80 @@ class AIAgent:
             return self.model_client.get_total_usage()
         except (AttributeError, NotImplementedError):
             return {}
+
+    def _request_block_reason(self, round_no: int, usage: Dict) -> Optional[str]:
+        if self._circuit_open_round is not None and self._circuit_open_round != round_no:
+            self._circuit_open_round = None
+            self._consecutive_failures = 0
+        if self._circuit_open_round == round_no:
+            return f"本回合连续失败达到 {self.circuit_breaker_failures} 次，熔断后续模型调用"
+        if self.player_token_budget > 0 and usage.get("total_tokens", 0) >= self.player_token_budget:
+            return f"玩家 token 预算已达到 {self.player_token_budget}，停止继续调用模型"
+        if self.game_budget_check:
+            try:
+                return self.game_budget_check()
+            except Exception as error:
+                logger.warning("[%s] 检查全局模型预算失败: %s", self.agent_id, error)
+        return None
+
+    def _usage_delta(self, before: Dict) -> Dict:
+        after = self._usage_snapshot()
+        return {
+            key: max(0, after.get(key, 0) - before.get(key, 0))
+            for key in (
+                "total_input_tokens",
+                "total_output_tokens",
+                "total_tokens",
+                "estimated_cost",
+            )
+        }
+
+    def _decision_metrics(
+        self,
+        success: bool,
+        usage_before: Dict,
+        started_at: float,
+        response: Dict,
+        attempts: int,
+        reason: Optional[str] = None,
+    ) -> Dict:
+        return {
+            "success": success,
+            "attempts": attempts,
+            "latency_ms": round((time.perf_counter() - started_at) * 1000),
+            "usage": self._usage_delta(usage_before),
+            "finish_reason": response.get("finish_reason"),
+            "json_repaired": bool(response.get("json_repaired")),
+            "failure_reason": reason,
+        }
+
+    def _fallback_with_diagnostic(
+        self,
+        available_actions: List[Dict],
+        reason: str,
+        usage_before: Dict,
+        started_at: float,
+        response: Dict,
+        attempts: int,
+    ) -> GameAction:
+        action = self._fallback_action(available_actions)
+        metrics = self._decision_metrics(
+            False,
+            usage_before,
+            started_at,
+            response,
+            attempts,
+            reason,
+        )
+        self.last_decision_metrics = metrics
+        self.last_decision_error = {
+            "reason": reason,
+            "attempts": attempts,
+            "usage": metrics["usage"],
+            "response_excerpt": str(response.get("content") or "")[:300],
+            "finish_reason": response.get("finish_reason"),
+        }
+        return action
 
     def _fallback_action(self, available_actions: List[Dict]) -> GameAction:
         chosen = next((a for a in available_actions if a["action_type"] != "abstain"), available_actions[0])
@@ -687,6 +779,18 @@ class AIAgent:
             available_actions,
         )
 
+        prompt_state = self._compact_visible_state(visible_state)
+        compact_actions = json.dumps(
+            available_actions,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        compact_state = json.dumps(
+            prompt_state,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+
         return f"""
 请分析当前局势并选择一个动作。
 
@@ -700,25 +804,39 @@ class AIAgent:
 {personality_policy}
 
 # 可选动作（你只能从中选择，不得自创）
-{json.dumps(available_actions, ensure_ascii=False, indent=2)}
+{compact_actions}
 
 # 当前游戏状态
-{json.dumps(visible_state, ensure_ascii=False, indent=2)}
+{compact_state}
 
-请返回JSON格式：
+只返回一个 JSON 对象，先写 chosen_action，再写 reasoning：
 {{
-    "reasoning": "你的内部推理（2-3句话，只针对当前可用动作的抉择，不得幻想阶段外的行动）",
     "chosen_action": {{
         "action_type": "...（必须从上面可选动作里选）",
         "target": "...（该动作要求 target 时填玩家ID，否则留空）",
         "parameters": {{}}
-    }}
+    }},
+    "reasoning": "你的内部推理（2-3句话，只针对当前可用动作的抉择，不得幻想阶段外的行动）"
 }}
 
 注意：reasoning 是你的内部思考，不会被其他玩家看到。chosen_action 必须严格匹配上面的可选动作；
 若是 speak/wolf_speak 动作，把发言写在 parameters.content；若是带目标的动作，
 parameters 里通常只需 reasoning（如需），不要硬塞 content。
 """
+
+    def _compact_visible_state(self, visible_state: Dict) -> Dict:
+        """移除事件元数据并保留其可见语义，降低重复上下文 token。"""
+        compact = {
+            key: value
+            for key, value in visible_state.items()
+            if key != "public_events"
+        }
+        public_events = visible_state.get("public_events", [])
+        if public_events:
+            compact["public_history"] = [
+                self._format_event(event) for event in public_events
+            ]
+        return compact
 
     def _format_event(self, event: Dict) -> str:
         """格式化事件为文本"""

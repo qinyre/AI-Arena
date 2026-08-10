@@ -145,6 +145,7 @@ class GameResultResponse(BaseModel):
     custom_model_players: List[str] = Field(default_factory=list)
     custom_tokens: int = 0
     player_tokens: Dict[str, int] = Field(default_factory=dict)
+    llm_metrics: Dict[str, Any] = Field(default_factory=dict)
     summary: Any = None
     ai_review: Optional[GameReview] = None
 

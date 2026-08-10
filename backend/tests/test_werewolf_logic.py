@@ -32,7 +32,7 @@ def make_sheriff_game():
     return game
 
 
-def test_billed_invalid_responses_retry_once_and_record_fallback():
+def test_invalid_response_falls_back_without_a_second_billed_request():
     class InvalidClient:
         def __init__(self):
             self.calls = 0
@@ -70,11 +70,15 @@ def test_billed_invalid_responses_retry_once_and_record_fallback():
     ))
 
     diagnostics = [event for event in game.state.events if event.event_type == "agent_fallback"]
-    assert client.calls == 2
+    assert client.calls == 1
     assert len(diagnostics) == 1
-    assert diagnostics[0].data["attempts"] == 2
-    assert diagnostics[0].data["usage"]["total_tokens"] == 24
+    assert diagnostics[0].data["attempts"] == 1
+    assert diagnostics[0].data["usage"]["total_tokens"] == 12
     assert diagnostics[0].data["response_excerpt"] == "这不是 JSON"
+    metrics = orchestrator.get_model_metrics()
+    assert metrics["total_calls"] == 1
+    assert metrics["fallback_calls"] == 1
+    assert metrics["by_player"][player_id]["tokens"] == 12
 
 
 def test_required_target_and_duplicate_action_are_rejected():

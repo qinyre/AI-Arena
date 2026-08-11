@@ -120,9 +120,13 @@ class APIClient {
     });
   }
 
-  // Get game events (full event stream with AI reasoning)
-  async getGameEvents(gameId: string): Promise<GameEventResponse> {
-    return this.request<GameEventResponse>(`/api/games/${gameId}/events`);
+  // Get game events from an exclusive cursor (0 returns the full history).
+  async getGameEvents(gameId: string, after = 0): Promise<GameEventResponse> {
+    return this.request<GameEventResponse>(`/api/games/${gameId}/events?after=${after}`);
+  }
+
+  getGameEventStreamUrl(gameId: string, after: number): string {
+    return `${this.baseURL}/api/games/${gameId}/events/stream?after=${after}`;
   }
 }
 

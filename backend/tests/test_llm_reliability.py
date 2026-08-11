@@ -119,3 +119,36 @@ def test_player_budget_and_round_circuit_breaker_skip_paid_calls():
 
     asyncio.run(circuit_agent.decide(minimal_state(round_no=2), SPEAK_ACTIONS))
     assert failing_client.calls == 3
+
+
+def test_fallback_prefers_safe_pass_or_abstain():
+    agent = AIAgent("AI-1", FakeClient())
+
+    vote = agent._fallback_action([
+        {"action_type": "vote", "valid_targets": ["AI-2"]},
+        {"action_type": "abstain", "valid_targets": []},
+    ])
+    death_skill = agent._fallback_action([
+        {"action_type": "shoot", "valid_targets": ["AI-2"]},
+        {"action_type": "pass", "valid_targets": []},
+    ])
+
+    assert vote.action_type.value == "abstain"
+    assert vote.target_id is None
+    assert death_skill.action_type.value == "pass"
+    assert death_skill.target_id is None
+
+
+def test_normal_tiebreak_prompts_explain_pk_rules():
+    agent = AIAgent("AI-1", FakeClient())
+    state = minimal_state()
+    state["phase"] = "tiebreak_voting"
+
+    prompt = agent._build_action_prompt(state, [{
+        "action_type": "abstain",
+        "target_required": False,
+        "valid_targets": [],
+    }])
+
+    assert "放逐平票复投" in prompt
+    assert "同票玩家不能投票" in prompt

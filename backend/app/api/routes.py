@@ -6,7 +6,11 @@ Game API Routes — 游戏管理端点。
 
 ⚠️ 路由顺序: /stats 必须在 /{game_id} 前注册,否则 "stats" 被当 game_id。
 """
-from fastapi import APIRouter, HTTPException
+import asyncio
+import json
+
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 
 from app.api.schemas import (
     CreateGameRequest,
@@ -33,9 +37,13 @@ async def create_game(request: CreateGameRequest):
         result = await game_manager.create_game(
             player_configs=player_configs,
             board_id=request.board_id,
+            custom_board=(
+                request.custom_board.model_dump() if request.custom_board else None
+            ),
             seed=request.seed,
             enable_sheriff=request.enable_sheriff,
             budget_tier=request.budget_tier,
+            max_rounds=request.max_rounds,
             parent_game_id=request.parent_game_id,
         )
     except ValueError as e:
@@ -59,7 +67,7 @@ async def list_games():
 
 @router.get("/{game_id}/status", response_model=GameStatusResponse)
 async def get_game_status(game_id: str):
-    """获取游戏实时状态(前端每 3 秒轮询)。"""
+    """获取游戏状态快照（首屏加载与手动刷新使用）。"""
     status = game_manager.get_status(game_id)
     if status is None:
         raise HTTPException(status_code=404, detail=f"游戏 {game_id} 不存在")
@@ -114,16 +122,84 @@ async def generate_game_review(game_id: str, request: GameReviewRequest):
 
 
 @router.get("/{game_id}/events", response_model=GameEventResponse)
-async def get_game_events(game_id: str):
-    """获取游戏的完整事件流（包含 AI 推理过程）。"""
-    events = game_manager.get_events(game_id)
-    if events is None:
-        raise HTTPException(status_code=404, detail=f"游戏 {game_id} 的事件流不存在")
+async def get_game_events(game_id: str, after: int = Query(default=0, ge=0)):
+    """按事件索引增量读取；after=0 兼容完整历史读取。"""
+    status = game_manager.get_status(game_id)
+    if status is None:
+        raise HTTPException(status_code=404, detail=f"游戏 {game_id} 不存在")
+    all_events = game_manager.get_events(game_id) or []
+    start = min(after, len(all_events))
+    terminal = status["status"] in {"completed", "error"}
     return {
         "game_id": game_id,
-        "events": events,
-        "total": len(events)
+        "events": all_events[start:],
+        "from_index": start,
+        "next_index": len(all_events),
+        "total": len(all_events),
+        "terminal": terminal,
     }
+
+
+@router.get("/{game_id}/events/stream")
+async def stream_game_events(
+    game_id: str,
+    request: Request,
+    after: int = Query(default=0, ge=0),
+):
+    """以 SSE 推送新增事件和状态；事件 ID 即下一游标。"""
+    if game_manager.get_status(game_id) is None:
+        raise HTTPException(status_code=404, detail=f"游戏 {game_id} 不存在")
+    last_event_id = request.headers.get("last-event-id", "")
+    cursor = max(after, int(last_event_id) if last_event_id.isdigit() else 0)
+
+    async def event_stream():
+        nonlocal cursor
+        previous_status = ""
+        last_sent = asyncio.get_running_loop().time()
+        while not await request.is_disconnected():
+            status = game_manager.get_status(game_id)
+            if status is None:
+                return
+            all_events = game_manager.get_events(game_id) or []
+            cursor = min(cursor, len(all_events))
+            new_events = all_events[cursor:]
+            status_key = json.dumps(status, ensure_ascii=False, sort_keys=True)
+            terminal = status["status"] in {"completed", "error"}
+            if new_events or status_key != previous_status:
+                start = cursor
+                cursor = len(all_events)
+                payload = {
+                    "game_id": game_id,
+                    "events": new_events,
+                    "from_index": start,
+                    "next_index": cursor,
+                    "total": len(all_events),
+                    "terminal": terminal,
+                    "status": status,
+                }
+                yield (
+                    f"id: {cursor}\n"
+                    "event: update\n"
+                    f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                )
+                previous_status = status_key
+                last_sent = asyncio.get_running_loop().time()
+            if terminal:
+                yield f"id: {cursor}\nevent: end\ndata: {{\"next_index\":{cursor}}}\n\n"
+                return
+            if asyncio.get_running_loop().time() - last_sent >= 15:
+                yield ": keepalive\n\n"
+                last_sent = asyncio.get_running_loop().time()
+            await asyncio.sleep(0.5)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.delete("/{game_id}", response_model=DeleteResponse)

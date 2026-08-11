@@ -1,8 +1,5 @@
 /**
- * 单一数据源 hook：合并状态轮询 + 事件流轮询，并聚合成观战界面直接可用的结构化数据。
- *
- * 取代原来 useGame(轮 status) + EventTimeline(独立轮 events) 的双轮询。
- * 一次 setInterval，并发拉两个端点，游戏结束自动停。
+ * 单一数据源 hook：首屏读取一次快照，之后通过 SSE 增量接收状态与事件。
  */
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { apiClient } from '../api/client';
@@ -10,6 +7,7 @@ import type {
   GameStatusResponse,
   GameResultResponse,
   GameEvent,
+  GameStreamUpdate,
   PlayerWithRole,
   RoundData,
   PlayerReasoning,
@@ -24,8 +22,6 @@ import {
   isPlayerDeath,
   isPhaseChange,
 } from '../types/api';
-
-const POLL_INTERVAL = 2000;
 
 /** 从死亡事件里提取每个玩家的死因/死轮 */
 interface DeathInfo {
@@ -155,58 +151,92 @@ export function useGameStream(gameId: string | null): GameStream {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0); // 触发手动 refetch
-  const mountedRef = useRef(true);
+  const cursorRef = useRef(0);
 
-  const fetchAll = useCallback(async () => {
-    if (!gameId) return;
-    try {
-      setError(null);
-      // 并发拉 status + events
-      const [statusData, eventsData] = await Promise.all([
-        apiClient.getGameStatus(gameId),
-        apiClient.getGameEvents(gameId).then((r) => r.events).catch(() => [] as GameEvent[]),
-      ]);
-      if (!mountedRef.current) return;
-      setStatus(statusData);
-      setEvents(eventsData);
-
-      // 完成态才拉 result
-      if (statusData.status === 'completed') {
-        try {
-          const resultData = await apiClient.getGameResult(gameId);
-          if (mountedRef.current) setResult(resultData);
-        } catch {
-          /* result 失败不致命 */
-        }
-      }
-    } catch (err) {
-      if (mountedRef.current) {
-        setError(err instanceof Error ? err.message : '获取游戏数据失败');
-      }
-    } finally {
-      if (mountedRef.current) setLoading(false);
-    }
-  }, [gameId]);
-
-  // 首次加载
+  // 首次/手动刷新读取快照，运行态随后只接收 SSE 增量。
   useEffect(() => {
-    mountedRef.current = true;
-    setLoading(true);
-    fetchAll();
-    return () => {
-      mountedRef.current = false;
+    if (!gameId) return;
+    let cancelled = false;
+    let source: EventSource | null = null;
+    let resultLoading = false;
+    let latestStatus: GameStatusResponse['status'] | null = null;
+
+    const loadResult = async () => {
+      if (resultLoading || latestStatus !== 'completed') return;
+      resultLoading = true;
+      try {
+        const resultData = await apiClient.getGameResult(gameId);
+        if (!cancelled) setResult(resultData);
+      } catch {
+        /* result 失败不阻断事件流 */
+      } finally {
+        resultLoading = false;
+      }
     };
-  }, [fetchAll, tick]);
 
-  // 轮询：running/initialized 时每 2s 拉；completed/error 停
-  useEffect(() => {
-    if (!gameId) return;
-    const terminal = status?.status === 'completed' || status?.status === 'error';
-    if (terminal) return;
+    const connect = (after: number) => {
+      source = new EventSource(apiClient.getGameEventStreamUrl(gameId, after));
+      source.onopen = () => {
+        if (!cancelled) setError(null);
+      };
+      source.addEventListener('update', (message) => {
+        if (cancelled) return;
+        try {
+          const update = JSON.parse((message as MessageEvent<string>).data) as GameStreamUpdate;
+          const overlap = Math.max(0, cursorRef.current - update.from_index);
+          const additions = update.events.slice(overlap);
+          cursorRef.current = Math.max(cursorRef.current, update.next_index);
+          if (additions.length) setEvents((current) => [...current, ...additions]);
+          latestStatus = update.status.status;
+          setStatus(update.status);
+          if (latestStatus === 'completed') void loadResult();
+        } catch {
+          setError('实时事件格式无效，请手动刷新');
+        }
+      });
+      source.addEventListener('end', () => {
+        source?.close();
+        void loadResult();
+      });
+      source.onerror = () => {
+        if (!cancelled) setError('实时连接中断，正在自动重连…');
+      };
+    };
 
-    const id = setInterval(fetchAll, POLL_INTERVAL);
-    return () => clearInterval(id);
-  }, [gameId, status?.status, fetchAll]);
+    const loadSnapshot = async () => {
+      setLoading(true);
+      setError(null);
+      setResult(null);
+      try {
+        const [statusData, eventData] = await Promise.all([
+          apiClient.getGameStatus(gameId),
+          apiClient.getGameEvents(gameId),
+        ]);
+        if (cancelled) return;
+        latestStatus = statusData.status;
+        cursorRef.current = eventData.next_index;
+        setStatus(statusData);
+        setEvents(eventData.events);
+        if (statusData.status === 'completed') {
+          await loadResult();
+        } else if (statusData.status !== 'error') {
+          connect(eventData.next_index);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : '获取游戏数据失败');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    void loadSnapshot();
+    return () => {
+      cancelled = true;
+      source?.close();
+    };
+  }, [gameId, tick]);
 
   // ---- derived: 聚合 ----
   const players = useMemo<PlayerWithRole[]>(() => {

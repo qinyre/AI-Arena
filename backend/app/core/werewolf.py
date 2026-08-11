@@ -59,6 +59,55 @@ BOARD_PRESETS = {
 }
 
 
+def resolve_board_config(
+    board_id: str,
+    custom_board: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """将预设或自定义板型规范化为引擎可直接使用的配置。"""
+    if board_id != "custom":
+        board = BOARD_PRESETS.get(board_id)
+        if not board:
+            raise ValueError(f"未知板型: {board_id}")
+        return {**board, "roles": list(board["roles"])}
+
+    if not custom_board:
+        raise ValueError("自定义板型缺少角色配置")
+    try:
+        roles = [role if isinstance(role, Role) else Role(role) for role in custom_board["roles"]]
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("自定义板型包含未知角色") from exc
+
+    if not 5 <= len(roles) <= 18:
+        raise ValueError("自定义板型需要 5—18 名玩家")
+    repeatable = {Role.WEREWOLF, Role.VILLAGER}
+    duplicated = next(
+        (role for role in roles if role not in repeatable and roles.count(role) > 1),
+        None,
+    )
+    if duplicated:
+        raise ValueError(f"自定义板型中 {duplicated.value} 只能有一名")
+
+    wolves = sum(role in WOLF_ROLES for role in roles)
+    goods = len(roles) - wolves
+    if wolves == 0 or goods == 0:
+        raise ValueError("自定义板型必须同时包含狼人和好人")
+    if wolves >= goods:
+        raise ValueError("开局狼人数量必须少于好人数量")
+
+    win_rule = custom_board.get("win_rule", "edge")
+    if win_rule not in {"parity", "edge"}:
+        raise ValueError("自定义板型胜利规则必须为 parity 或 edge")
+    if win_rule == "edge" and (
+        Role.VILLAGER not in roles or not any(role in GOD_ROLES for role in roles)
+    ):
+        raise ValueError("屠边板型必须同时包含平民和神职")
+
+    name = str(custom_board.get("name") or "自定义板型").strip()
+    if not name:
+        raise ValueError("自定义板型名称不能为空")
+    return {"name": name[:30], "roles": roles, "win_rule": win_rule}
+
+
 class WerewolfGame(BaseGame):
     """狼人杀游戏实现。"""
 
@@ -72,9 +121,10 @@ class WerewolfGame(BaseGame):
         self.acted_players = set()
         self.rng = random.Random()
         self.board_id = "5p"
+        self.board = resolve_board_config(self.board_id)
         self.night_stage = (
-            "charm" if Role.WOLF_BEAUTY in BOARD_PRESETS[self.board_id]["roles"]
-            else "guard" if Role.GUARD in BOARD_PRESETS[self.board_id]["roles"]
+            "charm" if Role.WOLF_BEAUTY in self.board["roles"]
+            else "guard" if Role.GUARD in self.board["roles"]
             else "wolves"
         )
         self.wolf_votes: Dict[str, str] = {}
@@ -114,9 +164,8 @@ class WerewolfGame(BaseGame):
     def initialize(self, players: List[str], config: Dict) -> None:
         """初始化游戏"""
         self.board_id = config.get("board_id", "5p")
-        board = BOARD_PRESETS.get(self.board_id)
-        if not board:
-            raise ValueError(f"未知板型: {self.board_id}")
+        board = resolve_board_config(self.board_id, config.get("custom_board"))
+        self.board = board
         if len(players) != len(board["roles"]):
             raise ValueError(f"{board['name']}需要恰好{len(board['roles'])}名玩家")
 
@@ -186,8 +235,8 @@ class WerewolfGame(BaseGame):
             "round": self.state.round,
             "total_players": len(self.state.players),
             "board_id": self.board_id,
-            "board_name": BOARD_PRESETS[self.board_id]["name"],
-            "win_rule": BOARD_PRESETS[self.board_id]["win_rule"],
+            "board_name": self.board["name"],
+            "win_rule": self.board["win_rule"],
             "sheriff_enabled": self.sheriff_enabled,
             "sheriff_id": self.sheriff_id,
             "sheriff_candidates": list(self.sheriff_candidates),
@@ -379,7 +428,7 @@ class WerewolfGame(BaseGame):
                         "type": "string",
                         "enum": ["none", "villager"] + [
                             role.value for role in GOD_ROLES
-                            if role in BOARD_PRESETS[self.board_id]["roles"]
+                            if role in self.board["roles"]
                         ],
                     },
                 },
@@ -531,7 +580,7 @@ class WerewolfGame(BaseGame):
                                 Role.SEER, Role.WITCH, Role.HUNTER,
                                 Role.IDIOT, Role.GUARD, Role.KNIGHT
                             )
-                            if role in BOARD_PRESETS[self.board_id]["roles"]
+                            if role in self.board["roles"]
                         ],
                         "description": "竞选时公开声明的身份",
                     },
@@ -602,7 +651,7 @@ class WerewolfGame(BaseGame):
                             "type": "string",
                             "enum": ["none", "villager"] + [
                                 role.value for role in GOD_ROLES
-                                if role in BOARD_PRESETS[self.board_id]["roles"]
+                                if role in self.board["roles"]
                             ],
                         },
                     },
@@ -686,7 +735,7 @@ class WerewolfGame(BaseGame):
                         "type": "string",
                         "enum": ["none", "villager"] + [
                             role.value for role in GOD_ROLES
-                            if role in BOARD_PRESETS[self.board_id]["roles"]
+                            if role in self.board["roles"]
                         ],
                     },
                 },
@@ -724,7 +773,7 @@ class WerewolfGame(BaseGame):
                                 Role.SEER, Role.WITCH, Role.HUNTER,
                                 Role.IDIOT, Role.GUARD, Role.KNIGHT
                             )
-                            if role in BOARD_PRESETS[self.board_id]["roles"]
+                            if role in self.board["roles"]
                         ],
                         "description": "是否跳身份（狼人不能跳狼人）"
                     }
@@ -881,7 +930,7 @@ class WerewolfGame(BaseGame):
         if action.action_type == ActionType.SPEAK:
             claimable = {"none", "villager"} | {
                 role.value for role in GOD_ROLES
-                if role in BOARD_PRESETS[self.board_id]["roles"]
+                if role in self.board["roles"]
             }
             if action.parameters.get("claim_role", "none") not in claimable:
                 return False
@@ -1692,8 +1741,8 @@ class WerewolfGame(BaseGame):
         self.witch_healed = False
         self.witch_poison_target = None
         self.night_stage = (
-            "charm" if Role.WOLF_BEAUTY in BOARD_PRESETS[self.board_id]["roles"]
-            else "guard" if Role.GUARD in BOARD_PRESETS[self.board_id]["roles"]
+            "charm" if Role.WOLF_BEAUTY in self.board["roles"]
+            else "guard" if Role.GUARD in self.board["roles"]
             else "wolves"
         )
         self.acted_players = set()
@@ -1726,8 +1775,8 @@ class WerewolfGame(BaseGame):
         self.speech_direction = None
         self.sheriff_nomination = None
         self.night_stage = (
-            "charm" if Role.WOLF_BEAUTY in BOARD_PRESETS[self.board_id]["roles"]
-            else "guard" if Role.GUARD in BOARD_PRESETS[self.board_id]["roles"]
+            "charm" if Role.WOLF_BEAUTY in self.board["roles"]
+            else "guard" if Role.GUARD in self.board["roles"]
             else "wolves"
         )
         self._change_phase(events, from_phase, GamePhase.NIGHT)
@@ -1839,7 +1888,7 @@ class WerewolfGame(BaseGame):
                 duration_seconds=0.0
             )
 
-        if BOARD_PRESETS[self.board_id]["win_rule"] == "edge":
+        if self.board["win_rule"] == "edge":
             villagers_alive = sum(
                 1 for p in self.state.players.values()
                 if p.is_alive and p.role == Role.VILLAGER
@@ -1866,7 +1915,7 @@ class WerewolfGame(BaseGame):
         return None
 
     def _edge_completed(self) -> bool:
-        if BOARD_PRESETS[self.board_id]["win_rule"] != "edge":
+        if self.board["win_rule"] != "edge":
             return False
         villagers_alive = any(
             p.is_alive and p.role == Role.VILLAGER
@@ -1891,7 +1940,7 @@ class WerewolfGame(BaseGame):
         return {
             "game_id": self.game_id,
             "board_id": self.board_id,
-            "board_name": BOARD_PRESETS[self.board_id]["name"],
+            "board_name": self.board["name"],
             "sheriff_enabled": self.sheriff_enabled,
             "final_sheriff": self.sheriff_id,
             "total_rounds": self.state.round,
@@ -1930,6 +1979,7 @@ class WerewolfGame(BaseGame):
             self.state.dead_players.append(player_id)
             self.state.players[player_id].is_alive = False
             role = self.state.players[player_id].role
+            # 本项目采用：猎人仅在狼刀或放逐出局时开枪；白狼王带走属于技能死亡。
             can_trigger = (
                 role == Role.HUNTER
                 and cause in {"werewolf_kill", "voted_out"}

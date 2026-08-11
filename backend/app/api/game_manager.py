@@ -11,7 +11,7 @@ Game Manager — 游戏生命周期、持久化、状态查询。
 设计:
   - 后台 task 跑 orchestrator.run_game(),不阻塞 HTTP 请求
   - task 完成回调更新持久化状态(completed/error)
-  - 前端纯轮询(每3秒)读 status,无需 WebSocket
+  - 前端首屏读取 REST 快照，随后由 SSE 增量接收状态与事件
 """
 import asyncio
 import json
@@ -62,6 +62,23 @@ class GameManager:
         # 确保存储目录存在
         _STORAGE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
+    async def reconcile_interrupted_games(self) -> int:
+        """将上个后端进程遗留的非终局记录标为错误。"""
+        async with self._lock:
+            records = self._load_all()
+            interrupted = 0
+            for record in records:
+                if record.get("status") in {"initialized", "running", "paused"}:
+                    record.update(
+                        status="error",
+                        completed_at=_now_iso(),
+                        reason="后端进程已重启，对局无法恢复",
+                    )
+                    interrupted += 1
+            if interrupted:
+                self._write_all(records)
+            return interrupted
+
     # ------------------------------------------------------------------
     # 创建游戏
     # ------------------------------------------------------------------
@@ -70,8 +87,10 @@ class GameManager:
         player_configs: List[Dict],
         seed: Optional[int],
         board_id: str = "5p",
+        custom_board: Optional[Dict] = None,
         enable_sheriff: bool = False,
         budget_tier: str = "standard",
+        max_rounds: int = 20,
         parent_game_id: Optional[str] = None,
     ) -> Dict:
         """
@@ -87,11 +106,9 @@ class GameManager:
         Raises:
             ValueError: 板型不存在或玩家数不匹配
         """
-        from app.core.werewolf import BOARD_PRESETS
+        from app.core.werewolf import resolve_board_config
 
-        board = BOARD_PRESETS.get(board_id)
-        if not board:
-            raise ValueError(f"未知板型: {board_id}")
+        board = resolve_board_config(board_id, custom_board)
         if len(player_configs) != len(board["roles"]):
             raise ValueError(
                 f"{board['name']}需要 {len(board['roles'])} 人,收到 {len(player_configs)} 人"
@@ -99,18 +116,33 @@ class GameManager:
         if budget_tier not in _BUDGET_PROFILES:
             raise ValueError(f"未知预算档位: {budget_tier}")
         budget_profile = _BUDGET_PROFILES[budget_tier]
+        if not 1 <= max_rounds <= 50:
+            raise ValueError("最大回合数必须在 1—50 之间")
+
+        normalized_custom_board = None
+        if board_id == "custom":
+            normalized_custom_board = {
+                "name": board["name"],
+                "roles": [role.value for role in board["roles"]],
+                "win_rule": board["win_rule"],
+            }
 
         replay_config = {
             "board_id": board_id,
             "enable_sheriff": enable_sheriff,
             "budget_tier": budget_tier,
+            "max_rounds": max_rounds,
             "players": _sanitize_player_configs(player_configs),
         }
+        if normalized_custom_board:
+            replay_config["custom_board"] = normalized_custom_board
         parent = self._load_record(parent_game_id) if parent_game_id else None
         if parent_game_id and parent is None:
             raise ValueError(f"复赛来源 {parent_game_id} 不存在")
         if parent:
-            if parent.get("replay_config") != replay_config:
+            parent_replay_config = dict(parent.get("replay_config") or {})
+            parent_replay_config.setdefault("max_rounds", 20)
+            if parent_replay_config != replay_config:
                 raise ValueError("复赛必须沿用原局的板型、警徽设置、模型与性格阵容")
             series_id = parent.get("series_id") or parent["game_id"]
             series_game_number = 1 + max(
@@ -141,8 +173,10 @@ class GameManager:
             "players": players,
             "model_configs": model_configs,
             "board_id": board_id,
+            "custom_board": normalized_custom_board,
             "seed": seed,
             "enable_sheriff": enable_sheriff,
+            "max_rounds": max_rounds,
             "budget_tier": budget_tier,
             "ai_max_output_tokens": budget_profile["max_output_tokens"],
             "ai_player_token_budget": budget_profile["player_token_budget"],
@@ -173,6 +207,9 @@ class GameManager:
             "custom_tokens": 0,
             "player_tokens": {},
             "board_id": board_id,
+            "board_name": board["name"],
+            "custom_board": normalized_custom_board,
+            "max_rounds": max_rounds,
             "replay_config": replay_config,
             "series_id": series_id,
             "series_game_number": series_game_number,

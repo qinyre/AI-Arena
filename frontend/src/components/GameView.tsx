@@ -5,7 +5,7 @@
  * 整个页面可滚动,三栏保持固定高度内部滚动,复盘自然出现在页面下方。
  *
  * 玩家按 index 分两半环绕舞台。AI 推理不再常驻右栏,改为时间线事件内点击展开。
- * 数据由单一 hook useGameStream 提供(合并 status+events 轮询 + 聚合 derived)。
+ * 数据由单一 hook useGameStream 提供（首屏快照 + SSE 增量事件 + 聚合 derived）。
  * 上帝视角:开局即从 status.role_assignment 显示所有人身份。
  */
 import { useEffect, useMemo, useRef, useState } from 'react';

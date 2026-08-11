@@ -44,8 +44,10 @@ AI Arena 是一个开源的多智能体 LLM 博弈实验平台。多个大语言
 | 12 人预女猎白 | 4 狼人 · 预言家/女巫/猎人/白痴 · 4 村民 |
 | 12 人白狼王守卫 | 3 狼人 + 白狼王 · 预言家/女巫/猎人/守卫 · 4 村民 |
 | 12 人狼王守卫 | 3 狼人 + 狼王 · 预言家/女巫/猎人/守卫 · 4 村民 |
+| 12 人狼美骑士 | 3 狼人 + 狼美人 · 预言家/女巫/守卫/骑士 · 4 村民 |
+| 自定义板型 | 使用现有角色自由组合 5—18 人，并选择屠边或人数胜利规则 |
 
-9/12 人场可选启用**警长**玩法(警长选举 + 死后警徽流转移)。
+所有板型均可选启用**警长**玩法(警长选举 + 死后警徽流转移)。
 
 ```
 夜晚  守卫守护 · 狼人选择击杀目标 · 女巫使用解药/毒药 · 预言家查验身份(按板型含有的角色执行)
@@ -57,8 +59,8 @@ AI Arena 是一个开源的多智能体 LLM 博弈实验平台。多个大语言
 加赛  平票候选人再发言一轮 → 仅在候选人间重投 → 仍平则无人出局
   ↓
 循环至胜负判定:
-  · 5 人场: 狼人数 ≥ 好人数 → 狼人胜
-  · 9/12 人场(屠边): 狼人屠尽村民 或 屠尽神职 → 狼人胜
+  · 人数规则: 狼人数 ≥ 好人数 → 狼人胜
+  · 屠边规则: 狼人屠尽村民 或 屠尽神职 → 狼人胜
   · 狼人全灭 → 好人胜
 ```
 
@@ -112,7 +114,7 @@ ANTHROPIC_API_KEY=sk-ant-...   # 可选
 ```bash
 # 终端 1:后端
 cd backend
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 # 终端 2:前端
 cd frontend
@@ -127,8 +129,8 @@ npm run dev
 
 ```
 前端    React 18 + TS + Vite + Tailwind
-        剧场环绕式观战 UI，每 2s 轮询同步事件流
-                    │  REST API (JSON)
+        剧场环绕式观战 UI，首屏快照 + SSE 增量同步事件流
+                    │  REST API (JSON) + SSE
                     ▼
 后端    Python 3.11 + FastAPI
         ├─ 游戏引擎   狼人杀规则 · 动作校验 · 信息隔离
@@ -163,7 +165,7 @@ frontend/
 ├── src/
 │   ├── components/   # CreateGame / GameView / GameHistory / Stats
 │   │   └── game/     # 剧场环绕观战组件(PlayerTable/EventFeed/Timeline/...)
-│   ├── hooks/useGameStream.ts   # 单数据源:轮询合并 status + events
+│   ├── hooks/useGameStream.ts   # 单数据源:首屏快照 + SSE 增量事件
 │   └── types/api.ts  # 前后端数据契约(严格一一对应)
 └── tailwind.config.js  # Nocturne Stage 配色 token
 ```
@@ -178,7 +180,8 @@ frontend/
 | `GET` | `/api/games` | 列出所有对局 |
 | `GET` | `/api/games/stats` | 全局统计(局数/成本) |
 | `GET` | `/api/games/{id}/status` | 对局状态(阶段/轮次/存活/角色/事件) |
-| `GET` | `/api/games/{id}/events` | 完整事件流 |
+| `GET` | `/api/games/{id}/events?after=N` | 从事件游标 N 开始获取增量事件 |
+| `GET` | `/api/games/{id}/events/stream?after=N` | SSE 实时增量事件流 |
 | `GET` | `/api/games/{id}/result` | 对局结果(胜方/原因/复盘) |
 | `POST` | `/api/games/{id}/pause` | 暂停对局 |
 | `POST` | `/api/games/{id}/resume` | 恢复对局 |

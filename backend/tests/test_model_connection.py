@@ -43,3 +43,25 @@ def test_remote_anthropic_endpoint_requires_api_key():
             "base_url": "https://example.com",
             "model": "claude-test",
         })
+
+
+def test_model_connection_accepts_registered_provider(monkeypatch):
+    class FakeClient:
+        async def generate(self, *_args, **_kwargs):
+            return {"model": "managed-model", "usage": {"total_tokens": 2}}
+
+    captured = {}
+
+    def fake_create(self, config, _registry):
+        captured.update(config)
+        return FakeClient()
+
+    monkeypatch.setattr(GameOrchestrator, "_create_client", fake_create)
+    result = asyncio.run(run_model_connection_test(ModelConnectionTestRequest(
+        provider="managed",
+        model="managed-model",
+    )))
+
+    assert result["ok"] is True
+    assert captured["provider"] == "managed"
+    assert "base_url" not in captured

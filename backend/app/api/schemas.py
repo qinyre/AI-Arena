@@ -4,7 +4,7 @@ API Schemas (Pydantic) — 严格匹配前端 frontend/src/types/api.ts 的数�
 每个模型的字段名与前端 interface 一一对应，确保前后端无需手动转换。
 """
 from typing import Any, Dict, List, Literal, Optional
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -39,13 +39,30 @@ class PlayerConfig(BaseModel):
     personality: Optional[PersonalityConfig] = None
 
 
+RoleName = Literal[
+    "werewolf", "seer", "witch", "hunter", "idiot", "guard",
+    "white_wolf_king", "wolf_king", "wolf_beauty", "knight", "villager",
+]
+
+
+class CustomBoardConfig(BaseModel):
+    """仅使用规则引擎已经支持的角色组成自定义板型。"""
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=30, pattern=r"^[^\r\n]+$")
+    roles: List[RoleName] = Field(min_length=5, max_length=18)
+    win_rule: Literal["parity", "edge"] = "edge"
+
+
 class CreateGameRequest(BaseModel):
     """POST /api/games/ 请求体。"""
     player_configs: List[PlayerConfig]
     board_id: str = "5p"
+    custom_board: Optional[CustomBoardConfig] = None
     seed: Optional[int] = None
     enable_sheriff: bool = False
     budget_tier: Literal["economy", "standard", "premium"] = "standard"
+    max_rounds: int = Field(default=20, ge=1, le=50)
     parent_game_id: Optional[str] = Field(
         default=None,
         min_length=1,
@@ -53,17 +70,36 @@ class CreateGameRequest(BaseModel):
         pattern=r"^[a-zA-Z0-9_-]+$",
     )
 
+    @model_validator(mode="after")
+    def validate_custom_board_pair(self):
+        if self.board_id == "custom" and self.custom_board is None:
+            raise ValueError("自定义板型必须提供 custom_board")
+        if self.board_id != "custom" and self.custom_board is not None:
+            raise ValueError("仅 board_id=custom 时可以提供 custom_board")
+        return self
+
 
 class ModelConnectionTestRequest(BaseModel):
-    """测试用户直填模型端点。"""
+    """测试预设 provider 或用户直填模型端点。"""
+    provider: Optional[str] = None
+    api_format: Literal["openai", "anthropic"] = "openai"
+    base_url: Optional[str] = Field(default=None, min_length=1)
+    model: str = Field(min_length=1)
+    api_key: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_source(self):
+        if bool(self.provider) == bool(self.base_url):
+            raise ValueError("provider 与 base_url 必须且只能填写一个")
+        return self
+
+
+class GameReviewRequest(BaseModel):
+    """使用一个已配置的模型端点生成终局复盘。"""
     api_format: Literal["openai", "anthropic"] = "openai"
     base_url: str = Field(min_length=1)
     model: str = Field(min_length=1)
     api_key: Optional[str] = None
-
-
-class GameReviewRequest(ModelConnectionTestRequest):
-    """使用一个已配置的模型端点生成终局复盘。"""
 
 
 # ---------------------------------------------------------------------------
@@ -204,4 +240,7 @@ class GameEventResponse(BaseModel):
     """GET /api/games/{id}/events 响应 - 事件流数据。"""
     game_id: str
     events: List[Dict[str, Any]]
+    from_index: int
+    next_index: int
     total: int
+    terminal: bool = False

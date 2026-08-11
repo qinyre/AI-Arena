@@ -331,7 +331,13 @@ class AIAgent:
         return action
 
     def _fallback_action(self, available_actions: List[Dict]) -> GameAction:
-        chosen = next((a for a in available_actions if a["action_type"] != "abstain"), available_actions[0])
+        chosen = next(
+            (
+                action for action in available_actions
+                if action["action_type"] in {"pass", "abstain"}
+            ),
+            available_actions[0],
+        )
         parameters = {"reasoning": "模型不可用，使用默认动作"}
         if chosen["action_type"] in ("speak", "wolf_speak"):
             if chosen["action_type"] == "wolf_speak":
@@ -365,8 +371,8 @@ class AIAgent:
 - 守卫同守同救时目标仍会死亡，请谨慎判断是否用药""",
 
             "hunter": """你是猎人。
-- 阵营：好人；死亡后可选择开枪带走一名存活玩家
-- 若被女巫毒死则不能开枪，也可以主动放弃开枪""",
+- 阵营：好人；被狼刀或白天投票放逐后，可选择开枪带走一名存活玩家
+- 被女巫毒死、被白狼王自爆带走或因其他技能死亡时不能开枪，也可以主动放弃开枪""",
 
             "idiot": """你是白痴。
 - 阵营：好人；白天首次被投票放逐时翻牌免死
@@ -723,6 +729,14 @@ class AIAgent:
                 "不能再发言、不能跳身份、不能杀人、不能查验。"
                 "即便局势危急也只能选择投票目标——已没有发言机会。"
                 "如果参数里有 content 字段会被忽略。"
+            ),
+            "tiebreak_speech": (
+                "现在是【放逐平票 PK 发言】。只有首轮同票玩家依次发言，"
+                "请回应票型与质疑并说明为什么不应放逐自己；此阶段不能投票。"
+            ),
+            "tiebreak_voting": (
+                "现在是【放逐平票复投】。同票玩家不能投票，其余存活且有投票权的玩家"
+                "只能在同票玩家中投票或有理由地弃票；再次同票则本轮无人放逐。"
             ),
             "death_skill": (
                 "现在是【死亡技能】阶段。你已死亡，只能选择带走一名存活玩家，"

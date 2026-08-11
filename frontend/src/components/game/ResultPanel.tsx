@@ -80,8 +80,12 @@ export default function ResultPanel({
       const created = await apiClient.createGame({
         player_configs: players,
         board_id: result.replay_config.board_id,
+        ...(result.replay_config.custom_board
+          ? { custom_board: result.replay_config.custom_board }
+          : {}),
         enable_sheriff: result.replay_config.enable_sheriff,
         budget_tier: result.replay_config.budget_tier,
+        max_rounds: result.replay_config.max_rounds ?? 20,
         parent_game_id: result.game_id,
       });
       onGameCreated?.(created.game_id);

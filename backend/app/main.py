@@ -23,6 +23,11 @@ async def lifespan(app: FastAPI):
     # Startup
     print("🚀 AI Arena Backend Starting...")
 
+    from app.api.game_manager import game_manager
+    interrupted = await game_manager.reconcile_interrupted_games()
+    if interrupted:
+        print(f"⚠️ 已将 {interrupted} 局不可恢复的旧对局标记为错误")
+
     # TODO: Initialize database
     # TODO: Start event bus
 
@@ -121,12 +126,20 @@ async def list_providers():
 @app.post("/api/model-connection/test")
 async def test_model_connection(request: ModelConnectionTestRequest):
     """用极短生成请求验证自定义模型端点、鉴权和模型名。"""
-    if not request.base_url.startswith(("http://", "https://")):
+    if request.base_url and not request.base_url.startswith(("http://", "https://")):
         raise HTTPException(status_code=422, detail="Base URL 必须以 http:// 或 https:// 开头")
 
     started = time.perf_counter()
     try:
-        client = GameOrchestrator._create_client_from_explicit(request.model_dump())
+        config = request.model_dump(exclude_none=True)
+        client = (
+            GameOrchestrator._create_client_from_explicit(config)
+            if request.base_url
+            else GameOrchestrator("connection-test", {})._create_client(
+                config,
+                get_registry(),
+            )
+        )
         result = await asyncio.wait_for(
             client.generate(
                 "仅回复 OK",
@@ -166,7 +179,7 @@ if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
         "app.main:app",
-        host=os.getenv("HOST", "0.0.0.0"),
+        host=os.getenv("HOST", "127.0.0.1"),
         port=int(os.getenv("PORT", 8000)),
         reload=os.getenv("DEBUG", "True") == "True"
     )

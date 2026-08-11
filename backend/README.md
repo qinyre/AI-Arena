@@ -7,10 +7,10 @@
 - AI智能体系统（AIAgent）
 - 多家 LLM 接入（OpenAI、Anthropic、DeepSeek、Gemini、Qwen、Kimi、MiMo、MiniMax、GLM、SiliconFlow）
 - 游戏编排器（GameOrchestrator）
-- 完整的多板型狼人杀游戏流程（5/9/12人）
+- 完整的多板型狼人杀游戏流程（5/9/12 人预设及 5—18 人自定义板型）
+- SSE 实时增量观战（支持事件游标与断线续传）
 
 ⏳ **待完成**:
-- WebSocket实时观战系统
 - 数据库持久化
 
 ## 快速测试

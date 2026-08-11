@@ -5,12 +5,18 @@ import pytest
 from pydantic import ValidationError
 
 import app.api.game_manager as game_manager_module
+import app.api.routes as routes_module
 from app.api.schemas import PersonalityConfig, PlayerConfig
 from app.api.game_manager import GameManager
 from app.core.agent import AIAgent
 from app.core.models import ActionType, GameAction, GameEvent, GamePhase, Role
 from app.core.orchestrator import GameOrchestrator
-from app.core.werewolf import BOARD_PRESETS, WOLF_ROLES, WerewolfGame
+from app.core.werewolf import (
+    BOARD_PRESETS,
+    WOLF_ROLES,
+    WerewolfGame,
+    resolve_board_config,
+)
 
 
 PLAYERS = [f"AI-{i}" for i in range(1, 6)]
@@ -30,6 +36,141 @@ def make_sheriff_game():
         "enable_sheriff": True,
     })
     return game
+
+
+def test_restart_reconciles_stale_games(monkeypatch, tmp_path):
+    storage = tmp_path / "games.json"
+    storage.write_text(json.dumps([
+        {"game_id": "running", "status": "running"},
+        {"game_id": "paused", "status": "paused"},
+        {"game_id": "done", "status": "completed"},
+    ]), encoding="utf-8")
+    monkeypatch.setattr(game_manager_module, "_STORAGE_PATH", storage)
+    manager = GameManager()
+
+    assert asyncio.run(manager.reconcile_interrupted_games()) == 2
+    records = json.loads(storage.read_text(encoding="utf-8"))
+    assert [record["status"] for record in records] == ["error", "error", "completed"]
+    assert records[0]["reason"] == "后端进程已重启，对局无法恢复"
+
+
+def test_custom_board_uses_existing_roles_and_instance_rules():
+    custom = {
+        "name": "六人试验场",
+        "roles": ["werewolf", "seer", "guard", "villager", "villager", "villager"],
+        "win_rule": "edge",
+    }
+    players = [f"AI-{index}" for index in range(1, 7)]
+    game = WerewolfGame()
+    game.initialize(players, {
+        "game_id": "custom-test",
+        "board_id": "custom",
+        "custom_board": custom,
+        "seed": 3,
+    })
+
+    assert game.board["name"] == "六人试验场"
+    assert game.board["win_rule"] == "edge"
+    assert sorted(player.role.value for player in game.state.players.values()) == sorted(custom["roles"])
+    assert game.get_visible_state(players[0])["board_name"] == "六人试验场"
+
+
+def test_custom_board_rejects_unsupported_compositions():
+    with pytest.raises(ValueError, match="只能有一名"):
+        resolve_board_config("custom", {
+            "name": "双女巫",
+            "roles": ["werewolf", "witch", "witch", "villager", "villager"],
+            "win_rule": "parity",
+        })
+    with pytest.raises(ValueError, match="平民和神职"):
+        resolve_board_config("custom", {
+            "name": "无平民屠边",
+            "roles": ["werewolf", "seer", "guard", "hunter", "knight"],
+            "win_rule": "edge",
+        })
+
+
+def test_custom_board_and_round_limit_are_persisted(tmp_path, monkeypatch):
+    monkeypatch.setattr(game_manager_module, "_STORAGE_PATH", tmp_path / "games.json")
+
+    async def scenario():
+        manager = GameManager()
+
+        async def skip_game(_game_id):
+            return None
+
+        manager._run_game_safe = skip_game
+        players = [
+            {"player_id": f"AI-{index}", "provider": "demo", "model": "model"}
+            for index in range(1, 7)
+        ]
+        created = await manager.create_game(
+            players,
+            seed=9,
+            board_id="custom",
+            custom_board={
+                "name": "六人试验场",
+                "roles": [
+                    "werewolf", "seer", "guard",
+                    "villager", "villager", "villager",
+                ],
+                "win_rule": "edge",
+            },
+            max_rounds=7,
+        )
+        await asyncio.sleep(0)
+
+        orchestrator = manager._orchestrators[created["game_id"]]
+        record = manager._load_record(created["game_id"])
+        assert orchestrator.config["max_rounds"] == 7
+        assert orchestrator.config["custom_board"]["roles"][0] == "werewolf"
+        assert record["replay_config"]["max_rounds"] == 7
+        assert record["replay_config"]["custom_board"]["name"] == "六人试验场"
+
+    asyncio.run(scenario())
+
+
+def test_incremental_events_and_sse_resume_from_cursor(monkeypatch):
+    events = [
+        {"event_type": "game_start", "data": {}},
+        {"event_type": "player_speech", "data": {"speaker": "AI-1"}},
+        {"event_type": "game_end", "data": {"winner": "good"}},
+    ]
+
+    class FakeManager:
+        def get_status(self, _game_id):
+            return {"game_id": "game-test", "status": "completed"}
+
+        def get_events(self, _game_id):
+            return events
+
+    class FakeRequest:
+        headers = {"last-event-id": "1"}
+
+        async def is_disconnected(self):
+            return False
+
+    monkeypatch.setattr(routes_module, "game_manager", FakeManager())
+
+    incremental = asyncio.run(routes_module.get_game_events("game-test", after=1))
+    assert incremental["events"] == events[1:]
+    assert incremental["from_index"] == 1
+    assert incremental["next_index"] == 3
+    assert incremental["terminal"] is True
+
+    async def collect_stream():
+        response = await routes_module.stream_game_events(
+            "game-test", FakeRequest(), after=0,
+        )
+        chunks = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk.decode() if isinstance(chunk, bytes) else chunk)
+        return "".join(chunks)
+
+    streamed = asyncio.run(collect_stream())
+    assert '"from_index": 1' in streamed
+    assert '"next_index": 3' in streamed
+    assert "event: end" in streamed
 
 
 def test_invalid_response_falls_back_without_a_second_billed_request():
@@ -773,6 +914,11 @@ def test_rematch_persists_redacted_config_and_tracks_series(tmp_path, monkeypatc
         assert "secret-" not in persisted
         assert first["series_game_number"] == 1
         assert manager._orchestrators[first["game_id"]].max_output_tokens == 700
+
+        # 兼容升级前没有 max_rounds 字段的历史复赛配置。
+        records = manager._load_all()
+        records[0]["replay_config"].pop("max_rounds")
+        manager._write_all(records)
 
         replay_players = [{**player, "api_key": "rotated-secret"} for player in players]
         second = await manager.create_game(

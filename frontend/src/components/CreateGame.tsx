@@ -1,6 +1,12 @@
 import { useState, useEffect } from 'react';
 import { apiClient } from '../api/client';
-import type { BudgetTier, PlayerConfig, ProvidersResponse } from '../types/api';
+import type {
+  BudgetTier,
+  ModelConnectionTestRequest,
+  PlayerConfig,
+  ProvidersResponse,
+  RoleId,
+} from '../types/api';
 import {
   loadModelPresets,
   requiresApiKey,
@@ -12,6 +18,11 @@ import {
   loadAllPersonalityPresets,
   personalityProfile,
 } from '../utils/personalityPresets';
+import {
+  loadLineupTemplates,
+  saveLineupTemplates,
+  type LineupTemplate,
+} from '../utils/lineupTemplates';
 import { AvatarPicker, LobeAvatar } from './LobeAvatar';
 
 interface Props {
@@ -22,14 +33,46 @@ interface Props {
 const CUSTOM_PROVIDER = '__custom__';
 const PRESET_PROVIDER_PREFIX = '__preset__:';
 
-const BOARD_OPTIONS = [
-  { id: '5p', name: '5人极简场', count: 5, roles: '1狼 · 预言家 · 3民' },
-  { id: '9p', name: '9人标准场', count: 9, roles: '3狼 · 预言家/女巫/猎人 · 3民' },
-  { id: '12p_idiot', name: '12人预女猎白', count: 12, roles: '4狼 · 预言家/女巫/猎人/白痴 · 4民' },
-  { id: '12p_white_wolf_guard', name: '12人白狼王守卫', count: 12, roles: '3狼+白狼王 · 预言家/女巫/猎人/守卫 · 4民' },
-  { id: '12p_wolf_king_guard', name: '12人狼王守卫', count: 12, roles: '3狼+狼王 · 预言家/女巫/猎人/守卫 · 4民' },
-  { id: '12p_wolf_beauty_knight', name: '12人狼美骑士', count: 12, roles: '3狼+狼美人 · 预言家/女巫/守卫/骑士 · 4民' },
-] as const;
+const ROLE_OPTIONS: Array<{
+  id: RoleId;
+  name: string;
+  faction: '狼人' | '神职' | '平民';
+  max: number;
+}> = [
+  { id: 'werewolf', name: '狼人', faction: '狼人', max: 8 },
+  { id: 'white_wolf_king', name: '白狼王', faction: '狼人', max: 1 },
+  { id: 'wolf_king', name: '狼王', faction: '狼人', max: 1 },
+  { id: 'wolf_beauty', name: '狼美人', faction: '狼人', max: 1 },
+  { id: 'seer', name: '预言家', faction: '神职', max: 1 },
+  { id: 'witch', name: '女巫', faction: '神职', max: 1 },
+  { id: 'hunter', name: '猎人', faction: '神职', max: 1 },
+  { id: 'idiot', name: '白痴', faction: '神职', max: 1 },
+  { id: 'guard', name: '守卫', faction: '神职', max: 1 },
+  { id: 'knight', name: '骑士', faction: '神职', max: 1 },
+  { id: 'villager', name: '平民', faction: '平民', max: 17 },
+];
+
+const STANDARD_9P_ROLES: RoleId[] = [
+  'werewolf', 'werewolf', 'werewolf',
+  'seer', 'witch', 'hunter',
+  'villager', 'villager', 'villager',
+];
+
+const BOARD_OPTIONS: Array<{
+  id: string;
+  name: string;
+  count: number;
+  roles: string;
+  roleIds?: RoleId[];
+}> = [
+  { id: '5p', name: '5人极简场', count: 5, roles: '1狼 · 预言家 · 3民', roleIds: ['werewolf', 'seer', 'villager', 'villager', 'villager'] },
+  { id: '9p', name: '9人标准场', count: 9, roles: '3狼 · 预言家/女巫/猎人 · 3民', roleIds: STANDARD_9P_ROLES },
+  { id: '12p_idiot', name: '12人预女猎白', count: 12, roles: '4狼 · 预言家/女巫/猎人/白痴 · 4民', roleIds: ['werewolf', 'werewolf', 'werewolf', 'werewolf', 'seer', 'witch', 'hunter', 'idiot', 'villager', 'villager', 'villager', 'villager'] },
+  { id: '12p_white_wolf_guard', name: '12人白狼王守卫', count: 12, roles: '3狼+白狼王 · 预言家/女巫/猎人/守卫 · 4民', roleIds: ['werewolf', 'werewolf', 'werewolf', 'white_wolf_king', 'seer', 'witch', 'hunter', 'guard', 'villager', 'villager', 'villager', 'villager'] },
+  { id: '12p_wolf_king_guard', name: '12人狼王守卫', count: 12, roles: '3狼+狼王 · 预言家/女巫/猎人/守卫 · 4民', roleIds: ['werewolf', 'werewolf', 'werewolf', 'wolf_king', 'seer', 'witch', 'hunter', 'guard', 'villager', 'villager', 'villager', 'villager'] },
+  { id: '12p_wolf_beauty_knight', name: '12人狼美骑士', count: 12, roles: '3狼+狼美人 · 预言家/女巫/守卫/骑士 · 4民', roleIds: ['werewolf', 'werewolf', 'werewolf', 'wolf_beauty', 'seer', 'witch', 'guard', 'knight', 'villager', 'villager', 'villager', 'villager'] },
+  { id: 'custom', name: '自定义板型', count: 9, roles: '自由组合已实现角色' },
+];
 
 const BUDGET_OPTIONS: Array<{
   id: BudgetTier;
@@ -46,7 +89,7 @@ const BUDGET_OPTIONS: Array<{
   {
     id: 'standard',
     name: '标准',
-    description: '保留完整推理与发言，适合大多数 5—12 人对局',
+    description: '保留完整推理与发言，适合大多数对局',
     limits: '单次 1200 · 单人 8万 · 全局 50万 tokens',
   },
   {
@@ -119,16 +162,29 @@ export default function CreateGame({ onGameCreated }: Props) {
   const [providersData, setProvidersData] = useState<ProvidersResponse | null>(null);
   const [modelPresets] = useState(loadModelPresets);
   const [personalityPresets] = useState(loadAllPersonalityPresets);
+  const [lineupTemplates, setLineupTemplates] = useState(loadLineupTemplates);
+  const [lineupName, setLineupName] = useState('');
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [playerConfigs, setPlayerConfigs] = useState<PlayerConfig[]>([]);
   const [boardId, setBoardId] = useState('5p');
+  const [customBoardName, setCustomBoardName] = useState('自定义板型');
+  const [customRoles, setCustomRoles] = useState<RoleId[]>(STANDARD_9P_ROLES);
+  const [customWinRule, setCustomWinRule] = useState<'parity' | 'edge'>('edge');
+  const [boardValidationError, setBoardValidationError] = useState('');
   const [enableSheriff, setEnableSheriff] = useState(false);
   const [budgetTier, setBudgetTier] = useState<BudgetTier>('standard');
+  const [maxRounds, setMaxRounds] = useState(20);
   const [seed, setSeed] = useState<number | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<Record<number, string>>({});
+  const [connectionChecks, setConnectionChecks] = useState<Record<number, {
+    ok: boolean;
+    message: string;
+  }>>({});
+  const [connectionSummary, setConnectionSummary] = useState('');
+  const [checkingConnections, setCheckingConnections] = useState(false);
   const [avatarPickerIndex, setAvatarPickerIndex] = useState<number | null>(null);
   const [expandedPlayerIndex, setExpandedPlayerIndex] = useState<number | null>(0);
 
@@ -206,6 +262,8 @@ export default function CreateGame({ onGameCreated }: Props) {
       newConfigs[index] = { ...newConfigs[index], [field]: value };
     }
     setPlayerConfigs(newConfigs);
+    setConnectionChecks({});
+    setConnectionSummary('');
     // 清除该玩家的验证错误
     const newErrors = { ...validationErrors };
     delete newErrors[index];
@@ -223,6 +281,8 @@ export default function CreateGame({ onGameCreated }: Props) {
     }));
     setPlayerConfigs(newConfigs);
     setValidationErrors({});
+    setConnectionChecks({});
+    setConnectionSummary('');
     setError(null);
   };
 
@@ -239,6 +299,8 @@ export default function CreateGame({ onGameCreated }: Props) {
       api_key: preset.apiKey,
     })));
     setValidationErrors({});
+    setConnectionChecks({});
+    setConnectionSummary('');
     setError(null);
   };
 
@@ -272,31 +334,83 @@ export default function CreateGame({ onGameCreated }: Props) {
     }));
   };
 
-  const changeBoard = (id: string) => {
-    const count = BOARD_OPTIONS.find((board) => board.id === id)?.count ?? 5;
-    const fallback = playerConfigs[0] ?? {
+  const resizePlayers = (configs: PlayerConfig[], count: number) => {
+    const fallback = configs[0] ?? {
       player_id: 'AI-1',
       provider: providersData?.default_provider,
       model: providersData?.default_model ?? '',
     };
-    setBoardId(id);
-    setPlayerConfigs(Array.from({ length: count }, (_, i) => (
-      playerConfigs[i] ?? {
+    return Array.from({ length: count }, (_, i) => (
+      configs[i] ?? {
         ...fallback,
         player_id: `AI-${i + 1}`,
+        avatar_id: undefined,
         personality_id: undefined,
         personality: undefined,
       }
-    )));
+    ));
+  };
+
+  const changeBoard = (id: string) => {
+    let count = BOARD_OPTIONS.find((board) => board.id === id)?.count ?? 5;
+    if (id === 'custom') {
+      const sourceRoles = BOARD_OPTIONS.find((board) => board.id === boardId)?.roleIds;
+      if (sourceRoles) {
+        setCustomRoles([...sourceRoles]);
+        count = sourceRoles.length;
+      } else {
+        count = customRoles.length;
+      }
+    }
+    setBoardId(id);
+    setPlayerConfigs((configs) => resizePlayers(configs, count));
     setValidationErrors({});
+    setBoardValidationError('');
+    setConnectionChecks({});
+    setConnectionSummary('');
+  };
+
+  const setCustomRoleCount = (roleId: RoleId, count: number) => {
+    const nextRoles = ROLE_OPTIONS.flatMap((option) => (
+      Array.from({ length: option.id === roleId
+        ? Math.max(0, Math.min(option.max, count))
+        : customRoles.filter((role) => role === option.id).length }, () => option.id)
+    ));
+    if (nextRoles.length > 18) return;
+    setCustomRoles(nextRoles);
+    setPlayerConfigs((configs) => resizePlayers(configs, nextRoles.length));
+    setBoardValidationError('');
+    setConnectionChecks({});
+    setConnectionSummary('');
+  };
+
+  const validateCustomBoard = (): string => {
+    if (boardId !== 'custom') return '';
+    if (!customBoardName.trim()) return '自定义板型名称不能为空';
+    if (customRoles.length < 5 || customRoles.length > 18) return '自定义板型需要 5—18 名玩家';
+    const wolves = customRoles.filter((role) => (
+      ['werewolf', 'white_wolf_king', 'wolf_king', 'wolf_beauty'] as RoleId[]
+    ).includes(role)).length;
+    const gods = customRoles.filter((role) => (
+      ['seer', 'witch', 'hunter', 'idiot', 'guard', 'knight'] as RoleId[]
+    ).includes(role)).length;
+    const villagers = customRoles.filter((role) => role === 'villager').length;
+    if (wolves === 0 || wolves === customRoles.length) return '必须同时包含狼人和好人';
+    if (wolves >= customRoles.length - wolves) return '开局狼人数量必须少于好人数量';
+    if (customWinRule === 'edge' && (!gods || !villagers)) return '屠边规则必须同时包含神职和平民';
+    return '';
   };
 
   const validateForm = (): boolean => {
     const errors: Record<number, string> = {};
+    const customError = validateCustomBoard();
+    setBoardValidationError(customError);
 
     playerConfigs.forEach((config, index) => {
       if (!config.player_id.trim()) {
         errors[index] = '玩家 ID 不能为空';
+      } else if (!config.provider) {
+        errors[index] = '请选择提供商';
       } else if (
         config.provider === CUSTOM_PROVIDER
         || config.provider?.startsWith(PRESET_PROVIDER_PREFIX)
@@ -335,7 +449,193 @@ export default function CreateGame({ onGameCreated }: Props) {
     setValidationErrors(errors);
     const firstInvalid = Object.keys(errors)[0];
     if (firstInvalid !== undefined) setExpandedPlayerIndex(Number(firstInvalid));
-    return Object.keys(errors).length === 0;
+    return Object.keys(errors).length === 0 && !customError;
+  };
+
+  const copyPlayerSettings = (sourceIndex: number) => {
+    setPlayerConfigs((configs) => {
+      const source = configs[sourceIndex];
+      const shared: Partial<PlayerConfig> = { ...source };
+      delete shared.player_id;
+      delete shared.avatar_id;
+      return configs.map((config, index) => (
+        index === sourceIndex
+          ? config
+          : ({
+              ...shared,
+              player_id: config.player_id,
+              avatar_id: config.avatar_id,
+            } as PlayerConfig)
+      ));
+    });
+    setValidationErrors({});
+    setConnectionChecks({});
+    setConnectionSummary('');
+  };
+
+  const saveCurrentLineup = () => {
+    const name = lineupName.trim();
+    if (!name) {
+      setError('请先填写阵容模板名称');
+      return;
+    }
+    if (!validateForm()) {
+      setError('当前阵容配置不完整，暂不能保存模板');
+      return;
+    }
+    const existing = lineupTemplates.find((template) => template.name === name);
+    if (existing && !window.confirm(`覆盖阵容模板“${name}”？`)) return;
+    const template: LineupTemplate = {
+      id: existing?.id ?? crypto.randomUUID(),
+      name,
+      boardId,
+      ...(boardId === 'custom' ? {
+        customBoard: {
+          name: customBoardName.trim(),
+          roles: [...customRoles],
+          win_rule: customWinRule,
+        },
+      } : {}),
+      enableSheriff,
+      budgetTier,
+      maxRounds,
+      players: playerConfigs.map((player) => ({
+        ...player,
+        ...(player.personality ? { personality: { ...player.personality } } : {}),
+      })),
+    };
+    const next = existing
+      ? lineupTemplates.map((item) => item.id === existing.id ? template : item)
+      : [...lineupTemplates, template];
+    saveLineupTemplates(next);
+    setLineupTemplates(next);
+    setLineupName('');
+    setError(null);
+  };
+
+  const applyLineupTemplate = (template: LineupTemplate) => {
+    const board = BOARD_OPTIONS.find((option) => option.id === template.boardId);
+    const expectedCount = template.customBoard?.roles.length ?? board?.count;
+    if (!expectedCount || template.players.length !== expectedCount) {
+      setError(`阵容模板“${template.name}”的板型与席位数不一致`);
+      return;
+    }
+    try {
+      const players = template.players.map((player) => {
+        if (player.provider?.startsWith(PRESET_PROVIDER_PREFIX)) {
+          const presetId = player.provider.slice(PRESET_PROVIDER_PREFIX.length);
+          if (!modelPresets.some((preset) => preset.id === presetId)) {
+            if (!player.base_url) throw new Error(`${player.player_id} 引用的模型预设已删除`);
+            return { ...player, provider: CUSTOM_PROVIDER };
+          }
+        } else if (
+          player.provider
+          && player.provider !== CUSTOM_PROVIDER
+          && !providersData?.providers[player.provider]
+        ) {
+          throw new Error(`${player.player_id} 引用的 provider ${player.provider} 已不存在`);
+        }
+        if (
+          player.personality_id
+          && !personalityPresets.some((preset) => preset.id === player.personality_id)
+        ) {
+          return { ...player, personality_id: undefined };
+        }
+        return { ...player };
+      });
+      setBoardId(template.boardId);
+      if (template.customBoard) {
+        setCustomBoardName(template.customBoard.name);
+        setCustomRoles([...template.customBoard.roles]);
+        setCustomWinRule(template.customBoard.win_rule);
+      }
+      setEnableSheriff(template.enableSheriff);
+      setBudgetTier(template.budgetTier);
+      setMaxRounds(template.maxRounds || 20);
+      setPlayerConfigs(players);
+      setValidationErrors({});
+      setBoardValidationError('');
+      setConnectionChecks({});
+      setConnectionSummary('');
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '阵容模板无法载入');
+    }
+  };
+
+  const removeLineupTemplate = (template: LineupTemplate) => {
+    if (!window.confirm(`删除阵容模板“${template.name}”？`)) return;
+    const next = lineupTemplates.filter((item) => item.id !== template.id);
+    saveLineupTemplates(next);
+    setLineupTemplates(next);
+  };
+
+  const testRosterConnections = async () => {
+    if (!validateForm()) {
+      setError('请先修正表单，再检查模型连通性');
+      return;
+    }
+    setError(null);
+    const groups = new Map<string, {
+      request: ModelConnectionTestRequest;
+      indexes: number[];
+    }>();
+    playerConfigs.forEach((player, index) => {
+      const custom = player.provider === CUSTOM_PROVIDER
+        || player.provider?.startsWith(PRESET_PROVIDER_PREFIX);
+      const request: ModelConnectionTestRequest = custom
+        ? {
+            api_format: player.api_format || 'openai',
+            base_url: player.base_url,
+            model: player.model,
+            ...(player.api_key ? { api_key: player.api_key } : {}),
+          }
+        : {
+            provider: player.provider,
+            api_format: providersData?.providers[player.provider!]?.protocol || 'openai',
+            model: player.model,
+          };
+      const key = JSON.stringify([
+        request.provider || '',
+        request.api_format,
+        request.base_url?.replace(/\/+$/, '') || '',
+        request.model,
+        request.api_key || '',
+      ]);
+      const group = groups.get(key);
+      if (group) group.indexes.push(index);
+      else groups.set(key, { request, indexes: [index] });
+    });
+
+    setCheckingConnections(true);
+    setConnectionChecks({});
+    setConnectionSummary(`正在检查 ${groups.size} 个唯一模型配置…`);
+    const results = await Promise.all([...groups.values()].map(async (group) => {
+      try {
+        const result = await apiClient.testModelConnection(group.request);
+        return {
+          ...group,
+          ok: true,
+          message: `${result.latency_ms}ms · ${result.usage.total_tokens ?? 0} tokens`,
+        };
+      } catch (err) {
+        return {
+          ...group,
+          ok: false,
+          message: err instanceof Error ? err.message : '连接失败',
+        };
+      }
+    }));
+    const checks: Record<number, { ok: boolean; message: string }> = {};
+    results.forEach((result) => {
+      result.indexes.forEach((index) => {
+        checks[index] = { ok: result.ok, message: result.message };
+      });
+    });
+    const passed = results.filter((result) => result.ok).length;
+    setConnectionChecks(checks);
+    setConnectionSummary(`${passed}/${results.length} 个唯一模型配置连接成功；相同配置只测试一次。`);
+    setCheckingConnections(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -376,9 +676,17 @@ export default function CreateGame({ onGameCreated }: Props) {
       const response = await apiClient.createGame({
         player_configs: configsToSend,
         board_id: boardId,
+        ...(boardId === 'custom' ? {
+          custom_board: {
+            name: customBoardName.trim(),
+            roles: customRoles,
+            win_rule: customWinRule,
+          },
+        } : {}),
         seed: seed || undefined,
         enable_sheriff: enableSheriff,
         budget_tier: budgetTier,
+        max_rounds: maxRounds,
       });
 
       onGameCreated(response.game_id);
@@ -416,6 +724,21 @@ export default function CreateGame({ onGameCreated }: Props) {
   const isCustom = (p: string) => (
     p === CUSTOM_PROVIDER || p.startsWith(PRESET_PROVIDER_PREFIX)
   );
+  const customRoleCounts = Object.fromEntries(
+    ROLE_OPTIONS.map((option) => [
+      option.id,
+      customRoles.filter((role) => role === option.id).length,
+    ]),
+  ) as Record<RoleId, number>;
+  const customFactionCounts = {
+    狼人: ROLE_OPTIONS
+      .filter((role) => role.faction === '狼人')
+      .reduce((sum, role) => sum + customRoleCounts[role.id], 0),
+    神职: ROLE_OPTIONS
+      .filter((role) => role.faction === '神职')
+      .reduce((sum, role) => sum + customRoleCounts[role.id], 0),
+    平民: customRoleCounts.villager,
+  };
 
   return (
     <div className="mx-auto max-w-[1400px]">
@@ -423,7 +746,55 @@ export default function CreateGame({ onGameCreated }: Props) {
         <div className="mb-6 border-b border-white/[0.08] pb-4">
           <p className="font-label text-[9px] tracking-[0.24em] text-antique-gold/65">OPEN A NEW CASE</p>
           <h2 className="mt-1 font-display text-2xl text-paper">创建新对局</h2>
-          <p className="mt-1 text-xs text-ink-muted">选择板型、模型与性格，让十二个席位各自入场。</p>
+          <p className="mt-1 text-xs text-ink-muted">选择板型、模型与性格，让整套阵容依次入场。</p>
+        </div>
+
+        <div className="mb-4 border border-white/10 bg-black/10 p-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <h3 className="font-display text-sm text-paper/85">完整阵容模板</h3>
+              <p className="mt-1 text-[11px] text-ink-muted">保存板型、警长、预算、模型、头像与性格；API Key 仍只明文保存在当前浏览器。</p>
+            </div>
+            <div className="flex w-full gap-2 lg:max-w-md">
+              <input
+                type="text"
+                value={lineupName}
+                onChange={(event) => setLineupName(event.target.value)}
+                maxLength={30}
+                placeholder="模板名称"
+                className="input min-w-0 flex-1"
+              />
+              <button
+                type="button"
+                onClick={saveCurrentLineup}
+                className="min-h-11 shrink-0 border border-antique-gold/40 px-4 font-label text-xs text-antique-gold hover:bg-antique-gold/10"
+              >保存当前阵容</button>
+            </div>
+          </div>
+          {lineupTemplates.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {lineupTemplates.map((template) => (
+                <div key={template.id} className="flex items-stretch border border-white/10 bg-stage-deep">
+                  <button
+                    type="button"
+                    onClick={() => applyLineupTemplate(template)}
+                    className="px-3 py-2 text-left hover:bg-antique-gold/[0.07]"
+                  >
+                    <span className="block font-label text-xs text-paper/85">{template.name}</span>
+                    <span className="block text-[10px] text-ink-muted">{template.players.length} 人 · 最多 {template.maxRounds || 20} 轮</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeLineupTemplate(template)}
+                    aria-label={`删除阵容模板 ${template.name}`}
+                    className="grid min-h-11 w-10 place-items-center border-l border-white/10 text-ink-muted hover:text-crimson"
+                  >
+                    <span className="material-symbols-outlined text-[17px]">delete</span>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {modelPresets.length > 0 && (
@@ -478,8 +849,78 @@ export default function CreateGame({ onGameCreated }: Props) {
                 </option>
               ))}
             </select>
+            {boardId === 'custom' && (
+              <div className="mt-3 border border-antique-gold/25 bg-black/15 p-4">
+                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_12rem]">
+                  <label className="text-xs text-ink-muted">
+                    板型名称
+                    <input
+                      type="text"
+                      value={customBoardName}
+                      onChange={(event) => {
+                        setCustomBoardName(event.target.value);
+                        setBoardValidationError('');
+                      }}
+                      maxLength={30}
+                      className="input mt-1 w-full"
+                    />
+                  </label>
+                  <label className="text-xs text-ink-muted">
+                    胜利规则
+                    <select
+                      value={customWinRule}
+                      onChange={(event) => {
+                        setCustomWinRule(event.target.value as 'parity' | 'edge');
+                        setBoardValidationError('');
+                      }}
+                      className="select mt-1 w-full"
+                    >
+                      <option value="edge">屠边（屠民或屠神）</option>
+                      <option value="parity">人数（狼人不少于好人）</option>
+                    </select>
+                  </label>
+                </div>
+                <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {ROLE_OPTIONS.map((role) => {
+                    const count = customRoleCounts[role.id];
+                    return (
+                      <div key={role.id} className="flex min-h-11 items-center gap-2 border border-white/10 px-3 py-2">
+                        <span className="min-w-0 flex-1">
+                          <b className="block font-display text-sm text-paper">{role.name}</b>
+                          <span className="text-[10px] text-ink-muted">{role.faction}{role.max === 1 ? ' · 唯一' : ''}</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setCustomRoleCount(role.id, count - 1)}
+                          disabled={count === 0}
+                          aria-label={`减少${role.name}`}
+                          className="grid h-8 w-8 place-items-center border border-white/15 disabled:opacity-25"
+                        >−</button>
+                        <span className="w-5 text-center font-label text-sm text-antique-gold">{count}</span>
+                        <button
+                          type="button"
+                          onClick={() => setCustomRoleCount(role.id, count + 1)}
+                          disabled={count >= role.max || customRoles.length >= 18}
+                          aria-label={`增加${role.name}`}
+                          className="grid h-8 w-8 place-items-center border border-white/15 disabled:opacity-25"
+                        >+</button>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-muted">
+                  <span>共 <b className="text-paper">{customRoles.length}</b> 人</span>
+                  <span className="text-crimson">狼人 {customFactionCounts.狼人}</span>
+                  <span className="text-[#c4b5fd]">神职 {customFactionCounts.神职}</span>
+                  <span>平民 {customFactionCounts.平民}</span>
+                </div>
+                {boardValidationError && (
+                  <p className="mt-3 border-l-2 border-crimson pl-3 text-xs text-red-300">{boardValidationError}</p>
+                )}
+              </div>
+            )}
             <p className="mt-2 text-xs text-gray-400">
-              9/12 人局采用屠边规则；守卫不可连续守同一人，同守同救仍死亡。
+              预设 9/12 人局采用屠边规则，自定义板型以所选规则为准；守卫不可连续守同一人，同守同救仍死亡。
             </p>
           </div>
 
@@ -529,18 +970,49 @@ export default function CreateGame({ onGameCreated }: Props) {
             </div>
           </fieldset>
 
+          <div>
+            <label htmlFor="max-rounds" className="mb-2 block text-sm font-medium text-gray-300">
+              最大回合数
+            </label>
+            <input
+              id="max-rounds"
+              type="number"
+              min={1}
+              max={50}
+              value={maxRounds}
+              onChange={(event) => setMaxRounds(Math.max(1, Math.min(50, Number(event.target.value) || 1)))}
+              className="input w-full sm:max-w-xs"
+            />
+            <p className="mt-1 text-xs text-ink-muted">达到上限仍未分胜负时，本局判为平局。</p>
+          </div>
+
           {/* Player Configurations */}
           <div>
             <div className="mb-4 flex items-center justify-between gap-3">
               <h3 className="text-lg font-semibold">玩家配置</h3>
-              <button
-                type="button"
-                onClick={() => randomizePersonalities()}
-                className="inline-flex min-h-11 items-center gap-1.5 border border-white/15 px-3 py-1.5 font-label text-[10px] text-paper/65 transition-colors hover:border-antique-gold/45 hover:text-antique-gold"
-              >
-                随机分配性格
-              </button>
+              <div className="flex flex-wrap justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={testRosterConnections}
+                  disabled={checkingConnections}
+                  className="inline-flex min-h-11 items-center gap-1.5 border border-emerald-400/25 px-3 py-1.5 font-label text-[10px] text-emerald-200/75 transition-colors hover:border-emerald-300/60 disabled:opacity-50"
+                >
+                  <span className="material-symbols-outlined text-[16px]">network_check</span>
+                  {checkingConnections ? '检查中…' : '检查全阵容'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => randomizePersonalities()}
+                  className="inline-flex min-h-11 items-center gap-1.5 border border-white/15 px-3 py-1.5 font-label text-[10px] text-paper/65 transition-colors hover:border-antique-gold/45 hover:text-antique-gold"
+                >
+                  随机分配性格
+                </button>
+              </div>
             </div>
+            <p className="mb-3 text-[11px] text-ink-muted">
+              连通性检查为手动操作：相同 provider/端点与模型只发送一次测试请求，每个唯一配置最多生成 8 tokens。
+              {connectionSummary && <span className="ml-2 text-paper/75">{connectionSummary}</span>}
+            </p>
             <div className="grid gap-4 lg:grid-cols-2">
               {playerConfigs.map((config, index) => {
                 const provider = config.provider!;
@@ -577,9 +1049,27 @@ export default function CreateGame({ onGameCreated }: Props) {
                       </span>
                     </button>
                     <div className={`${expandedPlayerIndex === index ? 'block' : 'hidden'} space-y-3 lg:block`}>
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => copyPlayerSettings(index)}
+                        className="min-h-9 border border-white/10 px-2.5 font-label text-[9px] text-ink-muted transition-colors hover:border-antique-gold/40 hover:text-antique-gold"
+                      >
+                        复制模型与性格到其余席位
+                      </button>
+                    </div>
                     {hasError && (
                       <div className="text-sm text-red-400 bg-red-900/30 px-3 py-2 rounded">
                         {hasError}
+                      </div>
+                    )}
+                    {connectionChecks[index] && (
+                      <div className={`border-l-2 px-3 py-2 text-xs ${
+                        connectionChecks[index].ok
+                          ? 'border-emerald-400 bg-emerald-400/[0.06] text-emerald-200'
+                          : 'border-crimson bg-crimson/[0.06] text-red-300'
+                      }`}>
+                        {connectionChecks[index].ok ? '连接成功' : '连接失败'} · {connectionChecks[index].message}
                       </div>
                     )}
                     <div className="grid items-end gap-3 sm:grid-cols-[4rem_6rem_minmax(0,1fr)_minmax(0,1fr)]">

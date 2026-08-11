@@ -28,6 +28,15 @@ export interface PersonalityProfile {
 }
 
 export type BudgetTier = 'economy' | 'standard' | 'premium';
+export type RoleId =
+  | 'werewolf' | 'seer' | 'witch' | 'hunter' | 'idiot' | 'guard'
+  | 'white_wolf_king' | 'wolf_king' | 'wolf_beauty' | 'knight' | 'villager';
+
+export interface CustomBoardConfig {
+  name: string;
+  roles: RoleId[];
+  win_rule: 'parity' | 'edge';
+}
 
 // /api/providers 返回的类型
 export interface ModelInfo {
@@ -52,8 +61,9 @@ export interface ProvidersResponse {
 }
 
 export interface ModelConnectionTestRequest {
+  provider?: string;
   api_format: 'openai' | 'anthropic';
-  base_url: string;
+  base_url?: string;
   model: string;
   api_key?: string;
 }
@@ -65,7 +75,12 @@ export interface ModelConnectionTestResponse {
   usage: { total_tokens?: number };
 }
 
-export type GameReviewRequest = ModelConnectionTestRequest;
+export interface GameReviewRequest {
+  api_format: 'openai' | 'anthropic';
+  base_url: string;
+  model: string;
+  api_key?: string;
+}
 
 export interface GameReview {
   headline: string;
@@ -136,9 +151,11 @@ export interface MatchFacts {
 export interface CreateGameRequest {
   player_configs: PlayerConfig[];
   board_id: string;
+  custom_board?: CustomBoardConfig;
   seed?: number;
   enable_sheriff?: boolean;
   budget_tier?: BudgetTier;
+  max_rounds?: number;
   parent_game_id?: string;
 }
 
@@ -154,8 +171,10 @@ export interface CreateGameResponse {
 
 export interface ReplayConfig {
   board_id: string;
+  custom_board?: CustomBoardConfig;
   enable_sheriff: boolean;
   budget_tier: BudgetTier;
+  max_rounds?: number;
   players: PlayerConfig[];
 }
 
@@ -564,7 +583,14 @@ export function isGameEnd(e: GameEvent): e is GameEndEvent {
 export interface GameEventResponse {
   game_id: string;
   events: GameEvent[];
+  from_index: number;
+  next_index: number;
   total: number;
+  terminal: boolean;
+}
+
+export interface GameStreamUpdate extends GameEventResponse {
+  status: GameStatusResponse;
 }
 
 // ---- 观战界面用的派生类型 ----

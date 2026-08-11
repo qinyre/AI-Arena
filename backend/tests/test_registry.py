@@ -190,6 +190,7 @@ class TestClientFactory:
         )
         assert isinstance(client, ClaudeClient)
         assert client.model == "claude-sonnet-5"
+        assert str(client.client.base_url).startswith(registry["anthropic"].api_base)
 
     def test_explicit_anthropic_base_url_propagates(self, orchestrator, registry):
         client = orchestrator._create_client({

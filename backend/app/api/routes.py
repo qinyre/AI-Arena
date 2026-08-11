@@ -106,7 +106,7 @@ async def resume_game(game_id: str):
 @router.post("/{game_id}/review", response_model=GameReview)
 async def generate_game_review(game_id: str, request: GameReviewRequest):
     """调用用户选择的模型生成并保存终局复盘。"""
-    if not request.base_url.startswith(("http://", "https://")):
+    if request.base_url and not request.base_url.startswith(("http://", "https://")):
         raise HTTPException(status_code=422, detail="Base URL 必须以 http:// 或 https:// 开头")
     try:
         return await game_manager.generate_review(game_id, request.model_dump())

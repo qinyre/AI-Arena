@@ -95,11 +95,18 @@ class ModelConnectionTestRequest(BaseModel):
 
 
 class GameReviewRequest(BaseModel):
-    """使用一个已配置的模型端点生成终局复盘。"""
+    """使用预设 provider 或用户直填端点生成终局复盘。"""
+    provider: Optional[str] = None
     api_format: Literal["openai", "anthropic"] = "openai"
-    base_url: str = Field(min_length=1)
+    base_url: Optional[str] = Field(default=None, min_length=1)
     model: str = Field(min_length=1)
     api_key: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_source(self):
+        if bool(self.provider) == bool(self.base_url):
+            raise ValueError("provider 与 base_url 必须且只能填写一个")
+        return self
 
 
 # ---------------------------------------------------------------------------

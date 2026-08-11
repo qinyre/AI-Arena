@@ -141,6 +141,7 @@ export interface GameStream {
   currentSpeaker: string | null;
   loading: boolean;
   error: string | null;
+  connectionState: 'connecting' | 'live' | 'reconnecting' | 'closed';
   refetch: () => void;
 }
 
@@ -150,22 +151,41 @@ export function useGameStream(gameId: string | null): GameStream {
   const [events, setEvents] = useState<GameEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [connectionState, setConnectionState] = useState<GameStream['connectionState']>('connecting');
   const [tick, setTick] = useState(0); // 触发手动 refetch
   const cursorRef = useRef(0);
 
-  // 首次/手动刷新读取快照，运行态随后只接收 SSE 增量。
+  // 首次读取快照；SSE 中断时以指数退避重连，并先用 REST 游标补齐遗漏事件。
   useEffect(() => {
-    if (!gameId) return;
+    if (!gameId) {
+      setConnectionState('closed');
+      return;
+    }
+    const activeGameId = gameId;
     let cancelled = false;
     let source: EventSource | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let retryAttempt = 0;
+    let connectedAt = 0;
     let resultLoading = false;
     let latestStatus: GameStatusResponse['status'] | null = null;
+
+    const appendPage = (page: {
+      events: GameEvent[];
+      from_index: number;
+      next_index: number;
+    }) => {
+      const overlap = Math.max(0, cursorRef.current - page.from_index);
+      const additions = page.events.slice(overlap);
+      cursorRef.current = Math.max(cursorRef.current, page.next_index);
+      if (additions.length) setEvents((current) => [...current, ...additions]);
+    };
 
     const loadResult = async () => {
       if (resultLoading || latestStatus !== 'completed') return;
       resultLoading = true;
       try {
-        const resultData = await apiClient.getGameResult(gameId);
+        const resultData = await apiClient.getGameResult(activeGameId);
         if (!cancelled) setResult(resultData);
       } catch {
         /* result 失败不阻断事件流 */
@@ -174,19 +194,59 @@ export function useGameStream(gameId: string | null): GameStream {
       }
     };
 
-    const connect = (after: number) => {
-      source = new EventSource(apiClient.getGameEventStreamUrl(gameId, after));
-      source.onopen = () => {
-        if (!cancelled) setError(null);
-      };
-      source.addEventListener('update', (message) => {
+    function scheduleReconnect(message: string) {
+      if (cancelled || latestStatus === 'completed' || latestStatus === 'error') return;
+      source?.close();
+      source = null;
+      if (retryTimer) clearTimeout(retryTimer);
+      const delay = Math.min(1000 * (2 ** retryAttempt), 15000);
+      retryAttempt += 1;
+      setConnectionState('reconnecting');
+      setError(`${message}，${Math.ceil(delay / 1000)} 秒后补齐事件并重连…`);
+      retryTimer = setTimeout(() => { void recover(); }, delay);
+    }
+
+    async function recover() {
+      retryTimer = null;
+      try {
+        const [statusData, eventData] = await Promise.all([
+          apiClient.getGameStatus(activeGameId),
+          apiClient.getGameEvents(activeGameId, cursorRef.current),
+        ]);
         if (cancelled) return;
+        appendPage(eventData);
+        latestStatus = statusData.status;
+        setStatus(statusData);
+        if (latestStatus === 'completed') {
+          setConnectionState('closed');
+          setError(null);
+          await loadResult();
+        } else if (latestStatus === 'error') {
+          setConnectionState('closed');
+          setError('对局已异常终止');
+        } else {
+          connect(cursorRef.current);
+        }
+      } catch (err) {
+        scheduleReconnect(err instanceof Error ? err.message : '恢复实时连接失败');
+      }
+    }
+
+    function connect(after: number) {
+      source?.close();
+      const nextSource = new EventSource(apiClient.getGameEventStreamUrl(activeGameId, after));
+      source = nextSource;
+      nextSource.onopen = () => {
+        if (cancelled || source !== nextSource) return;
+        connectedAt = Date.now();
+        setConnectionState('live');
+        setError(null);
+      };
+      nextSource.addEventListener('update', (message) => {
+        if (cancelled || source !== nextSource) return;
         try {
           const update = JSON.parse((message as MessageEvent<string>).data) as GameStreamUpdate;
-          const overlap = Math.max(0, cursorRef.current - update.from_index);
-          const additions = update.events.slice(overlap);
-          cursorRef.current = Math.max(cursorRef.current, update.next_index);
-          if (additions.length) setEvents((current) => [...current, ...additions]);
+          appendPage(update);
           latestStatus = update.status.status;
           setStatus(update.status);
           if (latestStatus === 'completed') void loadResult();
@@ -194,23 +254,31 @@ export function useGameStream(gameId: string | null): GameStream {
           setError('实时事件格式无效，请手动刷新');
         }
       });
-      source.addEventListener('end', () => {
-        source?.close();
+      nextSource.addEventListener('end', () => {
+        if (source !== nextSource) return;
+        nextSource.close();
+        source = null;
+        setConnectionState('closed');
+        setError(latestStatus === 'error' ? '对局已异常终止' : null);
         void loadResult();
       });
-      source.onerror = () => {
-        if (!cancelled) setError('实时连接中断，正在自动重连…');
+      nextSource.onerror = () => {
+        if (cancelled || source !== nextSource) return;
+        if (connectedAt && Date.now() - connectedAt >= 30000) retryAttempt = 0;
+        connectedAt = 0;
+        scheduleReconnect('实时连接中断');
       };
-    };
+    }
 
     const loadSnapshot = async () => {
       setLoading(true);
+      setConnectionState('connecting');
       setError(null);
       setResult(null);
       try {
         const [statusData, eventData] = await Promise.all([
-          apiClient.getGameStatus(gameId),
-          apiClient.getGameEvents(gameId),
+          apiClient.getGameStatus(activeGameId),
+          apiClient.getGameEvents(activeGameId),
         ]);
         if (cancelled) return;
         latestStatus = statusData.status;
@@ -218,13 +286,17 @@ export function useGameStream(gameId: string | null): GameStream {
         setStatus(statusData);
         setEvents(eventData.events);
         if (statusData.status === 'completed') {
+          setConnectionState('closed');
           await loadResult();
-        } else if (statusData.status !== 'error') {
+        } else if (statusData.status === 'error') {
+          setConnectionState('closed');
+          setError('对局已异常终止');
+        } else {
           connect(eventData.next_index);
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : '获取游戏数据失败');
+          scheduleReconnect(err instanceof Error ? err.message : '获取游戏数据失败');
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -234,6 +306,7 @@ export function useGameStream(gameId: string | null): GameStream {
     void loadSnapshot();
     return () => {
       cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
       source?.close();
     };
   }, [gameId, tick]);
@@ -281,6 +354,7 @@ export function useGameStream(gameId: string | null): GameStream {
     currentSpeaker,
     loading,
     error,
+    connectionState,
     refetch,
   };
 }

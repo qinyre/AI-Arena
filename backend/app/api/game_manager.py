@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from app.core.orchestrator import GameOrchestrator
 from app.api.schemas import GameReviewContent
+from app.llm.registry import get_registry
 
 # 持久化文件路径: backend/data/games.json
 _STORAGE_PATH = Path(__file__).resolve().parents[2] / "data" / "games.json"
@@ -510,7 +511,7 @@ class GameManager:
             f"{json.dumps(context, ensure_ascii=False, separators=(',', ':'))}\n"
             "</match_data>"
         )
-        client = GameOrchestrator._create_client_from_explicit(model_config)
+        client = GameOrchestrator._create_client(model_config, get_registry())
         result = await asyncio.wait_for(
             client.generate(
                 prompt,

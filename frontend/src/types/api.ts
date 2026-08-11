@@ -76,8 +76,9 @@ export interface ModelConnectionTestResponse {
 }
 
 export interface GameReviewRequest {
+  provider?: string;
   api_format: 'openai' | 'anthropic';
-  base_url: string;
+  base_url?: string;
   model: string;
   api_key?: string;
 }

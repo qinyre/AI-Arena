@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { apiClient } from '../../api/client';
-import type { GameReview } from '../../types/api';
+import type { GameReview, GameReviewRequest, ProvidersResponse } from '../../types/api';
 import { loadModelPresets } from '../../utils/modelPresets';
 import { cn } from '../../utils/cn';
 import { getRoleConfig } from './roleConfig';
@@ -14,6 +14,12 @@ interface Props {
   onReviewGenerated?: (review: GameReview) => void;
 }
 
+interface ReviewModelOption {
+  id: string;
+  label: string;
+  request: GameReviewRequest;
+}
+
 export default function GameReviewPanel({
   gameId,
   initialReview,
@@ -22,25 +28,69 @@ export default function GameReviewPanel({
   onReviewGenerated,
 }: Props) {
   const [presets] = useState(loadModelPresets);
-  const [presetId, setPresetId] = useState(presets[0]?.id || '');
+  const [providers, setProviders] = useState<ProvidersResponse>();
+  const [sourceId, setSourceId] = useState(presets[0] ? `preset:${presets[0].id}` : '');
   const [review, setReview] = useState(initialReview);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    let cancelled = false;
+    void apiClient.getProviders()
+      .then((value) => {
+        if (!cancelled) setProviders(value);
+      })
+      .catch(() => {
+        /* 后端预设不可用时，仍允许使用浏览器里保存的模型预设。 */
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const presetOptions = useMemo<ReviewModelOption[]>(() => presets.map((preset) => ({
+    id: `preset:${preset.id}`,
+    label: `${preset.name} · ${preset.model}`,
+    request: {
+      api_format: preset.apiFormat,
+      base_url: preset.baseUrl,
+      model: preset.model,
+      ...(preset.apiKey ? { api_key: preset.apiKey } : {}),
+    },
+  })), [presets]);
+
+  const providerOptions = useMemo<ReviewModelOption[]>(() => (
+    Object.entries(providers?.providers ?? {}).flatMap(([providerId, provider]) => (
+      provider.models.map((model) => ({
+        id: `provider:${providerId}:${model.id}`,
+        label: `${provider.display_name} · ${model.id}`,
+        request: {
+          provider: providerId,
+          api_format: provider.protocol,
+          model: model.id,
+        },
+      }))
+    ))
+  ), [providers]);
+
+  const modelOptions = useMemo(
+    () => [...presetOptions, ...providerOptions],
+    [presetOptions, providerOptions],
+  );
+
+  useEffect(() => {
+    if (!modelOptions.some((option) => option.id === sourceId)) {
+      setSourceId(modelOptions[0]?.id ?? '');
+    }
+  }, [modelOptions, sourceId]);
+
   const generate = async () => {
-    const preset = presets.find((item) => item.id === presetId);
-    if (!preset) return;
+    const option = modelOptions.find((item) => item.id === sourceId);
+    if (!option) return;
     if (review && !window.confirm('重新生成会覆盖当前复盘并产生一次模型调用，继续吗？')) return;
 
     setLoading(true);
     setError(null);
     try {
-      const generated = await apiClient.generateGameReview(gameId, {
-        api_format: preset.apiFormat,
-        base_url: preset.baseUrl,
-        model: preset.model,
-        ...(preset.apiKey ? { api_key: preset.apiKey } : {}),
-      });
+      const generated = await apiClient.generateGameReview(gameId, option.request);
       setReview(generated);
       onReviewGenerated?.(generated);
     } catch (err) {
@@ -62,25 +112,34 @@ export default function GameReviewPanel({
         </div>
 
         <div className="flex min-w-0 flex-col gap-2 sm:flex-row md:min-w-[420px]">
-          {presets.length > 0 ? (
+          {modelOptions.length > 0 ? (
             <>
               <select
-                value={presetId}
-                onChange={(event) => setPresetId(event.target.value)}
+                value={sourceId}
+                onChange={(event) => setSourceId(event.target.value)}
                 aria-label="复盘模型预设"
                 className="select min-w-0 flex-1"
                 disabled={loading}
               >
-                {presets.map((preset) => (
-                  <option key={preset.id} value={preset.id}>
-                    {preset.name} · {preset.model}
-                  </option>
-                ))}
+                {presetOptions.length > 0 && (
+                  <optgroup label="我的模型预设">
+                    {presetOptions.map((option) => (
+                      <option key={option.id} value={option.id}>{option.label}</option>
+                    ))}
+                  </optgroup>
+                )}
+                {providerOptions.length > 0 && (
+                  <optgroup label="后端命名 Provider">
+                    {providerOptions.map((option) => (
+                      <option key={option.id} value={option.id}>{option.label}</option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
               <button
                 type="button"
                 onClick={generate}
-                disabled={loading || !presetId}
+                disabled={loading || !sourceId}
                 className="btn-primary inline-flex min-w-[118px] items-center justify-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <span className={cn('material-symbols-outlined text-[17px]', loading && 'animate-spin')}>
@@ -91,15 +150,15 @@ export default function GameReviewPanel({
             </>
           ) : (
             <p className="rounded border border-[#e9c400]/20 bg-[#e9c400]/5 px-3 py-2 text-xs text-[#ffe16d]/75">
-              请先在设置中保存一个模型预设。
+              未找到可用模型，请检查后端 Provider 或在设置中保存模型预设。
             </p>
           )}
         </div>
       </div>
 
-      {presets.length > 0 && (
+      {modelOptions.length > 0 && (
         <p className="border-b border-[#47464b]/20 px-5 py-2 font-label text-xs text-[#c8c5cb]/40">
-          手动触发，会产生一次模型调用；API Key 仅用于本次请求。
+          手动触发，会产生一次模型调用；命名 Provider 使用后端环境变量，预设 API Key 仅用于本次请求。
         </p>
       )}
 

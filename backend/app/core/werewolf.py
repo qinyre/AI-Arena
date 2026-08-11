@@ -455,11 +455,11 @@ class WerewolfGame(BaseGame):
             if self.night_stage == "charm" and player.role == Role.WOLF_BEAUTY:
                 actions.append({
                     "action_type": "charm",
-                    "description": "魅惑一名其他存活玩家；若你本轮被白天放逐，该玩家随之殉情",
+                    "description": "魅惑一名其他存活玩家（不能连续两晚魅惑同一人）；若你本轮被白天放逐，该玩家随之殉情",
                     "target_required": True,
                     "valid_targets": [
                         target for target in self.state.alive_players
-                        if target != player_id
+                        if target != player_id and target != self.charmed_target
                     ],
                     "parameters": {
                         "reasoning": {"type": "string", "description": "魅惑目标的内部策略"}

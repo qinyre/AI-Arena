@@ -85,7 +85,8 @@ class GameOrchestrator:
                 circuit_breaker_failures=self.circuit_breaker_failures,
             )
 
-    def _create_client(self, model_config: Dict, registry):
+    @staticmethod
+    def _create_client(model_config: Dict, registry):
         """
         根据 model_config 创建 LLM 客户端。
 
@@ -108,10 +109,10 @@ class GameOrchestrator:
         """
         # ---- 路径 1：用户直填（只要给了 base_url 就完全听用户的）----
         if model_config.get("base_url"):
-            return self._create_client_from_explicit(model_config)
+            return GameOrchestrator._create_client_from_explicit(model_config)
 
         # ---- 路径 2：provider 名兜底（查 yaml）----
-        return self._create_client_from_registry(model_config, registry)
+        return GameOrchestrator._create_client_from_registry(model_config, registry)
 
     @staticmethod
     def _create_client_from_explicit(model_config: Dict):
@@ -161,7 +162,8 @@ class GameOrchestrator:
                 f"api_format 只支持 'openai' 或 'anthropic'，收到 {api_format!r}。"
             )
 
-    def _create_client_from_registry(self, model_config: Dict, registry):
+    @staticmethod
+    def _create_client_from_registry(model_config: Dict, registry):
         """provider 名兜底路径：从 config/models.yaml 查配置构造 client。"""
         provider_name = model_config["provider"]
         model_name = model_config["model"]
@@ -204,6 +206,7 @@ class GameOrchestrator:
             return ClaudeClient(
                 api_key=api_key,
                 model=model_name,
+                base_url=prov.api_base,
                 cost_per_1m_input=model_info.cost_in,
                 cost_per_1m_output=model_info.cost_out,
             )

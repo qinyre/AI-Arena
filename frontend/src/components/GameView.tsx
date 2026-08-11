@@ -36,7 +36,7 @@ interface Props {
 }
 
 export default function GameView({ gameId, onGameCreated }: Props) {
-  const { status, result, events, players, rounds, loading, error, refetch } =
+  const { status, result, events, players, rounds, loading, error, connectionState, refetch } =
     useGameStream(gameId);
   const stageRef = useRef<HTMLDivElement>(null);
   const [selectedPlayer, setSelectedPlayer] = useState<string | null>(null);
@@ -51,6 +51,9 @@ export default function GameView({ gameId, onGameCreated }: Props) {
   const [eventFilter, setEventFilter] = useState<EventFilter>('all');
   const isCompleted = status?.status === 'completed';
   const isPaused = status?.status === 'paused';
+  const streamRecovering = Boolean(
+    status && !isCompleted && status.status !== 'error' && connectionState !== 'live',
+  );
 
   useEffect(() => {
     if (!isCompleted) setReplayCursor(null);
@@ -169,6 +172,38 @@ export default function GameView({ gameId, onGameCreated }: Props) {
         onActiveChange={setCinematicActive}
         onActionStart={audio.playCinematicVoice}
       />
+
+      {streamRecovering && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex items-center gap-3 border border-[#b99758]/30 bg-[#b99758]/[0.07] px-3 py-2 text-[#d8c18e] shadow-[inset_3px_0_0_rgba(185,151,88,0.55)]"
+        >
+          <span className="relative flex h-2.5 w-2.5 shrink-0" aria-hidden="true">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#d8c18e]/45" />
+            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#b99758]" />
+          </span>
+          <strong className="font-label text-[11px] uppercase tracking-[0.18em]">
+            {connectionState === 'connecting' ? '正在接入旁观席' : '正在恢复实时观战'}
+          </strong>
+          <span className="min-w-0 flex-1 truncate font-body text-xs text-[#aaa79f]/75">
+            {error || '正在同步最新状态与行动记录…'}
+          </span>
+          <button
+            type="button"
+            onClick={refetch}
+            className="shrink-0 border-l border-[#b99758]/25 pl-3 font-label text-[11px] tracking-wider text-[#e6dfd2]/70 transition-colors hover:text-[#f0d99f]"
+          >
+            立即重试
+          </button>
+        </div>
+      )}
+
+      {error && status && !streamRecovering && !isCompleted && (
+        <div role="alert" className="border border-[#b8463d]/35 bg-[#b8463d]/10 px-3 py-2 font-body text-xs text-[#d28c85]">
+          {error}
+        </div>
+      )}
 
       {/* 顶栏 */}
       <GameHeader

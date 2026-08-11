@@ -139,6 +139,35 @@ def test_fallback_prefers_safe_pass_or_abstain():
     assert death_skill.target_id is None
 
 
+def test_mandatory_target_fallback_rotates_by_round():
+    agent = AIAgent("AI-1", FakeClient())
+    actions = [{
+        "action_type": "kill",
+        "valid_targets": ["AI-1", "AI-2", "AI-3"],
+    }]
+
+    first = agent._fallback_action(actions, round_no=1)
+    second = agent._fallback_action(actions, round_no=2)
+
+    assert first.target_id == "AI-2"
+    assert second.target_id == "AI-3"
+
+
+def test_wolf_beauty_charm_prompt_has_target_strategy():
+    agent = AIAgent("AI-1", FakeClient())
+    state = minimal_state()
+    state.update(phase="night", charmed_target="AI-2")
+
+    prompt = agent._build_action_prompt(state, [{
+        "action_type": "charm",
+        "target_required": True,
+        "valid_targets": ["AI-3"],
+    }])
+
+    assert "避开狼队今晚最可能击杀的目标" in prompt
+    assert "不能连续魅惑同一人" in prompt
+
+
 def test_normal_tiebreak_prompts_explain_pk_rules():
     agent = AIAgent("AI-1", FakeClient())
     state = minimal_state()

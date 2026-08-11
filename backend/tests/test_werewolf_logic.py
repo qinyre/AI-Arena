@@ -773,25 +773,33 @@ def test_game_review_validates_all_players_and_persists(tmp_path, monkeypatch):
                 },
             }
 
-    monkeypatch.setattr(
-        GameOrchestrator,
-        "_create_client_from_explicit",
-        lambda _config: FakeClient(),
-    )
+    requested_configs = []
+
+    def fake_client_factory(config, _registry):
+        requested_configs.append(config)
+        return FakeClient()
+
+    monkeypatch.setattr(GameOrchestrator, "_create_client", fake_client_factory)
     review = asyncio.run(manager.generate_review("review-test", {
         "api_format": "openai",
         "base_url": "https://example.com/v1",
         "model": "review-model",
     }))
+    managed_review = asyncio.run(manager.generate_review("review-test", {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+    }))
 
     assert review["mvp"]["player_id"] == "AI-1"
     assert review["turning_points"][0]["event_index"] == 0
-    assert manager.get_result("review-test")["ai_review"] == review
+    assert manager.get_result("review-test")["ai_review"] == managed_review
     assert manager.get_result("review-test")["match_facts"]["event_count"] == 1
     assert '"match_facts"' in captured["prompt"]
     assert '"event_index":0' in captured["prompt"]
     assert "证据" * 251 not in captured["prompt"]
     assert captured["max_tokens"] == 5000
+    assert requested_configs[0]["base_url"] == "https://example.com/v1"
+    assert requested_configs[1]["provider"] == "deepseek"
 
 
 def test_match_facts_are_deterministic_and_exclude_reasoning():
@@ -1051,6 +1059,11 @@ def test_wolf_beauty_charms_before_wolves_and_cannot_self_kill_or_explode():
         {"reasoning": "选择高价值好人"},
     ))
     assert game.charmed_target == target
+
+    game.state.round += 1
+    game.acted_players = set()
+    next_charm = game.get_available_actions(beauty)[0]
+    assert target not in next_charm["valid_targets"]
 
     game.night_stage = "wolves"
     game.acted_players = set()

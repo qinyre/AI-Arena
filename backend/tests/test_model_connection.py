@@ -6,7 +6,7 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from app.api.schemas import ModelConnectionTestRequest
+from app.api.schemas import GameReviewRequest, ModelConnectionTestRequest
 from app.core.orchestrator import GameOrchestrator
 from app.main import test_model_connection as run_model_connection_test
 
@@ -65,3 +65,23 @@ def test_model_connection_accepts_registered_provider(monkeypatch):
     assert result["ok"] is True
     assert captured["provider"] == "managed"
     assert "base_url" not in captured
+
+
+def test_game_review_request_accepts_exactly_one_model_source():
+    managed = GameReviewRequest(provider="deepseek", model="deepseek-v4-flash")
+    explicit = GameReviewRequest(
+        api_format="openai",
+        base_url="https://example.com/v1",
+        model="custom-model",
+    )
+
+    assert managed.provider == "deepseek"
+    assert explicit.base_url == "https://example.com/v1"
+    with pytest.raises(ValueError, match="必须且只能填写一个"):
+        GameReviewRequest(model="missing-source")
+    with pytest.raises(ValueError, match="必须且只能填写一个"):
+        GameReviewRequest(
+            provider="deepseek",
+            base_url="https://example.com/v1",
+            model="two-sources",
+        )

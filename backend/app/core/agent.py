@@ -84,6 +84,7 @@ class AIAgent:
                 started_at,
                 {},
                 0,
+                round_no,
             )
 
         # 构建提示词
@@ -134,6 +135,7 @@ class AIAgent:
             started_at,
             response,
             request_attempts,
+            round_no,
         )
 
     def _build_action(
@@ -310,8 +312,9 @@ class AIAgent:
         started_at: float,
         response: Dict,
         attempts: int,
+        round_no: int,
     ) -> GameAction:
-        action = self._fallback_action(available_actions)
+        action = self._fallback_action(available_actions, round_no)
         metrics = self._decision_metrics(
             False,
             usage_before,
@@ -330,7 +333,11 @@ class AIAgent:
         }
         return action
 
-    def _fallback_action(self, available_actions: List[Dict]) -> GameAction:
+    def _fallback_action(
+        self,
+        available_actions: List[Dict],
+        round_no: int = 0,
+    ) -> GameAction:
         chosen = next(
             (
                 action for action in available_actions
@@ -344,8 +351,14 @@ class AIAgent:
                 parameters.update(content="建议优先刀最像神职的玩家。")
             else:
                 parameters.update(content="我暂时没有新的信息。", claim_role="none")
-        return GameAction(ActionType(chosen["action_type"]), self.agent_id,
-                          (chosen.get("valid_targets") or [None])[0], parameters)
+        targets = chosen.get("valid_targets") or []
+        target = targets[round_no % len(targets)] if targets else None
+        return GameAction(
+            ActionType(chosen["action_type"]),
+            self.agent_id,
+            target,
+            parameters,
+        )
 
     def _build_system_prompt(self, visible_state: Dict) -> str:
         """构建系统提示词"""
@@ -396,6 +409,7 @@ class AIAgent:
 
             "wolf_beauty": """你是狼美人，属于狼人阵营。
 - 每晚先单独魅惑一名其他存活玩家，随后与狼队密聊并参与刀人
+- 不能连续两晚魅惑同一名玩家
 - 你不能自爆，也不能成为狼队刀口
 - 只有被白天投票放逐时才会令上一夜魅惑目标殉情；夜死、毒杀、枪杀或骑士决斗均不触发
 - 公开发言不得泄露狼人身份或魅惑目标""",
@@ -467,7 +481,7 @@ class AIAgent:
         elif role == "wolf_beauty":
             role_status = (
                 "\n# 当前角色资源（权威状态）\n"
-                f"本轮魅惑目标：{visible_state.get('charmed_target') or '尚未选择'}\n"
+                f"当前有效魅惑目标：{visible_state.get('charmed_target') or '尚未选择'}\n"
             )
         elif role == "knight":
             role_status = (
@@ -525,6 +539,7 @@ class AIAgent:
 - 女巫的解药和毒药各只有一瓶，每晚至多使用一瓶。
 - 夜间守护、用药等私密行动只有行动者本人知道；没有对应私密信息时不得假定具体目标。
 - 狼美人仅在被白天投票放逐时触发魅惑殉情；骑士决斗导致的死亡不触发魅惑。
+- 狼美人不能连续两晚魅惑同一名玩家，合法目标列表已经排除上一夜目标。
 - 骑士决斗狼人后立即入夜，决斗好人则骑士出局且白天继续。
 
 # 你的性格
@@ -792,7 +807,13 @@ class AIAgent:
         allowed_types = sorted({
             a.get("action_type", "") for a in available_actions if a.get("action_type")
         })
-        if phase in (
+        if phase == "night" and "charm" in allowed_types:
+            guide += (
+                " 现在是狼美人的【魅惑】行动。优先选择已公开或高度疑似的关键神职，"
+                "同时避开狼队今晚最可能击杀的目标；魅惑低价值或即将出局的玩家收益较低。"
+                "当前有效魅惑目标是上一夜目标，合法目标列表已自动排除，不能连续魅惑同一人。"
+            )
+        elif phase in (
             "day",
             "sheriff_summary",
             "tiebreak_speech",

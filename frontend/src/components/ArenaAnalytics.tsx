@@ -1,27 +1,44 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { apiClient } from '../api/client';
-import type { PerformanceStat, StatsResponse } from '../types/api';
+import type { PerformanceStat, RoleId, StatsFilters, StatsResponse } from '../types/api';
+
+const BOARD_FILTERS = [
+  ['5p', '5人极简场'],
+  ['9p', '9人标准场'],
+  ['12p_idiot', '12人预女猎白'],
+  ['12p_white_wolf_guard', '12人白狼王守卫'],
+  ['12p_wolf_king_guard', '12人狼王守卫'],
+  ['12p_wolf_beauty_knight', '12人狼美骑士'],
+  ['custom', '自定义板型'],
+] as const;
+
+const ROLE_FILTERS: Array<[RoleId, string]> = [
+  ['werewolf', '狼人'], ['white_wolf_king', '白狼王'], ['wolf_king', '狼王'], ['wolf_beauty', '狼美人'],
+  ['seer', '预言家'], ['witch', '女巫'], ['hunter', '猎人'], ['idiot', '白痴'], ['guard', '守卫'],
+  ['knight', '骑士'], ['villager', '平民'],
+];
 
 export default function ArenaAnalytics() {
   const [stats, setStats] = useState<StatsResponse>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [filters, setFilters] = useState<StatsFilters>({});
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      setStats(await apiClient.getStats());
+      setStats(await apiClient.getStats(filters));
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : '统计加载失败');
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters]);
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-4">
@@ -33,6 +50,7 @@ export default function ArenaAnalytics() {
             <h2 className="mt-1 font-display text-2xl text-paper">模型与性格战绩</h2>
             <p className="mt-1 max-w-2xl text-xs leading-relaxed text-ink-muted">
               胜率、调用量与降级率全部由已结束对局聚合；同一模型在不同席位会分别计入一次出场。
+              排名优先使用板型、阵营与角色细分样本等权后的分层胜率；历史结果不代表模型的绝对实力。
             </p>
           </div>
           <button type="button" onClick={load} disabled={loading} className="btn-secondary inline-flex min-h-11 items-center justify-center gap-1.5">
@@ -58,6 +76,36 @@ export default function ArenaAnalytics() {
             ))}
           </div>
         )}
+
+        <div className="relative mt-4 grid gap-3 border border-white/[0.08] bg-black/10 p-3 sm:grid-cols-3">
+          <FilterSelect
+            id="stats-board-filter"
+            label="板型"
+            value={filters.board_id || ''}
+            onChange={(value) => setFilters((current) => ({ ...current, board_id: value || undefined }))}
+            options={BOARD_FILTERS}
+          />
+          <FilterSelect
+            id="stats-faction-filter"
+            label="阵营"
+            value={filters.faction || ''}
+            onChange={(value) => setFilters((current) => ({
+              ...current,
+              faction: (value || undefined) as StatsFilters['faction'],
+            }))}
+            options={[['good', '好人阵营'], ['werewolf', '狼人阵营']]}
+          />
+          <FilterSelect
+            id="stats-role-filter"
+            label="角色"
+            value={filters.role || ''}
+            onChange={(value) => setFilters((current) => ({
+              ...current,
+              role: (value || undefined) as RoleId | undefined,
+            }))}
+            options={ROLE_FILTERS}
+          />
+        </div>
       </header>
 
       {error && (
@@ -106,6 +154,11 @@ function PerformanceTable({
   rows: PerformanceStat[];
   detail: (row: PerformanceStat) => string;
 }) {
+  const rankedRows = [...rows].sort((left, right) => (
+    (right.balanced_win_rate ?? right.win_rate) - (left.balanced_win_rate ?? left.win_rate)
+    || right.appearances - left.appearances
+  ));
+
   return (
     <section className="card min-w-0 border border-white/10">
       <div className="mb-4">
@@ -122,44 +175,79 @@ function PerformanceTable({
             <thead className="border-b border-white/10 font-label text-[9px] uppercase tracking-[0.13em] text-ink-muted">
               <tr>
                 <th className="pb-2 text-left font-normal">排名 / 样本</th>
-                <th className="pb-2 text-center font-normal">胜率</th>
+                <th className="pb-2 text-center font-normal">分层胜率</th>
                 <th className="pb-2 text-right font-normal">调用</th>
                 <th className="pb-2 text-right font-normal">Tokens</th>
                 <th className="pb-2 text-right font-normal">降级率</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/[0.06]">
-              {rows.map((row, index) => (
-                <tr key={row.id} className="group">
-                  <td className="py-3 pr-3">
-                    <div className="flex items-center gap-3">
-                      <span className="grid h-7 w-7 shrink-0 place-items-center border border-antique-gold/20 font-display text-xs text-antique-gold/70">
-                        {index + 1}
-                      </span>
-                      <span className="min-w-0">
-                        <strong className="block truncate font-display text-sm text-paper/90">{row.label}</strong>
-                        <span className="mt-0.5 block truncate text-[10px] text-ink-muted">
-                          {detail(row)} · {row.appearances} 次出场 / {row.games} 局
+              {rankedRows.map((row, index) => {
+                const rankedWinRate = row.balanced_win_rate ?? row.win_rate;
+                return (
+                  <tr key={row.id} className="group">
+                    <td className="py-3 pr-3">
+                      <div className="flex items-center gap-3">
+                        <span className="grid h-7 w-7 shrink-0 place-items-center border border-antique-gold/20 font-display text-xs text-antique-gold/70">
+                          {index + 1}
                         </span>
+                        <span className="min-w-0">
+                          <strong className="block truncate font-display text-sm text-paper/90">{row.label}</strong>
+                          <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-ink-muted">
+                            <span>{detail(row)} · {row.appearances} 次出场 / {row.games} 局</span>
+                            {row.games < 12 && (
+                              <span className="border border-amber-300/20 bg-amber-300/[0.05] px-1 py-0.5 text-amber-200/70">样本不足</span>
+                            )}
+                          </span>
+                        </span>
+                      </div>
+                    </td>
+                    <td className="w-28 px-2 py-3 text-center">
+                      <strong className="font-display text-base text-[#ffe16d]">{rankedWinRate.toFixed(1)}%</strong>
+                      {row.balanced_win_rate !== undefined && (
+                        <span className="block text-[9px] text-ink-muted">原始 {row.win_rate.toFixed(1)}%</span>
+                      )}
+                      <span className="mt-1 block h-1 overflow-hidden bg-white/[0.06]">
+                        <span className="block h-full bg-antique-gold" style={{ width: `${rankedWinRate}%` }} />
                       </span>
-                    </div>
-                  </td>
-                  <td className="w-28 px-2 py-3 text-center">
-                    <strong className="font-display text-base text-[#ffe16d]">{row.win_rate.toFixed(1)}%</strong>
-                    <span className="mt-1 block h-1 overflow-hidden bg-white/[0.06]">
-                      <span className="block h-full bg-antique-gold" style={{ width: `${row.win_rate}%` }} />
-                    </span>
-                  </td>
-                  <td className="px-2 py-3 text-right font-label text-xs text-paper/65">{row.calls.toLocaleString()}</td>
-                  <td className="px-2 py-3 text-right font-label text-xs text-paper/65">{row.tokens.toLocaleString()}</td>
-                  <td className="py-3 text-right font-label text-xs text-paper/65">{row.fallback_rate.toFixed(1)}%</td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-2 py-3 text-right font-label text-xs text-paper/65">{row.calls.toLocaleString()}</td>
+                    <td className="px-2 py-3 text-right font-label text-xs text-paper/65">{row.tokens.toLocaleString()}</td>
+                    <td className="py-3 text-right font-label text-xs text-paper/65">{row.fallback_rate.toFixed(1)}%</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       )}
     </section>
+  );
+}
+
+function FilterSelect({
+  id,
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: ReadonlyArray<readonly [string, string]>;
+}) {
+  return (
+    <label htmlFor={id} className="font-label text-[9px] tracking-[0.12em] text-ink-muted">
+      {label}
+      <select id={id} value={value} onChange={(event) => onChange(event.target.value)} className="select mt-1 w-full">
+        <option value="">全部{label}</option>
+        {options.map(([optionValue, optionLabel]) => (
+          <option key={optionValue} value={optionValue}>{optionLabel}</option>
+        ))}
+      </select>
+    </label>
   );
 }
 

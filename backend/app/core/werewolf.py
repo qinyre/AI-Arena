@@ -261,8 +261,16 @@ class WerewolfGame(BaseGame):
                 pid for pid, member in self.state.players.items()
                 if member.role in WOLF_ROLES
             ]
+            alive_team = [pid for pid in team if pid in self.state.alive_players]
             visible["werewolf_team"] = team
             visible["werewolf_count"] = len(team)
+            visible["alive_werewolves"] = alive_team
+            visible["alive_werewolf_count"] = len(alive_team)
+            visible["alive_werewolf_teammates"] = [
+                pid for pid in alive_team if pid != player_id
+            ]
+            # 兼容旧客户端：该字段仍表示开局完整队友名单；AI 协作应使用
+            # alive_werewolf_teammates，避免把已死亡狼人当作当前队友。
             visible["werewolf_teammates"] = [p for p in team if p != player_id]
             visible["werewolf_discussion"] = [
                 {
@@ -867,6 +875,61 @@ class WerewolfGame(BaseGame):
                     "parameters": {"reasoning": {"type": "string", "description": "弃票理由"}}
                 })
 
+        # 所有公开发言共用同一份结构化立场字段。字段保持可选，兼容旧存档、
+        # 手写测试动作及能力较弱的模型；缺省值由 Agent/事件层归一化。
+        stance_targets = [
+            target for target in self.state.alive_players if target != player_id
+        ]
+        public_event_count = sum(
+            event.visibility == "public" for event in self.state.events
+        )
+        visible_event_indexes = list(range(
+            max(0, public_event_count - 20),
+            public_event_count,
+        ))
+        stance_parameters = {
+            "suspects": {
+                "type": "array",
+                "items": {"type": "string", "enum": stance_targets},
+                "maxItems": 3,
+                "description": "本次公开表达中明确怀疑的存活玩家，最多3人",
+            },
+            "trusted": {
+                "type": "array",
+                "items": {"type": "string", "enum": stance_targets},
+                "maxItems": 3,
+                "description": "本次公开表达中明确偏信的存活玩家，最多3人",
+            },
+            "intended_vote": {
+                "type": ["string", "null"],
+                "enum": stance_targets + ["abstain", None],
+                "description": "当前公开计划放逐的玩家；准备弃票填 abstain，尚未决定填 null",
+            },
+            "role_reads": {
+                "type": "object",
+                "maxProperties": 4,
+                "allowed_players": stance_targets,
+                "allowed_values": ["unknown", "good"] + [
+                    role.value for role in Role
+                ],
+                "description": "最多4项：玩家ID到你公开判断的阵营或身份映射",
+            },
+            "evidence_event_indexes": {
+                "type": "array",
+                "available_count": public_event_count,
+                "allowed_values": visible_event_indexes,
+                "items": {
+                    "type": "integer",
+                    "enum": visible_event_indexes,
+                },
+                "maxItems": 5,
+                "description": "支撑本次立场的公开事件编号；无可引用证据时留空",
+            },
+        }
+        for action in actions:
+            if action.get("action_type") == "speak":
+                action.setdefault("parameters", {}).update(stance_parameters)
+
         return actions
 
     @staticmethod
@@ -933,6 +996,64 @@ class WerewolfGame(BaseGame):
                 if role in self.board["roles"]
             }
             if action.parameters.get("claim_role", "none") not in claimable:
+                return False
+            stance_targets = {
+                target for target in self.state.alive_players
+                if target != action.actor_id
+            }
+            suspects = action.parameters.get("suspects", [])
+            trusted = action.parameters.get("trusted", [])
+            for values in (suspects, trusted):
+                if (
+                    not isinstance(values, list)
+                    or len(values) > 3
+                    or any(not isinstance(value, str) for value in values)
+                    or len(values) != len(set(values))
+                    or any(value not in stance_targets for value in values)
+                ):
+                    return False
+            if set(suspects) & set(trusted):
+                return False
+            intended_vote = action.parameters.get("intended_vote")
+            if (
+                intended_vote is not None
+                and intended_vote != "abstain"
+                and intended_vote not in stance_targets
+            ):
+                return False
+            role_reads = action.parameters.get("role_reads", {})
+            allowed_reads = {"unknown", "good"} | {role.value for role in Role}
+            if (
+                not isinstance(role_reads, dict)
+                or len(role_reads) > 4
+                or any(
+                    not isinstance(target, str)
+                    or not isinstance(read, str)
+                    or target not in stance_targets
+                    or read not in allowed_reads
+                    for target, read in role_reads.items()
+                )
+            ):
+                return False
+            evidence = action.parameters.get("evidence_event_indexes", [])
+            public_event_count = sum(
+                event.visibility == "public" for event in self.state.events
+            )
+            visible_event_indexes = set(range(
+                max(0, public_event_count - 20),
+                public_event_count,
+            ))
+            if (
+                not isinstance(evidence, list)
+                or len(evidence) > 5
+                or len(evidence) != len(set(evidence))
+                or any(
+                    isinstance(index, bool)
+                    or not isinstance(index, int)
+                    or index not in visible_event_indexes
+                    for index in evidence
+                )
+            ):
                 return False
         reasoning = action.parameters.get("reasoning", "")
         if not isinstance(reasoning, str) or len(reasoning) > 500:
@@ -1237,6 +1358,13 @@ class WerewolfGame(BaseGame):
                 "speaker": action.actor_id,
                 "content": action.parameters.get("content", ""),
                 "claim_role": action.parameters.get("claim_role", "none"),
+                "suspects": list(action.parameters.get("suspects", [])),
+                "trusted": list(action.parameters.get("trusted", [])),
+                "intended_vote": action.parameters.get("intended_vote"),
+                "role_reads": dict(action.parameters.get("role_reads", {})),
+                "evidence_event_indexes": list(
+                    action.parameters.get("evidence_event_indexes", [])
+                ),
                 "reasoning": action.parameters.get("reasoning", ""),
                 "round": self.state.round,
                 "phase": self.state.phase.value
@@ -2109,10 +2237,13 @@ class WerewolfGame(BaseGame):
         完整 reasoning 仍存在 state.events 里供上帝视角观战。
         """
         result = []
+        public_index = 0
         for e in self.state.events:
             if e.visibility != "public":
                 continue
             d = e.to_dict()
+            d["event_index"] = public_index
+            public_index += 1
             et = d.get("event_type")
             if et in (
                 "player_vote",
@@ -2144,16 +2275,21 @@ class WerewolfGame(BaseGame):
         vote_history: List[Dict[str, Any]] = []
         death_history: List[Dict[str, Any]] = []
         sheriff_history: List[Dict[str, Any]] = []
+        stance_history: Dict[str, List[Dict[str, Any]]] = {}
 
+        public_index = 0
         for event in self.state.events:
             if event.visibility != "public":
                 continue
+            event_index = public_index
+            public_index += 1
             data = event.data
             if event.event_type == "player_speech":
                 speaker = data.get("speaker")
                 if not speaker:
                     continue
                 statement_history.setdefault(speaker, []).append({
+                    "event_index": event_index,
                     "round": data.get("round"),
                     "phase": data.get("phase"),
                     "content": data.get("content", ""),
@@ -2163,10 +2299,33 @@ class WerewolfGame(BaseGame):
                     entries = claim_history.setdefault(speaker, [])
                     if not entries or entries[-1]["role"] != claim:
                         entries.append({
+                            "event_index": event_index,
                             "round": data.get("round"),
                             "phase": data.get("phase"),
                             "role": claim,
                         })
+                stance = {
+                    "event_index": event_index,
+                    "round": data.get("round"),
+                    "phase": data.get("phase"),
+                    "suspects": list(data.get("suspects") or []),
+                    "trusted": list(data.get("trusted") or []),
+                    "intended_vote": data.get("intended_vote"),
+                    "role_reads": dict(data.get("role_reads") or {}),
+                    "evidence_event_indexes": list(
+                        data.get("evidence_event_indexes") or []
+                    ),
+                }
+                # 新版事件即使全部为空，也代表玩家公开撤回了此前立场；旧存档
+                # 没有这些键时才跳过，避免把历史观点错误保留为“当前立场”。
+                if any(key in data for key in (
+                    "suspects",
+                    "trusted",
+                    "intended_vote",
+                    "role_reads",
+                    "evidence_event_indexes",
+                )):
+                    stance_history.setdefault(speaker, []).append(stance)
             elif event.event_type in {"vote_result", "sheriff_election_result"}:
                 if data.get("vote_detail"):
                     vote_history.append({
@@ -2227,6 +2386,14 @@ class WerewolfGame(BaseGame):
             "recent_statements_by_player": {
                 player: entries[-2:]
                 for player, entries in statement_history.items()
+            },
+            "current_stances": {
+                player: entries[-1] for player, entries in stance_history.items()
+            },
+            # 完整历史已在公开事件中持久化；给模型的长期档案仅保留最近三次，
+            # 防止长局结构化立场无限膨胀提示词。
+            "stance_history": {
+                player: entries[-3:] for player, entries in stance_history.items()
             },
             "vote_history": vote_history,
             "death_history": death_history,

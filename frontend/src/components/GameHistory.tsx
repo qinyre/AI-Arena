@@ -107,9 +107,9 @@ export default function GameHistory({ onViewGame }: Props) {
                     <div className="min-w-0">
                       <p className="truncate font-mono text-sm text-paper">{game.game_id}</p>
                       <p className="mt-1 text-xs text-ink-muted">创建于 {formatDate(game.created_at)}</p>
-                      {game.series_game_number > 1 && (
+                      {(game.automated_series || game.series_game_number > 1) && (
                         <p className="mt-1 font-label text-[10px] text-[#c4b5fd]/60">
-                          系列赛 · 第 {game.series_game_number} 局
+                          {game.automated_series ? 'AI 赛事' : '系列赛'} · 第 {game.series_game_number} 局
                         </p>
                       )}
                     </div>
@@ -124,12 +124,16 @@ export default function GameHistory({ onViewGame }: Props) {
                     >
                       查看对局
                     </button>
-                    <button
-                      onClick={() => handleDelete(game.game_id)}
-                      className="min-h-11 border border-crimson/35 text-sm text-crimson transition-colors hover:bg-crimson/10"
-                    >
-                      删除
-                    </button>
+                    {game.automated_series ? (
+                      <span className="grid min-h-11 place-items-center border border-white/10 text-xs text-ink-muted">赛事成员</span>
+                    ) : (
+                      <button
+                        onClick={() => handleDelete(game.game_id)}
+                        className="min-h-11 border border-crimson/35 text-sm text-crimson transition-colors hover:bg-crimson/10"
+                      >
+                        删除
+                      </button>
+                    )}
                   </div>
                 </article>
               );
@@ -160,7 +164,9 @@ export default function GameHistory({ onViewGame }: Props) {
                       </span>
                     </td>
                     <td className="py-3 px-4 text-sm text-gray-300">
-                      {game.series_game_number > 1 ? `第 ${game.series_game_number} 局` : '首局'}
+                      {game.automated_series
+                        ? `AI 赛事 · 第 ${game.series_game_number} 局`
+                        : game.series_game_number > 1 ? `第 ${game.series_game_number} 局` : '首局'}
                     </td>
                     <td className="py-3 px-4 text-sm text-gray-300">{formatDate(game.created_at)}</td>
                     <td className="py-3 px-4 text-sm text-gray-300">{formatDate(game.started_at)}</td>
@@ -172,12 +178,16 @@ export default function GameHistory({ onViewGame }: Props) {
                       >
                         查看
                       </button>
-                      <button
-                        onClick={() => handleDelete(game.game_id)}
-                        className="text-red-400 hover:text-red-300 text-sm"
-                      >
-                        删除
-                      </button>
+                      {game.automated_series ? (
+                        <span className="text-xs text-ink-muted">不可单独删除</span>
+                      ) : (
+                        <button
+                          onClick={() => handleDelete(game.game_id)}
+                          className="text-red-400 hover:text-red-300 text-sm"
+                        >
+                          删除
+                        </button>
+                      )}
                     </td>
                   </tr>;
                 })}

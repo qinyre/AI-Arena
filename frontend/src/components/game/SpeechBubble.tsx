@@ -12,6 +12,7 @@ interface Props {
 
 export default function SpeechBubble({ speech, roleAssignment, avatarAssignment, time }: Props) {
   const { speaker, content, claim_role } = speech.data;
+  const { suspects = [], trusted = [], intended_vote, role_reads = {}, evidence_event_indexes = [] } = speech.data;
   const claim = claimRoleLabel(claim_role);
   const realRole = roleAssignment?.[speaker];
   const isLying = Boolean(
@@ -21,6 +22,9 @@ export default function SpeechBubble({ speech, roleAssignment, avatarAssignment,
       realRole !== 'villager',
   );
   const realRoleConfig = realRole ? getRoleConfig(realRole) : null;
+  const hasPublicStance = Boolean(
+    suspects.length || trusted.length || intended_vote || Object.keys(role_reads).length || evidence_event_indexes.length,
+  );
 
   return (
     <div className="flex gap-2.5">
@@ -80,7 +84,46 @@ export default function SpeechBubble({ speech, roleAssignment, avatarAssignment,
         <div className="border-l-2 border-antique-gold/35 bg-white/[0.035] px-3 py-2 font-body text-[13px] leading-[1.6] text-paper/90">
           {content}
         </div>
+
+        {hasPublicStance && (
+          <div
+            aria-label={`${speaker} 的公开立场`}
+            className="mt-1.5 flex flex-wrap gap-1 border-l border-white/10 pl-2 font-label text-[9px]"
+          >
+            {suspects.map((player) => (
+              <span key={`suspect-${player}`} className="border border-crimson/25 bg-crimson/[0.06] px-1.5 py-0.5 text-red-200/80">
+                怀疑 · {player}
+              </span>
+            ))}
+            {trusted.map((player) => (
+              <span key={`trusted-${player}`} className="border border-emerald-400/20 bg-emerald-400/[0.05] px-1.5 py-0.5 text-emerald-200/75">
+                信任 · {player}
+              </span>
+            ))}
+            {intended_vote && (
+              <span className="border border-antique-gold/25 bg-antique-gold/[0.06] px-1.5 py-0.5 text-antique-gold/85">
+                计划票 · {intended_vote === 'abstain' ? '弃票' : intended_vote}
+              </span>
+            )}
+            {Object.entries(role_reads).map(([player, role]) => (
+              <span key={`read-${player}`} className="border border-sky-300/20 bg-sky-300/[0.05] px-1.5 py-0.5 text-sky-100/75">
+                {player} · {roleReadLabel(role)}
+              </span>
+            ))}
+            {evidence_event_indexes.length > 0 && (
+              <span className="px-1.5 py-0.5 text-ink-muted/70">
+                依据 {evidence_event_indexes.map((index) => `#${index}`).join(' · ')}
+              </span>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
+}
+
+function roleReadLabel(role: string) {
+  if (role === 'good') return '好人';
+  if (role === 'unknown') return '未知';
+  return getRoleConfig(role).label;
 }

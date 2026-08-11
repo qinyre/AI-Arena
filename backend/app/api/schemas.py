@@ -79,6 +79,27 @@ class CreateGameRequest(BaseModel):
         return self
 
 
+class CreateSeriesRequest(CreateGameRequest):
+    """POST /api/games/series 请求体。"""
+    game_count: int = Field(ge=2, le=24)
+    base_seed: Optional[int] = None
+    max_total_tokens: Optional[int] = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def validate_series_seed(self):
+        if self.seed is not None and self.base_seed is not None:
+            raise ValueError("seed 与 base_seed 只能填写一个")
+        if self.parent_game_id is not None:
+            raise ValueError("自动系列赛不能同时指定复赛来源")
+        seat_count = len(self.player_configs)
+        if seat_count and self.game_count % seat_count:
+            raise ValueError(
+                f"公平系列赛必须完成整轮席位轮换；{seat_count} 个席位时，"
+                f"局数必须是 {seat_count} 的整数倍"
+            )
+        return self
+
+
 class ModelConnectionTestRequest(BaseModel):
     """测试预设 provider 或用户直填模型端点。"""
     provider: Optional[str] = None
@@ -122,6 +143,24 @@ class CreateGameResponse(BaseModel):
     board_id: str
     series_id: str
     series_game_number: int
+
+
+class SeriesStatusResponse(BaseModel):
+    """公平系列赛的实时进度。"""
+    series_id: str
+    status: str
+    game_count: int
+    completed_games: int
+    current_game_number: int
+    current_game_id: Optional[str] = None
+    total_tokens: int
+    total_cost: float
+    max_total_tokens: Optional[int] = None
+    base_seed: int
+    stopped: bool
+    reason: Optional[str] = None
+    error: Optional[str] = None
+    games: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class GameStatusResponse(BaseModel):
@@ -219,6 +258,7 @@ class GameListItem(BaseModel):
     winner: Optional[str] = None
     series_id: Optional[str] = None
     series_game_number: int = 1
+    automated_series: bool = False
 
 
 class ListGamesResponse(BaseModel):

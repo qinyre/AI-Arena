@@ -8,6 +8,7 @@ Game API Routes — 游戏管理端点。
 """
 import asyncio
 import json
+from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
@@ -15,6 +16,8 @@ from fastapi.responses import StreamingResponse
 from app.api.schemas import (
     CreateGameRequest,
     CreateGameResponse,
+    CreateSeriesRequest,
+    SeriesStatusResponse,
     GameStatusResponse,
     GameResultResponse,
     ListGamesResponse,
@@ -52,11 +55,66 @@ async def create_game(request: CreateGameRequest):
     return result
 
 
+# 系列赛路由必须放在动态 {game_id} 路由前。
+@router.post("/series", response_model=SeriesStatusResponse)
+async def create_series(request: CreateSeriesRequest):
+    """创建公平轮换、串行执行的系列赛。"""
+    player_configs = [config.model_dump() for config in request.player_configs]
+    try:
+        return await game_manager.create_series(
+            player_configs=player_configs,
+            board_id=request.board_id,
+            custom_board=(
+                request.custom_board.model_dump() if request.custom_board else None
+            ),
+            game_count=request.game_count,
+            base_seed=(
+                request.base_seed if request.base_seed is not None else request.seed
+            ),
+            enable_sheriff=request.enable_sheriff,
+            budget_tier=request.budget_tier,
+            max_rounds=request.max_rounds,
+            max_total_tokens=request.max_total_tokens,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/series/{series_id}", response_model=SeriesStatusResponse)
+async def get_series(series_id: str):
+    """读取系列赛进度和各局结果。"""
+    try:
+        return game_manager.get_series(series_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/series/{series_id}/stop", response_model=SeriesStatusResponse)
+async def stop_series(series_id: str):
+    """停止系列赛，并取消当前仍在执行的对局。"""
+    try:
+        return await game_manager.stop_series(series_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 # ⚠️ stats 必须在 {game_id} 路由前
 @router.get("/stats", response_model=StatsResponse)
-async def get_stats():
-    """获取全部游戏的汇总统计。"""
-    return game_manager.get_stats()
+async def get_stats(
+    board_id: Optional[str] = None,
+    faction: Optional[Literal["good", "werewolf"]] = None,
+    role: Optional[str] = None,
+    series_id: Optional[str] = None,
+):
+    """获取可按板型、阵营、角色和系列赛筛选的汇总统计。"""
+    return game_manager.get_stats(
+        board_id=board_id,
+        faction=faction,
+        role=role,
+        series_id=series_id,
+    )
 
 
 @router.get("", response_model=ListGamesResponse)
@@ -205,7 +263,10 @@ async def stream_game_events(
 @router.delete("/{game_id}", response_model=DeleteResponse)
 async def delete_game(game_id: str):
     """删除游戏(取消运行中的 + 删除记录)。"""
-    deleted = await game_manager.delete_game(game_id)
+    try:
+        deleted = await game_manager.delete_game(game_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not deleted:
         raise HTTPException(status_code=404, detail=f"游戏 {game_id} 不存在")
     return {"message": f"游戏 {game_id} 已删除"}

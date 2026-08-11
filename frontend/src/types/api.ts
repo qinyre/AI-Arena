@@ -170,6 +170,40 @@ export interface CreateGameResponse {
   series_game_number: number;
 }
 
+export interface CreateSeriesRequest extends Omit<CreateGameRequest, 'seed' | 'parent_game_id'> {
+  game_count: number;
+  base_seed: number;
+  /** Entire series hard stop, not an estimated spend. */
+  max_total_tokens: number;
+}
+
+export interface SeriesGameItem {
+  game_id: string;
+  game_number: number;
+  status: string;
+  seed: number;
+  winner?: 'good' | 'werewolf' | 'draw';
+  tokens?: number;
+  cost?: number;
+}
+
+export interface SeriesStatusResponse {
+  series_id: string;
+  status: 'pending' | 'running' | 'stopping' | 'stopped' | 'completed' | 'error';
+  game_count: number;
+  completed_games: number;
+  current_game_number: number;
+  total_tokens: number;
+  total_cost: number;
+  max_total_tokens?: number;
+  base_seed?: number;
+  current_game_id?: string;
+  stopped: boolean;
+  games: SeriesGameItem[];
+  error?: string;
+  reason?: string;
+}
+
 export interface ReplayConfig {
   board_id: string;
   custom_board?: CustomBoardConfig;
@@ -254,6 +288,7 @@ export interface GameListItem {
   winner?: 'good' | 'werewolf' | 'draw';
   series_id?: string;
   series_game_number: number;
+  automated_series?: boolean;
 }
 
 export interface ListGamesResponse {
@@ -272,6 +307,13 @@ export interface StatsResponse {
   personality_stats: PerformanceStat[];
 }
 
+export interface StatsFilters {
+  board_id?: string;
+  faction?: 'good' | 'werewolf';
+  role?: RoleId;
+  series_id?: string;
+}
+
 export interface PerformanceStat {
   id: string;
   label: string;
@@ -283,6 +325,15 @@ export interface PerformanceStat {
   games: number;
   wins: number;
   win_rate: number;
+  balanced_win_rate?: number;
+  segments?: Array<{
+    board_id: string;
+    faction: 'good' | 'werewolf';
+    role: string;
+    appearances: number;
+    wins: number;
+    win_rate: number;
+  }>;
   calls: number;
   tokens: number;
   fallbacks: number;
@@ -405,6 +456,11 @@ export interface PlayerSpeechEvent extends GameEventBase {
     sheriff_summary?: boolean;
     nomination?: string;
     last_words?: boolean;
+    suspects?: string[];
+    trusted?: string[];
+    intended_vote?: string | null;
+    role_reads?: Record<string, string>;
+    evidence_event_indexes?: number[];
   };
 }
 

@@ -38,6 +38,28 @@ def make_sheriff_game():
     return game
 
 
+def test_lone_wolf_skips_team_discussion_model_call():
+    game = make_game()
+    game.state.phase = GamePhase.NIGHT
+    orchestrator = GameOrchestrator("lone-wolf-night", {})
+    orchestrator.game = game
+    orchestrator.agents = {player_id: player_id for player_id in PLAYERS}
+    calls = []
+
+    async def record_action(player_id, _visible_state, available_actions):
+        calls.append((
+            game.night_stage,
+            player_id,
+            {action["action_type"] for action in available_actions},
+        ))
+
+    orchestrator._agent_act = record_action
+    asyncio.run(orchestrator.execute_night_phase())
+
+    assert not any(stage == "wolf_discussion" for stage, _, _ in calls)
+    assert any(stage == "wolves" and "kill" in actions for stage, _, actions in calls)
+
+
 def test_restart_reconciles_stale_games(monkeypatch, tmp_path):
     storage = tmp_path / "games.json"
     storage.write_text(json.dumps([
@@ -220,6 +242,61 @@ def test_invalid_response_falls_back_without_a_second_billed_request():
     assert metrics["total_calls"] == 1
     assert metrics["fallback_calls"] == 1
     assert metrics["by_player"][player_id]["tokens"] == 12
+
+
+def test_budget_fallback_is_recorded_in_diagnostics_and_metrics():
+    class NeverCalledClient:
+        def __init__(self):
+            self.calls = 0
+
+        async def generate(self, **_kwargs):
+            self.calls += 1
+            raise AssertionError("预算不足时不应调用 provider")
+
+        def get_total_usage(self):
+            return {
+                "total_input_tokens": 0,
+                "total_output_tokens": 0,
+                "total_tokens": 0,
+                "estimated_cost": 0.0,
+            }
+
+    game = make_game()
+    game.state.phase = GamePhase.DAY
+    game.acted_players = set()
+    player_id = game.state.alive_players[0]
+    orchestrator = GameOrchestrator("budget-diagnostic", {
+        "ai_game_token_budget": 1,
+        "ai_player_token_budget": 10_000,
+    })
+    orchestrator.game = game
+    client = NeverCalledClient()
+    agent = AIAgent(
+        player_id,
+        client,
+        budget_reserve=orchestrator._reserve_model_tokens,
+        budget_settle=orchestrator._settle_model_tokens,
+    )
+    orchestrator.agents = {player_id: agent}
+
+    asyncio.run(orchestrator._agent_act(
+        agent,
+        game.get_visible_state(player_id),
+        game.get_available_actions(player_id),
+    ))
+
+    diagnostic = next(
+        event for event in game.state.events if event.event_type == "agent_fallback"
+    )
+    assert client.calls == 0
+    assert "本局 token 预算仅剩" in diagnostic.data["message"]
+    metrics = orchestrator.get_model_metrics()
+    assert metrics["fallback_calls"] == 1
+    assert metrics["by_player"][player_id] == {
+        "calls": 1,
+        "fallbacks": 1,
+        "tokens": 0,
+    }
 
 
 def test_required_target_and_duplicate_action_are_rejected():
@@ -1228,6 +1305,29 @@ def test_wolf_discussion_is_shared_only_with_wolf_team():
         event["event_type"] != "wolf_discussion"
         for event in good_view["public_events"]
     )
+
+
+def test_wolf_view_and_prompt_distinguish_dead_teammates():
+    players = [f"AI-{i}" for i in range(1, 10)]
+    game = WerewolfGame()
+    game.initialize(players, {"game_id": "wolf-status", "board_id": "9p", "seed": 5})
+    wolves = [
+        pid for pid, player in game.state.players.items()
+        if player.role == Role.WEREWOLF
+    ]
+    game._kill_player(wolves[1], "voted_out")
+
+    visible = game.get_visible_state(wolves[0])
+
+    assert visible["werewolf_team"] == wolves
+    assert visible["werewolf_teammates"] == wolves[1:]
+    assert visible["alive_werewolves"] == [wolves[0], wolves[2]]
+    assert visible["alive_werewolf_count"] == 2
+    assert visible["alive_werewolf_teammates"] == [wolves[2]]
+    prompt = AIAgent(wolves[0], object())._build_system_prompt(visible)
+    assert f"当前存活队友：{wolves[2]}" in prompt
+    assert f"已死亡队友：{wolves[1]}" in prompt
+    assert "已无法发言、投票、投刀或与你协作" in prompt
 
 
 def test_guard_and_witch_heal_same_target_still_dies():

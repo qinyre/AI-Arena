@@ -5,11 +5,16 @@ import GameHistory from './components/GameHistory';
 import Stats from './components/Stats';
 import Settings from './components/Settings';
 import ArenaAnalytics from './components/ArenaAnalytics';
+import SeriesArena from './components/SeriesArena';
 
-type Tab = 'create' | 'view' | 'history' | 'analytics' | 'settings';
+type Tab = 'create' | 'series' | 'view' | 'history' | 'analytics' | 'settings';
+const CURRENT_SERIES_KEY = 'ai-arena-current-series';
 
 function App() {
   const [currentGameId, setCurrentGameId] = useState<string | null>(null);
+  const [currentSeriesId, setCurrentSeriesId] = useState<string | null>(() => (
+    window.localStorage.getItem(CURRENT_SERIES_KEY)
+  ));
   const [activeTab, setActiveTab] = useState<Tab>('create');
 
   const handleGameCreated = (gameId: string) => {
@@ -20,6 +25,12 @@ function App() {
   const handleViewGame = (gameId: string) => {
     setCurrentGameId(gameId);
     setActiveTab('view');
+  };
+
+  const handleSeriesCreated = (seriesId: string | null) => {
+    setCurrentSeriesId(seriesId);
+    if (seriesId) window.localStorage.setItem(CURRENT_SERIES_KEY, seriesId);
+    else window.localStorage.removeItem(CURRENT_SERIES_KEY);
   };
 
   const tabClass = (tab: Tab) => (
@@ -55,6 +66,9 @@ function App() {
           <button type="button" onClick={() => setActiveTab('create')} className={tabClass('create')}>
             创建对局
           </button>
+          <button type="button" onClick={() => setActiveTab('series')} className={tabClass('series')}>
+            AI 赛事
+          </button>
           <button
             type="button"
             onClick={() => setActiveTab('view')}
@@ -81,6 +95,13 @@ function App() {
 
       <main className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 sm:py-8">
         {activeTab === 'create' && <CreateGame onGameCreated={handleGameCreated} />}
+        {activeTab === 'series' && (
+          <SeriesArena
+            seriesId={currentSeriesId}
+            onSeriesCreated={handleSeriesCreated}
+            onViewGame={handleViewGame}
+          />
+        )}
         {activeTab === 'view' && currentGameId && (
           <GameView gameId={currentGameId} onGameCreated={handleGameCreated} />
         )}

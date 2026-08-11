@@ -26,12 +26,19 @@ import {
 import { AvatarPicker, LobeAvatar } from './LobeAvatar';
 
 interface Props {
-  onGameCreated: (gameId: string) => void;
+  onGameCreated?: (gameId: string) => void;
+  onSeriesCreated?: (seriesId: string) => void;
+  mode?: 'game' | 'series';
 }
 
 // 特殊 provider 值：用户自定义端点（对应后端"用户直填"路径，绕过 yaml 白名单）
 const CUSTOM_PROVIDER = '__custom__';
 const PRESET_PROVIDER_PREFIX = '__preset__:';
+const GAME_TOKEN_CAP_BY_TIER: Record<BudgetTier, number> = {
+  economy: 240_000,
+  standard: 500_000,
+  premium: 1_500_000,
+};
 
 const ROLE_OPTIONS: Array<{
   id: RoleId;
@@ -158,7 +165,8 @@ const QUICK_START_PRESETS = [
   },
 ];
 
-export default function CreateGame({ onGameCreated }: Props) {
+export default function CreateGame({ onGameCreated, onSeriesCreated, mode = 'game' }: Props) {
+  const isSeries = mode === 'series';
   const [providersData, setProvidersData] = useState<ProvidersResponse | null>(null);
   const [modelPresets] = useState(loadModelPresets);
   const [personalityPresets] = useState(loadAllPersonalityPresets);
@@ -173,9 +181,11 @@ export default function CreateGame({ onGameCreated }: Props) {
   const [customWinRule, setCustomWinRule] = useState<'parity' | 'edge'>('edge');
   const [boardValidationError, setBoardValidationError] = useState('');
   const [enableSheriff, setEnableSheriff] = useState(false);
-  const [budgetTier, setBudgetTier] = useState<BudgetTier>('standard');
+  const [budgetTier, setBudgetTier] = useState<BudgetTier>(isSeries ? 'economy' : 'standard');
   const [maxRounds, setMaxRounds] = useState(20);
-  const [seed, setSeed] = useState<number | undefined>(undefined);
+  const [seed, setSeed] = useState<number | undefined>(isSeries ? 20260723 : undefined);
+  const [seriesGameCount, setSeriesGameCount] = useState(5);
+  const [maxTotalTokens, setMaxTotalTokens] = useState(5 * GAME_TOKEN_CAP_BY_TIER.economy);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<Record<number, string>>({});
@@ -187,6 +197,17 @@ export default function CreateGame({ onGameCreated }: Props) {
   const [checkingConnections, setCheckingConnections] = useState(false);
   const [avatarPickerIndex, setAvatarPickerIndex] = useState<number | null>(null);
   const [expandedPlayerIndex, setExpandedPlayerIndex] = useState<number | null>(0);
+
+  useEffect(() => {
+    if (isSeries) setMaxTotalTokens(seriesGameCount * GAME_TOKEN_CAP_BY_TIER[budgetTier]);
+  }, [budgetTier, isSeries, seriesGameCount]);
+
+  useEffect(() => {
+    if (!isSeries || !playerConfigs.length) return;
+    setSeriesGameCount((current) => (
+      current % playerConfigs.length === 0 ? current : playerConfigs.length
+    ));
+  }, [isSeries, playerConfigs.length]);
 
   // 启动时从后端拉取 provider 列表（单一数据源：后端 config/models.yaml）
   useEffect(() => {
@@ -483,6 +504,10 @@ export default function CreateGame({ onGameCreated }: Props) {
       setError('当前阵容配置不完整，暂不能保存模板');
       return;
     }
+    if (isSeries && seriesGameCount % playerConfigs.length !== 0) {
+      setError(`公平赛事局数必须是当前 ${playerConfigs.length} 个席位的整数倍`);
+      return;
+    }
     const existing = lineupTemplates.find((template) => template.name === name);
     if (existing && !window.confirm(`覆盖阵容模板“${name}”？`)) return;
     const template: LineupTemplate = {
@@ -673,7 +698,7 @@ export default function CreateGame({ onGameCreated }: Props) {
         };
       });
 
-      const response = await apiClient.createGame({
+      const gameConfig = {
         player_configs: configsToSend,
         board_id: boardId,
         ...(boardId === 'custom' ? {
@@ -683,13 +708,26 @@ export default function CreateGame({ onGameCreated }: Props) {
             win_rule: customWinRule,
           },
         } : {}),
-        seed: seed || undefined,
         enable_sheriff: enableSheriff,
         budget_tier: budgetTier,
         max_rounds: maxRounds,
-      });
+      };
 
-      onGameCreated(response.game_id);
+      if (isSeries) {
+        const response = await apiClient.createSeries({
+          ...gameConfig,
+          game_count: seriesGameCount,
+          base_seed: seed ?? 20260723,
+          max_total_tokens: maxTotalTokens,
+        });
+        onSeriesCreated?.(response.series_id);
+      } else {
+        const response = await apiClient.createGame({
+          ...gameConfig,
+          seed,
+        });
+        onGameCreated?.(response.game_id);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create game');
     } finally {
@@ -739,14 +777,30 @@ export default function CreateGame({ onGameCreated }: Props) {
       .reduce((sum, role) => sum + customRoleCounts[role.id], 0),
     平民: customRoleCounts.villager,
   };
+  const nextCompleteSeriesCount = playerConfigs.length
+    ? (() => {
+        const next = Math.ceil(seriesGameCount / playerConfigs.length) * playerConfigs.length;
+        return next <= 24 ? next : Math.floor(24 / playerConfigs.length) * playerConfigs.length;
+      })()
+    : 0;
+  const seriesQuickCounts = [...new Set([
+    playerConfigs.length,
+    playerConfigs.length * 2,
+  ])].filter((count) => count >= 2 && count <= 24);
 
   return (
     <div className="mx-auto max-w-[1400px]">
       <div className="card">
         <div className="mb-6 border-b border-white/[0.08] pb-4">
-          <p className="font-label text-[9px] tracking-[0.24em] text-antique-gold/65">OPEN A NEW CASE</p>
-          <h2 className="mt-1 font-display text-2xl text-paper">创建新对局</h2>
-          <p className="mt-1 text-xs text-ink-muted">选择板型、模型与性格，让整套阵容依次入场。</p>
+          <p className="font-label text-[9px] tracking-[0.24em] text-antique-gold/65">
+            {isSeries ? 'OPEN A FAIR SERIES' : 'OPEN A NEW CASE'}
+          </p>
+          <h2 className="mt-1 font-display text-2xl text-paper">{isSeries ? '创建 AI 赛事' : '创建新对局'}</h2>
+          <p className="mt-1 text-xs text-ink-muted">
+            {isSeries
+              ? '使用同一阵容连续对局，固定种子并轮换席位，减少角色与座位带来的偶然偏差。'
+              : '选择板型、模型与性格，让整套阵容依次入场。'}
+          </p>
         </div>
 
         <div className="mb-4 border border-white/10 bg-black/10 p-4">
@@ -985,6 +1039,100 @@ export default function CreateGame({ onGameCreated }: Props) {
             />
             <p className="mt-1 text-xs text-ink-muted">达到上限仍未分胜负时，本局判为平局。</p>
           </div>
+
+          {isSeries && (
+            <fieldset className="relative overflow-hidden border border-antique-gold/25 bg-[linear-gradient(135deg,rgba(185,151,88,0.08),rgba(0,0,0,0.08))] p-4 sm:p-5">
+              <div className="pointer-events-none absolute -right-12 -top-16 hidden h-36 w-36 rounded-full border border-antique-gold/10 sm:block" />
+              <legend className="px-2 font-display text-base text-antique-gold">赛事调度</legend>
+              <div className="relative grid gap-4 md:grid-cols-3">
+                <label className="text-xs text-ink-muted" htmlFor="series-game-count">
+                  对局数量
+                  <input
+                    id="series-game-count"
+                    type="number"
+                    min={2}
+                    max={24}
+                    value={seriesGameCount}
+                    onChange={(event) => setSeriesGameCount(Math.max(2, Math.min(24, Number(event.target.value) || 2)))}
+                    className="input mt-1 w-full"
+                  />
+                  <span className="mt-1.5 flex gap-1.5">
+                    {seriesQuickCounts.map((count) => (
+                      <button
+                        key={count}
+                        type="button"
+                        onClick={() => setSeriesGameCount(count)}
+                        className={`min-h-9 flex-1 border font-label text-[10px] transition-colors ${
+                          seriesGameCount === count
+                            ? 'border-antique-gold/55 bg-antique-gold/10 text-antique-gold'
+                            : 'border-white/10 text-ink-muted hover:border-white/25'
+                        }`}
+                      >
+                        {count} 局
+                      </button>
+                    ))}
+                  </span>
+                </label>
+
+                <label className="text-xs text-ink-muted" htmlFor="series-base-seed">
+                  固定基础种子
+                  <input
+                    id="series-base-seed"
+                    type="number"
+                    value={seed ?? ''}
+                    onChange={(event) => setSeed(event.target.value ? Number(event.target.value) : 20260723)}
+                    className="input mt-1 w-full"
+                    required
+                  />
+                  <span className="mt-1.5 block text-[10px] leading-relaxed">
+                    同一完整席位轮换块共用种子，下一块递增，便于公平复验。
+                  </span>
+                </label>
+
+                <label className="text-xs text-ink-muted" htmlFor="series-token-cap">
+                  赛事 Token 硬上限
+                  <input
+                    id="series-token-cap"
+                    type="number"
+                    min={10_000}
+                    step={10_000}
+                    value={maxTotalTokens}
+                    onChange={(event) => setMaxTotalTokens(Math.max(10_000, Number(event.target.value) || 10_000))}
+                    className="input mt-1 w-full"
+                  />
+                  <span className="mt-1.5 block text-[10px] leading-relaxed text-[#d7bc85]">
+                    {maxTotalTokens.toLocaleString()} tokens · 达到即停赛，并非预计必耗。
+                  </span>
+                </label>
+              </div>
+
+              {playerConfigs.length > 0 && (
+                <p className={`relative mt-3 text-[10px] leading-relaxed ${
+                  seriesGameCount % playerConfigs.length === 0 ? 'text-emerald-200/70' : 'text-amber-200/75'
+                }`}>
+                  {seriesGameCount % playerConfigs.length === 0
+                    ? `当前覆盖 ${seriesGameCount / playerConfigs.length} 个完整席位轮换块，每套配置经历相同数量的席位。`
+                    : `当前为 ${playerConfigs.length} 个席位，${seriesGameCount} 局只能完成部分轮换；若要严格平衡，建议设为 ${nextCompleteSeriesCount} 局。`}
+                </p>
+              )}
+
+              <div className="relative mt-4 grid gap-px border border-white/[0.07] bg-white/[0.07] sm:grid-cols-3">
+                {[
+                  ['rotate_right', '轮换席位', '同一种子下让每套配置依次经过不同席位与身份'],
+                  ['format_list_numbered', '严格串行', '上一局结束后才启动下一局'],
+                  ['speed', '节制预算', '赛事默认使用经济档，可自行调整'],
+                ].map(([icon, title, detail]) => (
+                  <div key={title} className="flex gap-2.5 bg-stage-deep/90 p-3">
+                    <span className="material-symbols-outlined text-[18px] text-antique-gold/70" aria-hidden="true">{icon}</span>
+                    <span>
+                      <strong className="block font-display text-xs font-normal text-paper/85">{title}</strong>
+                      <span className="mt-0.5 block text-[10px] leading-relaxed text-ink-muted">{detail}</span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </fieldset>
+          )}
 
           {/* Player Configurations */}
           <div>
@@ -1266,20 +1414,21 @@ export default function CreateGame({ onGameCreated }: Props) {
             )}
           </div>
 
-          {/* Seed */}
-          <div>
-            <label htmlFor="game-seed" className="block text-sm font-medium text-gray-300 mb-2">
-              随机种子（可选，用于可复现）
-            </label>
-            <input
-              id="game-seed"
-              type="number"
-              value={seed || ''}
-              onChange={(e) => setSeed(e.target.value ? parseInt(e.target.value) : undefined)}
-              placeholder="留空随机生成"
-              className="input w-full"
-            />
-          </div>
+          {!isSeries && (
+            <div>
+              <label htmlFor="game-seed" className="block text-sm font-medium text-gray-300 mb-2">
+                随机种子（可选，用于可复现）
+              </label>
+              <input
+                id="game-seed"
+                type="number"
+                value={seed || ''}
+                onChange={(e) => setSeed(e.target.value ? parseInt(e.target.value) : undefined)}
+                placeholder="留空随机生成"
+                className="input w-full"
+              />
+            </div>
+          )}
 
           {/* Error Message */}
           {error && (
@@ -1291,18 +1440,21 @@ export default function CreateGame({ onGameCreated }: Props) {
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || (isSeries && playerConfigs.length > 0 && seriesGameCount % playerConfigs.length !== 0)}
             className="btn-primary w-full py-3 text-lg"
           >
-            {loading ? '正在创建…' : '创建对局'}
+            {loading
+              ? (isSeries ? '正在编排赛事…' : '正在创建…')
+              : (isSeries ? `开始 ${seriesGameCount} 局公平赛事` : '创建对局')}
           </button>
         </form>
 
         {/* Info */}
         <div className="mt-6 border-l-2 border-antique-gold/30 bg-white/[0.02] px-4 py-3">
           <p className="text-xs leading-relaxed text-ink-muted">
-            <strong className="font-normal text-paper/70">配置说明：</strong>使用快速布置可一键创建预设配置。
-            provider 列表来自后端 <code>config/models.yaml</code>，
+            <strong className="font-normal text-paper/70">配置说明：</strong>
+            {isSeries ? '赛事将严格串行执行并轮换座位；关闭页面不会中断后台赛程。' : '使用快速布置可一键创建预设配置。'}
+            {' '}provider 列表来自后端 <code>config/models.yaml</code>，
             后端更新后前端自动同步。选「自定义端点」可填任意 OpenAI/Anthropic 格式的 API。
           </p>
         </div>

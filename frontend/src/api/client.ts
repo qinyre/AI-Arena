@@ -14,6 +14,9 @@ import type {
   GameEventResponse,
   GameReview,
   GameReviewRequest,
+  CreateSeriesRequest,
+  SeriesStatusResponse,
+  StatsFilters,
 } from '../types/api';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
@@ -54,6 +57,23 @@ class APIClient {
     return this.request<CreateGameResponse>('/api/games/', {
       method: 'POST',
       body: JSON.stringify(request),
+    });
+  }
+
+  async createSeries(request: CreateSeriesRequest): Promise<SeriesStatusResponse> {
+    return this.request<SeriesStatusResponse>('/api/games/series', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async getSeries(seriesId: string): Promise<SeriesStatusResponse> {
+    return this.request<SeriesStatusResponse>(`/api/games/series/${seriesId}`);
+  }
+
+  async stopSeries(seriesId: string): Promise<SeriesStatusResponse> {
+    return this.request<SeriesStatusResponse>(`/api/games/series/${seriesId}/stop`, {
+      method: 'POST',
     });
   }
 
@@ -99,8 +119,11 @@ class APIClient {
   }
 
   // Get stats
-  async getStats(): Promise<StatsResponse> {
-    return this.request<StatsResponse>('/api/games/stats');
+  async getStats(filters: StatsFilters = {}): Promise<StatsResponse> {
+    const query = new URLSearchParams(
+      Object.entries(filters).filter((entry): entry is [string, string] => Boolean(entry[1])),
+    );
+    return this.request<StatsResponse>(`/api/games/stats${query.size ? `?${query}` : ''}`);
   }
 
   // Health check

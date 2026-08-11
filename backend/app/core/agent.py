@@ -1,7 +1,7 @@
 """
 AI Agent Implementation
 """
-from typing import Callable, Dict, List, Optional
+from typing import Awaitable, Callable, Dict, List, Optional
 import asyncio
 import logging
 import time
@@ -24,6 +24,10 @@ class AIAgent:
         player_token_budget: int = 80_000,
         game_budget_check: Optional[Callable[[], Optional[str]]] = None,
         circuit_breaker_failures: int = 2,
+        budget_reserve: Optional[
+            Callable[[str, int, int], Awaitable[Dict]]
+        ] = None,
+        budget_settle: Optional[Callable[[object, Dict], Awaitable[None]]] = None,
     ):
         """
         初始化AI智能体
@@ -38,6 +42,8 @@ class AIAgent:
         self.max_output_tokens = max_output_tokens
         self.player_token_budget = player_token_budget
         self.game_budget_check = game_budget_check
+        self.budget_reserve = budget_reserve
+        self.budget_settle = budget_settle
         self.circuit_breaker_failures = max(1, circuit_breaker_failures)
         self.memory: List[Dict] = []
         self.last_decision_error: Optional[Dict] = None
@@ -125,9 +131,10 @@ class AIAgent:
             ) or "模型响应不是有效 JSON"
             logger.warning("[%s] LLM 响应未解析成功: %s", self.agent_id, last_reason)
 
-        self._consecutive_failures += 1
-        if self._consecutive_failures >= self.circuit_breaker_failures:
-            self._circuit_open_round = round_no
+        if not response.get("_budget_blocked"):
+            self._consecutive_failures += 1
+            if self._consecutive_failures >= self.circuit_breaker_failures:
+                self._circuit_open_round = round_no
         return self._fallback_with_diagnostic(
             available_actions,
             last_reason or "模型未返回有效动作",
@@ -194,6 +201,7 @@ class AIAgent:
             )
             if parameters.get("claim_role", "none") not in claimable:
                 return None, False, f"claim_role 非法: {parameters.get('claim_role')}"
+            self._normalize_stance_parameters(parameters, spec)
         elif action_type == ActionType.ABSTAIN:
             # 弃票必须有理由：避免 AI 信息不足时偷懒弃票而不给依据。
             # 校验失败会触发重试，让 LLM 补上 reasoning。
@@ -208,6 +216,77 @@ class AIAgent:
             parameters=parameters,
         ), True, ""
 
+    @staticmethod
+    def _normalize_stance_parameters(parameters: Dict, spec: Dict) -> None:
+        """清洗可选的公开立场元数据，不因辅助字段瑕疵丢掉整段发言。"""
+        schema = spec.get("parameters", {})
+
+        def player_list(field: str) -> List[str]:
+            field_schema = schema.get(field, {})
+            valid = set(field_schema.get("items", {}).get("enum", []))
+            limit = int(field_schema.get("maxItems", 3))
+            raw = parameters.get(field, [])
+            if not isinstance(raw, list):
+                return []
+            cleaned = []
+            for value in raw:
+                if isinstance(value, str) and value in valid and value not in cleaned:
+                    cleaned.append(value)
+            return cleaned[:limit]
+
+        suspects = player_list("suspects")
+        trusted = [player for player in player_list("trusted") if player not in suspects]
+        parameters["suspects"] = suspects
+        parameters["trusted"] = trusted
+
+        vote_schema = schema.get("intended_vote", {})
+        intended_vote = parameters.get("intended_vote")
+        if intended_vote in ("", "none", "undecided", "null"):
+            intended_vote = None
+        parameters["intended_vote"] = (
+            intended_vote if intended_vote in vote_schema.get("enum", []) else None
+        )
+
+        reads_schema = schema.get("role_reads", {})
+        valid_players = set(reads_schema.get("allowed_players", []))
+        valid_reads = set(reads_schema.get("allowed_values", []))
+        max_reads = int(reads_schema.get("maxProperties", 4))
+        raw_reads = parameters.get("role_reads", {})
+        parameters["role_reads"] = {
+            player: read
+            for player, read in (
+                raw_reads.items() if isinstance(raw_reads, dict) else []
+            )
+            if (
+                isinstance(player, str)
+                and isinstance(read, str)
+                and player in valid_players
+                and read in valid_reads
+            )
+        }
+        parameters["role_reads"] = dict(
+            list(parameters["role_reads"].items())[:max_reads]
+        )
+
+        evidence_schema = schema.get("evidence_event_indexes", {})
+        available_count = int(evidence_schema.get("available_count", 0))
+        allowed_evidence = set(
+            evidence_schema.get("allowed_values", range(available_count))
+        )
+        max_evidence = int(evidence_schema.get("maxItems", 5))
+        raw_evidence = parameters.get("evidence_event_indexes", [])
+        evidence = []
+        if isinstance(raw_evidence, list):
+            for index in raw_evidence:
+                if (
+                    isinstance(index, int)
+                    and not isinstance(index, bool)
+                    and index in allowed_evidence
+                    and index not in evidence
+                ):
+                    evidence.append(index)
+        parameters["evidence_event_indexes"] = evidence[:max_evidence]
+
     async def _generate_with_retry(
         self,
         prompt: str,
@@ -218,13 +297,54 @@ class AIAgent:
     ) -> Dict:
         """仅重试网络类错误；格式和语义修正由 decide 统一控制。"""
         last_error: Optional[Exception] = None
+        input_reserve = self._estimate_input_token_reserve(prompt, system_prompt)
         for attempt in range(1, max_attempts + 1):
+            reservation: Dict = {}
+            request_max_tokens = self.max_output_tokens
+            if self.budget_reserve:
+                try:
+                    reservation = await self.budget_reserve(
+                        self.agent_id,
+                        input_reserve,
+                        self.max_output_tokens,
+                    )
+                except Exception as error:
+                    logger.exception("[%s] 预留模型预算失败: %s", self.agent_id, error)
+                    return {
+                        "parsed": None,
+                        "_last_error": f"模型预算预留失败，已停止调用: {error}",
+                        "_request_attempts": attempt - 1,
+                    }
+                if reservation.get("reason"):
+                    return {
+                        "parsed": None,
+                        "_last_error": reservation["reason"],
+                        "_request_attempts": attempt - 1,
+                        "_budget_blocked": True,
+                    }
+                request_max_tokens = max(1, int(
+                    reservation.get("max_tokens", self.max_output_tokens)
+                ))
+
+            usage_before = self._usage_snapshot()
+            response: Optional[Dict] = None
             try:
-                response = await self.model_client.generate(
-                    prompt=prompt, system_prompt=system_prompt,
-                    json_mode=True, temperature=temperature,
-                    max_tokens=self.max_output_tokens,
-                )
+                try:
+                    response = await self.model_client.generate(
+                        prompt=prompt, system_prompt=system_prompt,
+                        json_mode=True, temperature=temperature,
+                        max_tokens=request_max_tokens,
+                    )
+                finally:
+                    reservation_id = reservation.get("reservation_id")
+                    if reservation_id is not None and self.budget_settle:
+                        provider_usage = (response or {}).get("usage") or self._usage_delta(usage_before)
+                        try:
+                            await self.budget_settle(reservation_id, provider_usage)
+                        except Exception as error:
+                            # 不因本地统计失败丢弃已返回的模型结果。
+                            logger.exception("[%s] 结算模型预算失败: %s", self.agent_id, error)
+                assert response is not None
                 response["_request_attempts"] = attempt
                 return response
 
@@ -251,6 +371,16 @@ class AIAgent:
             "_last_error": str(last_error) if last_error else "unknown",
             "_request_attempts": max_attempts,
         }
+
+    @staticmethod
+    def _estimate_input_token_reserve(prompt: str, system_prompt: str) -> int:
+        """保守估计本次输入的最大 token 占用。
+
+        字节数上界兼容中英文与不同 tokenizer，256 用于覆盖聊天消息包装与
+        provider 附加的 JSON 指令。预留会在请求结束后按实际 usage 释放。
+        """
+        content = f"{system_prompt}\n{prompt}"
+        return len(content.encode("utf-8")) + 256
 
     def _usage_snapshot(self) -> Dict:
         try:
@@ -350,9 +480,28 @@ class AIAgent:
             if chosen["action_type"] == "wolf_speak":
                 parameters.update(content="建议优先刀最像神职的玩家。")
             else:
-                parameters.update(content="我暂时没有新的信息。", claim_role="none")
+                parameters.update(
+                    content="我暂时没有新的信息。",
+                    claim_role="none",
+                    suspects=[],
+                    trusted=[],
+                    intended_vote=None,
+                    role_reads={},
+                    evidence_event_indexes=[],
+                )
         targets = chosen.get("valid_targets") or []
-        target = targets[round_no % len(targets)] if targets else None
+        if chosen["action_type"] == "kill":
+            # 自刀必须是模型的主动策略，不能由本地降级随机制造。
+            # 只要还有其他合法刀口，兜底就排除狼人自己。
+            safe_targets = [target for target in targets if target != self.agent_id]
+            if safe_targets:
+                targets = safe_targets
+                target_index = max(round_no - 1, 0) % len(targets)
+            else:
+                target_index = round_no % len(targets) if targets else 0
+        else:
+            target_index = round_no % len(targets) if targets else 0
+        target = targets[target_index] if targets else None
         return GameAction(
             ActionType(chosen["action_type"]),
             self.agent_id,
@@ -448,8 +597,13 @@ class AIAgent:
         identity_lines = [f"你的玩家编号是 **{your_id}**。"]
         if role in ("werewolf", "white_wolf_king", "wolf_king", "wolf_beauty"):
             teammates = visible_state.get("werewolf_teammates", [])
+            alive_teammates = visible_state.get("alive_werewolf_teammates")
+            if alive_teammates is None:  # 兼容旧的 visible_state
+                dead_players = set(visible_state.get("dead_players", []))
+                alive_teammates = [pid for pid in teammates if pid not in dead_players]
+            dead_teammates = [pid for pid in teammates if pid not in alive_teammates]
             wc = visible_state.get("werewolf_count", 1)
-            if wc <= 1 or not teammates:
+            if wc <= 1:
                 identity_lines.append(
                     f"本局只有 **{wc}** 个狼人，就是你本人（{your_id}）。"
                     "你是【独狼】，没有任何狼人队友。"
@@ -458,8 +612,16 @@ class AIAgent:
                 )
             else:
                 identity_lines.append(
-                    f"本局共有 {wc} 个狼人。你的狼人队友是: {', '.join(teammates)}（若为空则你是独狼）。"
+                    f"开局狼队共有 {wc} 人，你的完整队友名单是：{', '.join(teammates)}。"
+                    f"当前存活队友：{', '.join(alive_teammates) or '无'}。"
                 )
+                if dead_teammates:
+                    identity_lines.append(
+                        f"已死亡队友：{', '.join(dead_teammates)}。他们已无法发言、投票、投刀或与你协作，"
+                        "只能作为历史信息复盘，禁止将其当作当前行动者。"
+                    )
+                if not alive_teammates:
+                    identity_lines.append("你是当前狼队最后一名存活玩家，今后只能独立决策。")
         if visible_state.get("sheriff_id") == your_id:
             identity_lines.append(
                 "你是当前警长：负责决定白天发言方向、在全员发言后总结归票，"
@@ -894,6 +1056,9 @@ class AIAgent:
 注意：reasoning 是你的内部思考，不会被其他玩家看到。chosen_action 必须严格匹配上面的可选动作；
 若是 speak/wolf_speak 动作，把发言写在 parameters.content；若是带目标的动作，
 parameters 里通常只需 reasoning（如需），不要硬塞 content。
+若是公开 speak，parameters 还要填写 suspects、trusted、intended_vote、role_reads、
+evidence_event_indexes；这些字段必须与 content 中实际公开表达的立场一致。不确定就填空数组、
+null 或空对象。改变上一轮立场时，应在 content 中说明新证据，并引用 public_history 的公开事件编号。
 """
 
     def _compact_visible_state(self, visible_state: Dict) -> Dict:
@@ -914,34 +1079,37 @@ parameters 里通常只需 reasoning（如需），不要硬塞 content。
         """格式化事件为文本"""
         event_type = event.get("event_type", "unknown")
         data = event.get("data", {})
+        event_index = event.get("event_index")
+        prefix = f"#{event_index} " if isinstance(event_index, int) else ""
 
         if event_type == "player_death":
-            return f"[死亡] {data.get('player')} 在第{data.get('round')}轮被杀"
+            return f"{prefix}[死亡] {data.get('player')} 在第{data.get('round')}轮被杀"
         elif event_type == "player_speech":
-            return f"[发言] {data.get('speaker')}: {data.get('content')}"
+            return f"{prefix}[发言] {data.get('speaker')}: {data.get('content')}"
         elif event_type == "player_vote":
-            return f"[投票] {data.get('voter')} 投给 {data.get('target')}"
+            return f"{prefix}[投票] {data.get('voter')} 投给 {data.get('target')}"
         elif event_type == "vote_result":
             if data.get("result") == "eliminated":
-                return f"[结果] {data.get('eliminated')} 被放逐"
+                return f"{prefix}[结果] {data.get('eliminated')} 被放逐"
             elif data.get("result") == "tie":
-                return f"[结果] 平票，无人出局"
+                return f"{prefix}[结果] 平票，无人出局"
+            return f"{prefix}[结果] {data.get('result', '未知结果')}"
         elif event_type == "seer_investigate":
-            return f"[查验] 你查验了 {data.get('target')}，结果: {data.get('result')}"
+            return f"{prefix}[查验] 你查验了 {data.get('target')}，结果: {data.get('result')}"
         elif event_type == "witch_heal":
-            return f"[用药] 你已使用解药救助 {data.get('target')}"
+            return f"{prefix}[用药] 你已使用解药救助 {data.get('target')}"
         elif event_type == "witch_poison":
-            return f"[用药] 你已使用毒药毒杀 {data.get('target')}"
+            return f"{prefix}[用药] 你已使用毒药毒杀 {data.get('target')}"
         elif event_type == "guard_action":
-            return f"[守护] 你守护了 {data.get('target')}"
+            return f"{prefix}[守护] 你守护了 {data.get('target')}"
         elif event_type == "wolf_beauty_charm":
-            return f"[魅惑] 你魅惑了 {data.get('target')}"
+            return f"{prefix}[魅惑] 你魅惑了 {data.get('target')}"
         elif event_type == "wolf_beauty_charm_triggered":
-            return f"[魅惑殉情] {data.get('wolf_beauty')} 出局并带走了 {data.get('target')}"
+            return f"{prefix}[魅惑殉情] {data.get('wolf_beauty')} 出局并带走了 {data.get('target')}"
         elif event_type == "knight_duel":
             return (
-                f"[骑士决斗] {data.get('knight')} 决斗 {data.get('target')}，"
+                f"{prefix}[骑士决斗] {data.get('knight')} 决斗 {data.get('target')}，"
                 f"目标阵营为 {data.get('target_faction')}"
             )
         else:
-            return f"[{event_type}] {json.dumps(data, ensure_ascii=False)}"
+            return f"{prefix}[{event_type}] {json.dumps(data, ensure_ascii=False)}"

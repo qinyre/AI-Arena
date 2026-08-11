@@ -6,7 +6,7 @@ import asyncio
 import os
 from typing import Dict, List, Optional
 from urllib.parse import urlparse
-from app.core.werewolf import WerewolfGame
+from app.core.werewolf import WOLF_ROLES, WerewolfGame
 from app.core.agent import AIAgent
 from app.core.models import ActionType, GameEvent, GamePhase, GameResult, Role
 from app.llm.registry import get_registry
@@ -48,6 +48,13 @@ class GameOrchestrator:
         )
         self._run_gate = asyncio.Event()
         self._run_gate.set()
+        self._budget_lock = asyncio.Lock()
+        self._budget_reservation_seq = 0
+        self._budget_reservations: Dict[int, tuple[str, int]] = {}
+        self._reserved_game_tokens = 0
+        self._reserved_player_tokens: Dict[str, int] = {}
+        self._settled_game_tokens = 0
+        self._settled_player_tokens: Dict[str, int] = {}
 
     def pause(self):
         self._run_gate.clear()
@@ -81,7 +88,8 @@ class GameOrchestrator:
                 personality=model_config.get("personality"),
                 max_output_tokens=self.max_output_tokens,
                 player_token_budget=self.player_token_budget,
-                game_budget_check=self._game_budget_reason,
+                budget_reserve=self._reserve_model_tokens,
+                budget_settle=self._settle_model_tokens,
                 circuit_breaker_failures=self.circuit_breaker_failures,
             )
 
@@ -323,8 +331,16 @@ class GameOrchestrator:
             self.game.night_stage = stage
             self.game.acted_players = set()
             if stage == "wolf_discussion":
+                alive_wolves = [
+                    player_id
+                    for player_id in self.game.state.alive_players
+                    if self.game.state.players[player_id].role in WOLF_ROLES
+                ]
+                # 单狼没有队友可交流，跳过一次无意义且计费的模型调用。
+                if len(alive_wolves) < 2:
+                    continue
                 # 依次密聊，确保后发言狼人能看到前面队友的意见。
-                for player_id in list(self.game.state.alive_players):
+                for player_id in alive_wolves:
                     available_actions = self.game.get_available_actions(player_id)
                     if available_actions:
                         await self._agent_act(
@@ -609,14 +625,122 @@ class GameOrchestrator:
             total_cost += usage.get("estimated_cost", 0.0)
         return total_cost
 
+    async def _reserve_model_tokens(
+        self,
+        player_id: str,
+        estimated_input_tokens: int,
+        requested_output_tokens: int,
+    ) -> Dict:
+        """为一次 provider 请求原子预留玩家和全局 token 预算。"""
+        estimated_input_tokens = max(0, int(estimated_input_tokens))
+        requested_output_tokens = max(1, int(requested_output_tokens))
+        async with self._budget_lock:
+            live_player_tokens = 0
+            agent = self.agents.get(player_id)
+            if agent:
+                live_player_tokens = int(
+                    agent.model_client.get_total_usage().get("total_tokens", 0)
+                )
+            player_tokens = max(
+                live_player_tokens,
+                self._settled_player_tokens.get(player_id, 0),
+            )
+            live_game_tokens = sum(
+                int(agent.model_client.get_total_usage().get("total_tokens", 0))
+                for agent in self.agents.values()
+            )
+            game_tokens = max(live_game_tokens, self._settled_game_tokens)
+
+            limits = []
+            if self.player_token_budget > 0:
+                limits.append((
+                    "玩家",
+                    self.player_token_budget
+                    - player_tokens
+                    - self._reserved_player_tokens.get(player_id, 0),
+                ))
+            if self.game_token_budget > 0:
+                limits.append((
+                    "本局",
+                    self.game_token_budget - game_tokens - self._reserved_game_tokens,
+                ))
+            if not limits:
+                return {"max_tokens": requested_output_tokens, "reservation_id": None}
+
+            scope, remaining = min(limits, key=lambda item: item[1])
+            minimum_output = min(64, requested_output_tokens)
+            if remaining < estimated_input_tokens + minimum_output:
+                return {
+                    "reason": (
+                        f"{scope} token 预算仅剩 {max(0, remaining)}，不足为新请求预留"
+                        f"预计输入 {estimated_input_tokens} + 最少输出 {minimum_output} token，"
+                        "已停止调用并使用默认动作"
+                    )
+                }
+
+            max_tokens = min(requested_output_tokens, remaining - estimated_input_tokens)
+            reserved_tokens = estimated_input_tokens + max_tokens
+            self._budget_reservation_seq += 1
+            reservation_id = self._budget_reservation_seq
+            self._budget_reservations[reservation_id] = (player_id, reserved_tokens)
+            self._reserved_game_tokens += reserved_tokens
+            self._reserved_player_tokens[player_id] = (
+                self._reserved_player_tokens.get(player_id, 0) + reserved_tokens
+            )
+            return {
+                "reservation_id": reservation_id,
+                "max_tokens": max_tokens,
+                "reserved_tokens": reserved_tokens,
+            }
+
+    async def _settle_model_tokens(self, reservation_id: object, provider_usage: Dict):
+        """按 provider usage 结算实际消耗，并释放未使用的预留额度。"""
+        input_tokens = int(
+            provider_usage.get("input_tokens")
+            or provider_usage.get("total_input_tokens")
+            or 0
+        )
+        output_tokens = int(
+            provider_usage.get("output_tokens")
+            or provider_usage.get("total_output_tokens")
+            or 0
+        )
+        reported_tokens = max(0, int(
+            provider_usage.get("total_tokens") or input_tokens + output_tokens
+        ))
+        async with self._budget_lock:
+            reservation = self._budget_reservations.pop(reservation_id, None)
+            if reservation is None:
+                return
+            player_id, reserved_tokens = reservation
+            # 某些 OpenAI 兼容端点不返回 usage。此时无法证明真实用量低于
+            # 预留值，硬上限必须按保守上界结算，不能把一次付费请求记作 0。
+            actual_tokens = reported_tokens or reserved_tokens
+            self._reserved_game_tokens = max(
+                0, self._reserved_game_tokens - reserved_tokens
+            )
+            player_reserved = max(
+                0,
+                self._reserved_player_tokens.get(player_id, 0) - reserved_tokens,
+            )
+            if player_reserved:
+                self._reserved_player_tokens[player_id] = player_reserved
+            else:
+                self._reserved_player_tokens.pop(player_id, None)
+            self._settled_game_tokens += actual_tokens
+            self._settled_player_tokens[player_id] = (
+                self._settled_player_tokens.get(player_id, 0) + actual_tokens
+            )
+
     def _game_budget_reason(self) -> Optional[str]:
         if self.game_token_budget <= 0:
             return None
-        total_tokens = sum(
+        live_tokens = sum(
             agent.model_client.get_total_usage().get("total_tokens", 0)
             for agent in self.agents.values()
         )
-        if total_tokens >= self.game_token_budget:
+        total_tokens = max(live_tokens, self._settled_game_tokens)
+        if total_tokens + self._reserved_game_tokens >= self.game_token_budget:
             return f"本局 token 预算已达到 {self.game_token_budget}，停止继续调用模型"
         return None
 
@@ -634,6 +758,15 @@ class GameOrchestrator:
                 stats["calls"] += 1
                 stats["fallbacks"] += int(bool(call.get("fallback")))
                 stats["tokens"] += int(usage.get("total_tokens", 0))
+
+        # provider 未返回 usage 时，调用明细无法给出真实 token；模型排行仍应
+        # 使用硬预算的保守结算，避免把这类模型误显示为“0 消耗”。
+        for player_id, settled_tokens in self._settled_player_tokens.items():
+            stats = by_player.setdefault(
+                player_id,
+                {"calls": 0, "fallbacks": 0, "tokens": 0},
+            )
+            stats["tokens"] = max(stats["tokens"], int(settled_tokens))
 
         calls = len(self.call_metrics)
         return {

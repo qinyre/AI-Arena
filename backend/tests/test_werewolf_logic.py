@@ -718,6 +718,9 @@ def test_agent_prompt_keeps_public_rules_and_private_witch_ledger():
     assert "解药：已使用 ｜ 毒药：可用" in witch_prompt
     assert "[用药] 你已使用解药救助 AI-11" in witch_prompt
     assert "同守同救" in villager_prompt
+    assert "同一夜、同一狼队刀口" in villager_prompt
+    assert "以前夜晚用过解药不影响以后夜晚的守护" in villager_prompt
+    assert "魅惑目标与狼队刀口彼此独立" in villager_prompt
 
 
 def test_personality_schema_rejects_prompt_injection_fields():
@@ -1025,6 +1028,7 @@ def test_rematch_persists_redacted_config_and_tracks_series(tmp_path, monkeypatc
         assert result["series"]["total_games"] == 2
         assert result["replay_config"]["players"][0]["model"] == "test-model"
         assert result["budget_tier"] == "economy"
+        assert result["budget_profile"]["player_token_budget"] == 80000
         assert result["budget_profile"]["game_token_budget"] == 240000
         assert "api_key" not in result["replay_config"]["players"][0]
 
@@ -1720,3 +1724,31 @@ def test_white_wolf_king_self_destruct_skips_vote_and_enters_night():
     assert target in game.state.dead_players
     assert game.state.phase == GamePhase.NIGHT
     assert game.state.round == 2
+
+
+def test_round_limit_ends_without_phantom_next_night():
+    game = WerewolfGame()
+    game.initialize(PLAYERS, {
+        "game_id": "round-limit",
+        "seed": 7,
+        "max_rounds": 1,
+    })
+    game.state.phase = GamePhase.VOTING
+    game.current_votes = {
+        player_id: None for player_id in game.state.alive_players
+    }
+
+    events = game.advance_phase()
+    result = game.check_win_condition()
+
+    assert result is not None
+    assert result.winner == "draw"
+    assert result.reason == "max_rounds_reached"
+    assert result.final_round == 1
+    assert game.state.round == 1
+    assert game.get_game_summary()["total_rounds"] == 1
+    assert not any(
+        event["event_type"] == "phase_change"
+        and event["data"].get("to") == "night"
+        for event in events
+    )

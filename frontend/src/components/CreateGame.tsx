@@ -91,19 +91,19 @@ const BUDGET_OPTIONS: Array<{
     id: 'economy',
     name: '节制',
     description: '优先控制长局消耗，达到上限后使用本地合法动作完成对局',
-    limits: '单次 700 · 单人 3万 · 全局 24万 tokens',
+    limits: '单次 700 · 单人 8万 · 全局 24万 tokens',
   },
   {
     id: 'standard',
     name: '标准',
     description: '保留完整推理与发言，适合大多数对局',
-    limits: '单次 1200 · 单人 8万 · 全局 50万 tokens',
+    limits: '单次 1200 · 单人 18万 · 全局 50万 tokens',
   },
   {
     id: 'premium',
     name: '宽裕',
     description: '允许更长表达和长局博弈，消耗上限明显提高',
-    limits: '单次 1800 · 单人 20万 · 全局 150万 tokens',
+    limits: '单次 1800 · 单人 50万 · 全局 150万 tokens',
   },
 ];
 
@@ -1022,6 +1022,12 @@ export default function CreateGame({ onGameCreated, onSeriesCreated, mode = 'gam
                 </label>
               ))}
             </div>
+            {budgetTier === 'economy' && (playerConfigs.length >= 9 || enableSheriff) && (
+              <p className="mt-2 border-l-2 border-amber-400/60 pl-3 text-xs leading-relaxed text-amber-200/80">
+                当前为大板型或警徽局：节制档会严格守住 24 万全局上限，长局后段仍可能降级；
+                希望完整保留多轮推理时建议选择标准档。
+              </p>
+            )}
           </fieldset>
 
           <div>

@@ -89,10 +89,20 @@ def test_agent_uses_compact_state_and_configured_output_limit():
     state = minimal_state()
     state["public_events"] = [{
         "event_type": "player_speech",
+        "event_index": 7,
         "timestamp": "2026-08-10T00:00:00",
         "visibility": "public",
         "data": {"speaker": "AI-2", "content": "我认为AI-1偏好。"},
     }]
+    state["public_dossier"] = {
+        "recent_statements_by_player": {
+            "AI-2": [
+                {"event_index": 2, "content": "第一轮我先观望。"},
+                {"event_index": 7, "content": "我认为AI-1偏好。"},
+            ],
+        },
+        "current_stances": {"AI-2": {"trusted": ["AI-1"]}},
+    }
 
     action = asyncio.run(agent.decide(state, SPEAK_ACTIONS))
 
@@ -100,6 +110,9 @@ def test_agent_uses_compact_state_and_configured_output_limit():
     assert client.kwargs["max_tokens"] == 777
     assert '"public_history"' in client.kwargs["prompt"]
     assert "[发言] AI-2: 我认为AI-1偏好。" in client.kwargs["prompt"]
+    assert client.kwargs["prompt"].count("我认为AI-1偏好。") == 1
+    assert "第一轮我先观望。" in client.kwargs["prompt"]
+    assert "current_stances" in client.kwargs["prompt"]
     assert "2026-08-10T00:00:00" not in client.kwargs["prompt"]
     assert agent.last_decision_metrics["json_repaired"] is True
 
@@ -336,7 +349,54 @@ def test_wolf_beauty_charm_prompt_has_target_strategy():
     }])
 
     assert "避开狼队今晚最可能击杀的目标" in prompt
+    assert "魅惑与稍后的狼队刀人完全独立" in prompt
     assert "不能连续魅惑同一人" in prompt
+
+
+def test_repeated_wolf_chat_becomes_pass_but_new_target_is_kept():
+    agent = AIAgent("AI-3", FakeClient())
+    actions = [
+        {
+            "action_type": "wolf_speak",
+            "target_required": False,
+            "valid_targets": [],
+            "parameters": {"content": {"type": "string"}},
+        },
+        {
+            "action_type": "pass",
+            "target_required": False,
+            "valid_targets": [],
+            "parameters": {},
+        },
+    ]
+    state = {
+        "werewolf_discussion": [{
+            "speaker": "AI-2",
+            "content": "今晚建议刀AI-7，他跳了预言家，必须尽快处理。",
+        }],
+    }
+
+    repeated, ok, reason = agent._build_action({
+        "chosen_action": {
+            "action_type": "wolf_speak",
+            "target": None,
+            "parameters": {"content": "同意刀ai-7，他是预言家，今晚必须处理。"},
+        },
+        "reasoning": "跟随队友决策。",
+    }, actions, state)
+    changed, changed_ok, changed_reason = agent._build_action({
+        "chosen_action": {
+            "action_type": "wolf_speak",
+            "target": None,
+            "parameters": {"content": "改刀AI-8，他刚刚暴露了女巫视角。"},
+        },
+        "reasoning": "提出新的刀口。",
+    }, actions, state)
+
+    assert ok and reason == ""
+    assert repeated.action_type.value == "pass"
+    assert changed_ok and changed_reason == ""
+    assert changed.action_type.value == "wolf_speak"
 
 
 def test_normal_tiebreak_prompts_explain_pk_rules():

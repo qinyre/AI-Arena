@@ -160,6 +160,8 @@ class WerewolfGame(BaseGame):
         self.charmed_target: Optional[str] = None
         self.knight_duel_used = False
         self.knight_duel_ends_day = False
+        self.max_rounds = 20
+        self.round_limit_reached = False
 
     def initialize(self, players: List[str], config: Dict) -> None:
         """初始化游戏"""
@@ -171,6 +173,8 @@ class WerewolfGame(BaseGame):
 
         self.game_id = config.get("game_id", "")
         self.config = config
+        self.max_rounds = max(1, int(config.get("max_rounds", 20)))
+        self.round_limit_reached = False
         self.sheriff_enabled = bool(config.get("enable_sheriff", False))
         self.seat_order = list(players)
 
@@ -1896,6 +1900,9 @@ class WerewolfGame(BaseGame):
     def _begin_next_night(self, events: List[Dict], from_phase: str) -> None:
         if self.check_win_condition():
             return
+        if self.state.round >= self.max_rounds:
+            self.round_limit_reached = True
+            return
         self.state.round += 1
         self.current_votes = {}
         self.last_night_deaths = []
@@ -1997,6 +2004,15 @@ class WerewolfGame(BaseGame):
             GamePhase.BADGE_TRANSFER,
         ):
             return None
+
+        if self.round_limit_reached:
+            return GameResult(
+                game_id=self.game_id,
+                winner="draw",
+                final_round=self.state.round,
+                reason="max_rounds_reached",
+                duration_seconds=0.0,
+            )
 
         werewolves_alive = sum(
             1 for p in self.state.players.values()

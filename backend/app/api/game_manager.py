@@ -35,17 +35,17 @@ _PHASE_MAP = {"voting": "vote", "tiebreak_speech": "day", "tiebreak_voting": "vo
 _BUDGET_PROFILES = {
     "economy": {
         "max_output_tokens": 700,
-        "player_token_budget": 30000,
+        "player_token_budget": 80000,
         "game_token_budget": 240000,
     },
     "standard": {
         "max_output_tokens": 1200,
-        "player_token_budget": 80000,
+        "player_token_budget": 180000,
         "game_token_budget": 500000,
     },
     "premium": {
         "max_output_tokens": 1800,
-        "player_token_budget": 200000,
+        "player_token_budget": 500000,
         "game_token_budget": 1500000,
     },
 }

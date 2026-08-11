@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 from urllib.parse import urlparse
 from app.core.werewolf import WOLF_ROLES, WerewolfGame
 from app.core.agent import AIAgent
-from app.core.models import ActionType, GameEvent, GamePhase, GameResult, Role
+from app.core.models import ActionType, GameEvent, GamePhase, Role
 from app.llm.registry import get_registry
 from app.llm.openai_client import OpenAICompatibleClient
 from app.llm.claude_client import ClaudeClient
@@ -230,13 +230,8 @@ class GameOrchestrator:
 
         try:
             result = None
-            max_rounds = int(self.config.get("max_rounds", 20))
             while not self.game.is_ended():
                 await self.wait_if_paused()
-                if self.game.state.round > max_rounds:
-                    result = GameResult(self.game_id, "draw", self.game.state.round - 1,
-                                        "max_rounds_reached", 0.0)
-                    break
                 await self.execute_round()
 
             self.end_time = time.time()

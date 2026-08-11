@@ -3,7 +3,9 @@ AI Agent Implementation
 """
 from typing import Awaitable, Callable, Dict, List, Optional
 import asyncio
+from difflib import SequenceMatcher
 import logging
+import re
 import time
 from app.llm.client import ModelClient, RetryableError, NonRetryableError
 from app.core.models import GameAction, ActionType
@@ -110,7 +112,11 @@ class AIAgent:
         parsed = response.get("parsed")
 
         if not last_reason and isinstance(parsed, dict):
-            action, ok, last_reason = self._build_action(parsed, available_actions)
+            action, ok, last_reason = self._build_action(
+                parsed,
+                available_actions,
+                visible_state,
+            )
             if ok and action is not None:
                 self._consecutive_failures = 0
                 self._circuit_open_round = None
@@ -149,6 +155,7 @@ class AIAgent:
         self,
         parsed: Dict,
         available_actions: List[Dict],
+        visible_state: Optional[Dict] = None,
     ) -> tuple[Optional[GameAction], bool, str]:
         """把 LLM 解析结果构建为 GameAction，并做语义校验。
 
@@ -189,6 +196,20 @@ class AIAgent:
             content = parameters.get("content")
             if not isinstance(content, str) or not content.strip() or len(content) > 500:
                 return None, False, "发言动作缺少合法 content"
+            if (
+                action_type == ActionType.WOLF_SPEAK
+                and visible_state
+                and self._is_redundant_wolf_speech(
+                    content,
+                    visible_state.get("werewolf_discussion", []),
+                )
+                and any(a["action_type"] == "pass" for a in available_actions)
+            ):
+                return GameAction(
+                    action_type=ActionType.PASS,
+                    actor_id=self.agent_id,
+                    parameters={"reasoning": "队友已经表达相同目标和依据，避免重复发言"},
+                ), True, ""
         if action_type == ActionType.SPEAK:
             claimable = next(
                 (
@@ -215,6 +236,49 @@ class AIAgent:
             target_id=target_id,
             parameters=parameters,
         ), True, ""
+
+    @staticmethod
+    def _is_redundant_wolf_speech(content: str, discussion: List[Dict]) -> bool:
+        """识别复述队友结论的狼聊；出现新目标时始终保留。"""
+        previous = [
+            item.get("content", "")
+            for item in discussion
+            if isinstance(item, dict) and isinstance(item.get("content"), str)
+        ]
+        if not previous:
+            return False
+
+        player_pattern = r"AI-\d+"
+        mentioned = {
+            player_id.upper()
+            for player_id in re.findall(player_pattern, content, flags=re.IGNORECASE)
+        }
+        previous_mentions = {
+            player_id.upper()
+            for player_id in re.findall(
+                player_pattern,
+                " ".join(previous),
+                flags=re.IGNORECASE,
+            )
+        }
+        if mentioned - previous_mentions:
+            return False
+
+        if any(marker in content[:40] for marker in (
+            "同意", "赞同", "支持", "没问题", "就按", "跟随",
+        )):
+            return True
+
+        normalized = re.sub(r"[\W_]+", "", content).lower()
+        for earlier in previous:
+            prior = re.sub(r"[\W_]+", "", earlier).lower()
+            if min(len(normalized), len(prior)) < 12:
+                continue
+            if normalized in prior or prior in normalized:
+                return True
+            if SequenceMatcher(None, normalized, prior, autojunk=False).ratio() >= 0.45:
+                return True
+        return False
 
     @staticmethod
     def _normalize_stance_parameters(parameters: Dict, spec: Dict) -> None:
@@ -530,7 +594,8 @@ class AIAgent:
             "witch": """你是女巫。
 - 阵营：好人；解药和毒药各一瓶，每晚至多使用一瓶
 - 解药只能救当晚狼队刀口，但不能自救；毒药可以毒杀一名其他存活玩家
-- 守卫同守同救时目标仍会死亡，请谨慎判断是否用药""",
+- “同守同救”只指同一夜、同一目标同时被守护和使用解药，此时目标仍会死亡
+- 以前夜晚用过解药不会影响以后夜晚守卫的保护；药瓶状态以你的私密状态为准""",
 
             "hunter": """你是猎人。
 - 阵营：好人；被狼刀或白天投票放逐后，可选择开枪带走一名存活玩家
@@ -543,7 +608,8 @@ class AIAgent:
             "guard": """你是守卫。
 - 阵营：好人；每晚可守护一名玩家，能挡住狼刀
 - 不能连续两晚守护同一人；守护不能抵挡毒药
-- 若女巫同时解救你守护的狼刀目标，同守同救会导致目标死亡""",
+- 只有同一夜、同一狼刀目标同时被你守护和女巫解救，才会因“同守同救”死亡
+- 女巫以前夜晚是否用过解药，不会让你本夜的守护失效""",
 
             "white_wolf_king": """你是白狼王，属于狼人阵营。
 - 夜间与狼队共同选择刀口
@@ -561,6 +627,7 @@ class AIAgent:
 - 不能连续两晚魅惑同一名玩家
 - 你不能自爆，也不能成为狼队刀口
 - 只有被白天投票放逐时才会令上一夜魅惑目标殉情；夜死、毒杀、枪杀或骑士决斗均不触发
+- 魅惑与狼队刀口是两项独立行动：刀谁不会改变魅惑目标；魅惑目标被放逐也不会让你反向殉情
 - 公开发言不得泄露狼人身份或魅惑目标""",
 
             "knight": """你是骑士，属于好人阵营。
@@ -697,11 +764,12 @@ class AIAgent:
 {role_status}
 
 # 公共硬规则
-- 守卫与女巫同时保护狼队刀口时属于“同守同救”，两种保护互相抵消，目标仍然死亡。
+- “同守同救”只在同一夜、同一狼队刀口同时被守卫守护和女巫解救时发生，目标仍然死亡；以前夜晚用过解药不影响以后夜晚的守护。
 - 女巫的解药和毒药各只有一瓶，每晚至多使用一瓶。
 - 夜间守护、用药等私密行动只有行动者本人知道；没有对应私密信息时不得假定具体目标。
 - 狼美人仅在被白天投票放逐时触发魅惑殉情；骑士决斗导致的死亡不触发魅惑。
 - 狼美人不能连续两晚魅惑同一名玩家，合法目标列表已经排除上一夜目标。
+- 狼美人的魅惑目标与狼队刀口彼此独立，刀口不会自动成为或替换魅惑目标；魅惑目标出局也不会反向带走狼美人。
 - 骑士决斗狼人后立即入夜，决斗好人则骑士出局且白天继续。
 
 # 你的性格
@@ -973,7 +1041,8 @@ class AIAgent:
             guide += (
                 " 现在是狼美人的【魅惑】行动。优先选择已公开或高度疑似的关键神职，"
                 "同时避开狼队今晚最可能击杀的目标；魅惑低价值或即将出局的玩家收益较低。"
-                "当前有效魅惑目标是上一夜目标，合法目标列表已自动排除，不能连续魅惑同一人。"
+                "魅惑与稍后的狼队刀人完全独立，刀口不会替换本次魅惑目标。"
+                "当前有效魅惑目标是本次选择，合法目标列表已自动排除上一夜目标，不能连续魅惑同一人。"
             )
         elif phase in (
             "day",
@@ -1069,6 +1138,35 @@ null 或空对象。改变上一轮立场时，应在 content 中说明新证据
             if key != "public_events"
         }
         public_events = visible_state.get("public_events", [])
+        dossier = compact.get("public_dossier")
+        if isinstance(dossier, dict):
+            # public_history 已逐字提供窗口内发言；只保留窗口外的近期发言，
+            # 既避免重复 token，也不丢失大板型更早的玩家上下文。
+            visible_indexes = {
+                event.get("event_index")
+                for event in public_events
+                if isinstance(event, dict) and isinstance(event.get("event_index"), int)
+            }
+            recent = dossier.get("recent_statements_by_player")
+            compact_dossier = dict(dossier)
+            if isinstance(recent, dict):
+                older_statements = {
+                    player_id: [
+                        entry for entry in entries
+                        if not isinstance(entry, dict)
+                        or entry.get("event_index") not in visible_indexes
+                    ]
+                    for player_id, entries in recent.items()
+                    if isinstance(entries, list)
+                }
+                compact_dossier["recent_statements_by_player"] = {
+                    player_id: entries
+                    for player_id, entries in older_statements.items()
+                    if entries
+                }
+                if not compact_dossier["recent_statements_by_player"]:
+                    compact_dossier.pop("recent_statements_by_player")
+            compact["public_dossier"] = compact_dossier
         if public_events:
             compact["public_history"] = [
                 self._format_event(event) for event in public_events

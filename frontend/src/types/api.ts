@@ -149,6 +149,68 @@ export interface MatchFacts {
   key_events: Array<Record<string, unknown>>;
 }
 
+export type QualityCategory =
+  | 'rules' | 'privacy' | 'flow' | 'coherence' | 'personality' | 'reliability';
+
+export interface QualityFinding {
+  id: string;
+  category: QualityCategory;
+  severity: 'error' | 'warning' | 'info';
+  confidence: 'certain' | 'heuristic';
+  title: string;
+  detail: string;
+  event_index?: number;
+  round?: number;
+  player_id?: string;
+}
+
+export interface QualityCheck {
+  category: QualityCategory;
+  label: string;
+  description: string;
+  status: 'passed' | 'warning' | 'failed';
+  finding_count: number;
+}
+
+export interface GameQualityReport {
+  schema_version: number;
+  generated_at: string;
+  status: 'passed' | 'warning' | 'failed';
+  score: number;
+  summary: {
+    error: number;
+    warning: number;
+    info: number;
+    issues: number;
+    observations: number;
+    checks_total: number;
+    checks_passed: number;
+  };
+  metrics: {
+    event_count: number;
+    player_count: number;
+    personality?: {
+      configured_players: number;
+      evaluated_players: number;
+      aligned_players: number;
+      expression_rate?: number | null;
+    };
+    reliability?: {
+      total_calls: number;
+      fallback_calls: number;
+      fallback_rate: number;
+      invalid_response_calls: number;
+      budget_blocked_calls: number;
+      repaired_json_calls: number;
+      total_tokens: number;
+      game_token_budget: number;
+      token_budget_ratio?: number | null;
+    };
+  };
+  checks: QualityCheck[];
+  findings: QualityFinding[];
+}
+
 export interface CreateGameRequest {
   player_configs: PlayerConfig[];
   board_id: string;
@@ -276,6 +338,7 @@ export interface GameResultResponse {
   };
   summary: any;
   ai_review?: GameReview;
+  quality_report?: GameQualityReport;
 }
 
 export interface GameListItem {
@@ -289,6 +352,9 @@ export interface GameListItem {
   series_id?: string;
   series_game_number: number;
   automated_series?: boolean;
+  quality_status?: GameQualityReport['status'];
+  quality_score?: number;
+  quality_issue_count?: number;
 }
 
 export interface ListGamesResponse {

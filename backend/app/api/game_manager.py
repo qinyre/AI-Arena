@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from app.core.orchestrator import GameOrchestrator
 from app.core.models import Role
+from app.core.quality import build_quality_report
 from app.api.schemas import GameReviewContent
 from app.llm.registry import get_registry
 
@@ -73,6 +74,7 @@ class GameManager:
         async with self._lock:
             records = self._load_all()
             interrupted = 0
+            backfilled = 0
             interrupted_series = set()
             for record in records:
                 if record.get("status") in {"initialized", "running", "paused"}:
@@ -84,13 +86,22 @@ class GameManager:
                     interrupted += 1
                     if record.get("series_total_games") and record.get("series_id"):
                         interrupted_series.add(record["series_id"])
+                elif record.get("status") == "completed" and not record.get("quality_report"):
+                    # ponytail: 历史报告只在首次升级启动时线性回填；达到数千局后再做迁移脚本。
+                    report = self._build_quality_for_record(
+                        record,
+                        self.get_events(record.get("game_id", "")) or [],
+                    )
+                    if report:
+                        record["quality_report"] = report
+                        backfilled += 1
             for record in records:
                 if record.get("series_id") in interrupted_series:
                     record.update(
                         series_status="error",
                         series_stop_reason="后端进程已重启，系列赛无法自动恢复",
                     )
-            if interrupted:
+            if interrupted or backfilled:
                 self._write_all(records)
             return interrupted
 
@@ -618,6 +629,19 @@ class GameManager:
                 final_role_assignment,
                 result.get("winner"),
             )
+            llm_metrics = orch.get_model_metrics()
+            record = self._load_record(game_id) or {}
+            quality_report = self._build_quality_for_record(
+                {
+                    **record,
+                    "role_assignment": final_role_assignment,
+                    "winner": result.get("winner"),
+                    "final_round": result.get("final_round"),
+                    "llm_metrics": llm_metrics,
+                    "player_tokens": usage["player_tokens"],
+                },
+                event_records,
+            )
 
             # 更新持久化记录
             update = {
@@ -628,8 +652,9 @@ class GameManager:
                 "reason": result.get("reason"),
                 "duration_seconds": result.get("duration_seconds"),
                 **usage,
-                "llm_metrics": orch.get_model_metrics(),
+                "llm_metrics": llm_metrics,
                 "match_facts": match_facts,
+                "quality_report": quality_report,
                 "summary": result.get("summary"),  # 原本漏存，导致 get_result() 永远返回 null
                 # 终局玩家状态(复盘用)
                 "role_assignment": final_role_assignment,
@@ -752,6 +777,10 @@ class GameManager:
         record = self._load_record(game_id)
         if record is None:
             return None
+        quality_report = record.get("quality_report")
+        if not quality_report and record.get("status") == "completed":
+            events = self.get_events(game_id) or []
+            quality_report = self._build_quality_for_record(record, events)
         return {
             "game_id": game_id,
             "winner": record.get("winner") or "",
@@ -771,7 +800,64 @@ class GameManager:
             "budget_profile": record.get("budget_profile", _BUDGET_PROFILES["standard"]),
             "summary": record.get("summary"),
             "ai_review": record.get("ai_review"),
+            "quality_report": quality_report,
         }
+
+    def _build_quality_for_record(
+        self,
+        record: Dict[str, Any],
+        events: List[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """构建质检报告；质检器自身失败不能把已完成对局改成 error。"""
+        if not events:
+            return None
+        from app.core.werewolf import resolve_board_config
+        try:
+            board = resolve_board_config(
+                record.get("board_id", "5p"),
+                record.get("custom_board"),
+            )
+            return build_quality_report(
+                events=events,
+                role_assignment=record.get("role_assignment", {}),
+                winner=record.get("winner"),
+                final_round=int(record.get("final_round") or 0),
+                llm_metrics=record.get("llm_metrics", {}),
+                player_tokens=record.get("player_tokens", {}),
+                budget_profile=record.get("budget_profile", {}),
+                personality_assignment=record.get("personality_assignment", {}),
+                win_rule=board["win_rule"],
+                max_rounds=int(record.get("max_rounds") or 20),
+            )
+        except Exception as exc:
+            print(f"⚠️ 对局 {record.get('game_id')} 质检失败: {exc}")
+            return {
+                "schema_version": 1,
+                "generated_at": _now_iso(),
+                "status": "failed",
+                "score": 0,
+                "summary": {
+                    "error": 1, "warning": 0, "info": 0,
+                    "issues": 1, "observations": 0,
+                    "checks_total": 1, "checks_passed": 0,
+                },
+                "metrics": {"event_count": len(events)},
+                "checks": [{
+                    "category": "reliability",
+                    "label": "质检运行",
+                    "description": "自动质检器是否完整执行",
+                    "status": "failed",
+                    "finding_count": 1,
+                }],
+                "findings": [{
+                    "id": "reliability-audit-failed-1",
+                    "category": "reliability",
+                    "severity": "error",
+                    "confidence": "certain",
+                    "title": "自动质检未能完成",
+                    "detail": f"质检器内部错误：{str(exc)[:180]}",
+                }],
+            }
 
     async def generate_review(self, game_id: str, model_config: Dict) -> Dict:
         """生成、校验并持久化一局完整的 AI 复盘。"""
@@ -915,6 +1001,11 @@ class GameManager:
                 "series_id": r.get("series_id") or r.get("game_id"),
                 "series_game_number": r.get("series_game_number", 1),
                 "automated_series": bool(r.get("series_total_games")),
+                "quality_status": (r.get("quality_report") or {}).get("status"),
+                "quality_score": (r.get("quality_report") or {}).get("score"),
+                "quality_issue_count": (
+                    (r.get("quality_report") or {}).get("summary", {}).get("issues")
+                ),
             }
             for r in records
         ]

@@ -16,6 +16,7 @@ interface Props {
   status: GameStatusResponse | null;
   onReviewGenerated?: (review: NonNullable<GameResultResponse['ai_review']>) => void;
   onGameCreated?: (gameId: string) => void;
+  qualitySlot?: React.ReactNode;
 }
 
 /** 后端 reason 是蛇形枚举,这里映射成人类可读中文 */
@@ -36,6 +37,7 @@ export default function ResultPanel({
   status,
   onReviewGenerated,
   onGameCreated,
+  qualitySlot,
 }: Props) {
   const [rematchPending, setRematchPending] = useState(false);
   const [rematchError, setRematchError] = useState('');
@@ -226,6 +228,8 @@ export default function ResultPanel({
             </div>
           </div>
         )}
+
+        {qualitySlot}
 
         {factPlayers.length > 0 && (
           <section>

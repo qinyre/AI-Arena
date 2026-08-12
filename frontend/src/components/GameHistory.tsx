@@ -55,6 +55,20 @@ export default function GameHistory({ onViewGame }: Props) {
     return new Date(dateStr).toLocaleString('zh-CN');
   };
 
+  const qualityBadge = (game: GameListItem) => {
+    if (!game.quality_status) return null;
+    const meta = game.quality_status === 'passed'
+      ? { label: '质检通过', className: 'border-emerald-300/25 text-emerald-200' }
+      : game.quality_status === 'failed'
+        ? { label: `${game.quality_issue_count ?? 0} 项漏洞`, className: 'border-red-300/30 text-red-200' }
+        : { label: `${game.quality_issue_count ?? 0} 项风险`, className: 'border-amber-300/30 text-amber-200' };
+    return (
+      <span className={`border px-2 py-0.5 font-label text-[10px] ${meta.className}`}>
+        {meta.label} · {game.quality_score ?? '—'}
+      </span>
+    );
+  };
+
   if (loading) {
     return (
       <div className="max-w-6xl mx-auto">
@@ -112,6 +126,7 @@ export default function GameHistory({ onViewGame }: Props) {
                           {game.automated_series ? 'AI 赛事' : '系列赛'} · 第 {game.series_game_number} 局
                         </p>
                       )}
+                      <div className="mt-2">{qualityBadge(game)}</div>
                     </div>
                     <span className={`shrink-0 rounded px-2 py-1 text-xs font-medium ${status.className}`}>
                       {status.label}
@@ -147,6 +162,7 @@ export default function GameHistory({ onViewGame }: Props) {
                   <th className="text-left py-3 px-4 text-gray-400 font-medium">游戏ID</th>
                   <th className="text-left py-3 px-4 text-gray-400 font-medium">状态</th>
                   <th className="text-left py-3 px-4 text-gray-400 font-medium">系列</th>
+                  <th className="text-left py-3 px-4 text-gray-400 font-medium">自动质检</th>
                   <th className="text-left py-3 px-4 text-gray-400 font-medium">创建时间</th>
                   <th className="text-left py-3 px-4 text-gray-400 font-medium">开始时间</th>
                   <th className="text-left py-3 px-4 text-gray-400 font-medium">完成时间</th>
@@ -168,6 +184,7 @@ export default function GameHistory({ onViewGame }: Props) {
                         ? `AI 赛事 · 第 ${game.series_game_number} 局`
                         : game.series_game_number > 1 ? `第 ${game.series_game_number} 局` : '首局'}
                     </td>
+                    <td className="py-3 px-4">{qualityBadge(game) ?? <span className="text-xs text-ink-muted">待生成</span>}</td>
                     <td className="py-3 px-4 text-sm text-gray-300">{formatDate(game.created_at)}</td>
                     <td className="py-3 px-4 text-sm text-gray-300">{formatDate(game.started_at)}</td>
                     <td className="py-3 px-4 text-sm text-gray-300">{formatDate(game.completed_at)}</td>

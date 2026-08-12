@@ -226,6 +226,47 @@ class GameReview(GameReviewContent):
     generated_at: str
 
 
+class QualityFinding(BaseModel):
+    id: str
+    category: Literal["rules", "privacy", "flow", "coherence", "personality", "reliability"]
+    severity: Literal["error", "warning", "info"]
+    confidence: Literal["certain", "heuristic"]
+    title: str
+    detail: str
+    event_index: Optional[int] = Field(default=None, ge=0)
+    round: Optional[int] = Field(default=None, ge=0)
+    player_id: Optional[str] = None
+
+
+class QualityCheck(BaseModel):
+    category: str
+    label: str
+    description: str
+    status: Literal["passed", "warning", "failed"]
+    finding_count: int = Field(ge=0)
+
+
+class QualitySummary(BaseModel):
+    error: int = Field(ge=0)
+    warning: int = Field(ge=0)
+    info: int = Field(ge=0)
+    issues: int = Field(ge=0)
+    observations: int = Field(ge=0)
+    checks_total: int = Field(ge=0)
+    checks_passed: int = Field(ge=0)
+
+
+class GameQualityReport(BaseModel):
+    schema_version: int = 1
+    generated_at: str
+    status: Literal["passed", "warning", "failed"]
+    score: int = Field(ge=0, le=100)
+    summary: QualitySummary
+    metrics: Dict[str, Any] = Field(default_factory=dict)
+    checks: List[QualityCheck] = Field(default_factory=list)
+    findings: List[QualityFinding] = Field(default_factory=list)
+
+
 class GameResultResponse(BaseModel):
     """GET /api/games/{id}/result 响应（仅 completed 时有意义）。"""
     game_id: str
@@ -246,6 +287,7 @@ class GameResultResponse(BaseModel):
     budget_profile: Dict[str, int] = Field(default_factory=dict)
     summary: Any = None
     ai_review: Optional[GameReview] = None
+    quality_report: Optional[GameQualityReport] = None
 
 
 class GameListItem(BaseModel):
@@ -259,6 +301,9 @@ class GameListItem(BaseModel):
     series_id: Optional[str] = None
     series_game_number: int = 1
     automated_series: bool = False
+    quality_status: Optional[Literal["passed", "warning", "failed"]] = None
+    quality_score: Optional[int] = Field(default=None, ge=0, le=100)
+    quality_issue_count: Optional[int] = Field(default=None, ge=0)
 
 
 class ListGamesResponse(BaseModel):

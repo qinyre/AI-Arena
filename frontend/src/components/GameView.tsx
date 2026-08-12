@@ -15,6 +15,7 @@ import GameHeader from './game/GameHeader';
 import PlayerTable from './game/PlayerTable';
 import EventFeed from './game/EventFeed';
 import ResultPanel from './game/ResultPanel';
+import QualityReportPanel from './game/QualityReportPanel';
 import ActionCinematics from './game/ActionCinematics';
 import ReplayControls from './game/ReplayControls';
 import TheatreControls from './game/TheatreControls';
@@ -49,6 +50,7 @@ export default function GameView({ gameId, onGameCreated }: Props) {
     () => localStorage.getItem('ai-arena:director') !== '0',
   );
   const [eventFilter, setEventFilter] = useState<EventFilter>('all');
+  const [focusEventIndex, setFocusEventIndex] = useState<number | null>(null);
   const isCompleted = status?.status === 'completed';
   const isPaused = status?.status === 'paused';
   const streamRecovering = Boolean(
@@ -63,7 +65,14 @@ export default function GameView({ gameId, onGameCreated }: Props) {
     setReplayCursor(null);
     setGeneratedReview(undefined);
     setEventFilter('all');
+    setFocusEventIndex(null);
   }, [gameId]);
+
+  const locateQualityFinding = (eventIndex: number) => {
+    setEventFilter('all');
+    setReplayCursor(Math.min(events.length, eventIndex + 1));
+    setFocusEventIndex(eventIndex);
+  };
 
   const cursor = isCompleted ? (replayCursor ?? events.length) : events.length;
   const displayEvents = useMemo(
@@ -306,6 +315,7 @@ export default function GameView({ gameId, onGameCreated }: Props) {
             status={displayStatus}
             followPlayback={isCompleted}
             eventFilter={isCompleted ? eventFilter : 'all'}
+            focusEventIndex={focusEventIndex}
           />
         </main>
 
@@ -329,6 +339,12 @@ export default function GameView({ gameId, onGameCreated }: Props) {
           status={status}
           onReviewGenerated={setGeneratedReview}
           onGameCreated={onGameCreated}
+          qualitySlot={result?.quality_report && (
+            <QualityReportPanel
+              report={result.quality_report}
+              onLocateEvent={locateQualityFinding}
+            />
+          )}
         />
       )}
     </div>

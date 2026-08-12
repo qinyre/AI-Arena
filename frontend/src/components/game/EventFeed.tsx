@@ -12,6 +12,7 @@ import TimelineEvent from './TimelineEvent';
 import { isPhaseChange, isWerewolfKill } from '../../types/api';
 import type { GameEvent, GameStatusResponse, RoundData, WerewolfKillEvent } from '../../types/api';
 import { eventMatchesFilter, type EventFilter } from './gameDirector';
+import { cn } from '../../utils/cn';
 
 interface Props {
   events: GameEvent[];
@@ -19,6 +20,7 @@ interface Props {
   status: GameStatusResponse | null;
   followPlayback?: boolean;
   eventFilter?: EventFilter;
+  focusEventIndex?: number | null;
 }
 
 function phaseMeta(phase: string): { label: string; symbol: string } {
@@ -47,6 +49,7 @@ export default function EventFeed({
   status,
   followPlayback = false,
   eventFilter = 'all',
+  focusEventIndex = null,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const userScrolledUp = useRef(false);
@@ -80,6 +83,20 @@ export default function EventFeed({
     el.scrollTop = el.scrollHeight;
   }, [events.length, followPlayback]);
 
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || focusEventIndex == null) return;
+    const target = document.getElementById(`timeline-event-${focusEventIndex}`);
+    if (!target || !container.contains(target)) return;
+    const containerBox = container.getBoundingClientRect();
+    const targetBox = target.getBoundingClientRect();
+    container.scrollTo({
+      top: container.scrollTop + targetBox.top - containerBox.top - container.clientHeight / 2,
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+    });
+    userScrolledUp.current = true;
+  }, [events.length, focusEventIndex]);
+
   const returnToLatest = () => {
     const el = containerRef.current;
     if (!el) return;
@@ -93,7 +110,9 @@ export default function EventFeed({
 
   const roleAssignment = status?.role_assignment;
   const avatarAssignment = status?.avatar_assignment;
-  const filteredEvents = events.filter((event) => eventMatchesFilter(event, eventFilter));
+  const filteredEvents = events
+    .map((event, sourceIndex) => ({ event, sourceIndex }))
+    .filter(({ event }) => eventMatchesFilter(event, eventFilter));
 
   return (
     <div className="h-full flex flex-col">
@@ -139,7 +158,7 @@ export default function EventFeed({
             <div className="timeline-line" />
 
             {/* 事件流 */}
-            {filteredEvents.map((e, idx) => {
+            {filteredEvents.map(({ event: e, sourceIndex }, idx) => {
               // phase_change → 阶段分隔条
               if (isPhaseChange(e)) {
                 const meta = phaseMeta(e.data.to);
@@ -149,8 +168,12 @@ export default function EventFeed({
                 const candidates: string[] = e.data.candidates || [];
                 return (
                   <div
-                    key={idx}
-                    className="relative z-10 flex items-center gap-2 my-2.5 px-2 flex-wrap"
+                    key={sourceIndex}
+                    id={`timeline-event-${sourceIndex}`}
+                    className={cn(
+                      'relative z-10 flex items-center gap-2 my-2.5 px-2 flex-wrap',
+                      sourceIndex === focusEventIndex && 'timeline-quality-focus',
+                    )}
                   >
                     <span
                       className="material-symbols-outlined text-[16px]"
@@ -182,34 +205,49 @@ export default function EventFeed({
               }
 
               if (isWerewolfKill(e)) {
-                if (idx > 0 && isWerewolfKill(filteredEvents[idx - 1])) return null;
+                if (idx > 0 && isWerewolfKill(filteredEvents[idx - 1].event)) return null;
                 const wolfKillEvents: WerewolfKillEvent[] = [];
-                for (let i = idx; i < filteredEvents.length && isWerewolfKill(filteredEvents[i]); i += 1) {
-                  wolfKillEvents.push(filteredEvents[i] as WerewolfKillEvent);
+                const wolfKillIndexes: number[] = [];
+                for (let i = idx; i < filteredEvents.length && isWerewolfKill(filteredEvents[i].event); i += 1) {
+                  wolfKillEvents.push(filteredEvents[i].event as WerewolfKillEvent);
+                  wolfKillIndexes.push(filteredEvents[i].sourceIndex);
                 }
                 return (
-                  <TimelineEvent
-                    key={idx}
-                    event={e}
-                    wolfKillEvents={wolfKillEvents}
-                    rounds={rounds}
-                    roleAssignment={roleAssignment}
-                    avatarAssignment={avatarAssignment}
-                    index={idx}
-                  />
+                  <div
+                    key={sourceIndex}
+                    id={`timeline-event-${sourceIndex}`}
+                    className={cn(wolfKillIndexes.includes(focusEventIndex ?? -1) && 'timeline-quality-focus')}
+                  >
+                    {wolfKillIndexes.slice(1).map((eventIndex) => (
+                      <span key={eventIndex} id={`timeline-event-${eventIndex}`} aria-hidden="true" />
+                    ))}
+                    <TimelineEvent
+                      event={e}
+                      wolfKillEvents={wolfKillEvents}
+                      rounds={rounds}
+                      roleAssignment={roleAssignment}
+                      avatarAssignment={avatarAssignment}
+                      index={sourceIndex}
+                    />
+                  </div>
                 );
               }
 
               // 其余事件 → 时间线条目
               return (
-                <TimelineEvent
-                  key={idx}
-                  event={e}
-                  rounds={rounds}
-                  roleAssignment={roleAssignment}
-                  avatarAssignment={avatarAssignment}
-                  index={idx}
-                />
+                <div
+                  key={sourceIndex}
+                  id={`timeline-event-${sourceIndex}`}
+                  className={cn(sourceIndex === focusEventIndex && 'timeline-quality-focus')}
+                >
+                  <TimelineEvent
+                    event={e}
+                    rounds={rounds}
+                    roleAssignment={roleAssignment}
+                    avatarAssignment={avatarAssignment}
+                    index={sourceIndex}
+                  />
+                </div>
               );
             })}
 

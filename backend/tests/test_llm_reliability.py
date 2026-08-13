@@ -4,6 +4,7 @@ from app.core.agent import AIAgent
 from app.api.game_manager import GameManager
 from app.core.orchestrator import GameOrchestrator
 from app.llm.client import parse_json_response
+from app.llm.openai_client import OpenAICompatibleClient
 
 
 SPEAK_ACTIONS = [{
@@ -15,6 +16,68 @@ SPEAK_ACTIONS = [{
         "claim_role": {"enum": ["none"]},
     },
 }]
+
+
+def test_step_37_uses_compact_reasoning_without_affecting_other_models(monkeypatch):
+    captured = []
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            captured.append(kwargs)
+            usage = type("Usage", (), {
+                "prompt_tokens": 10,
+                "completion_tokens": 10,
+                "total_tokens": 20,
+            })()
+            message = type("Message", (), {"content": '{"ok":true}'})()
+            choice = type("Choice", (), {
+                "message": message,
+                "finish_reason": "stop",
+            })()
+            return type("Response", (), {
+                "usage": usage,
+                "choices": [choice],
+                "model": kwargs["model"],
+            })()
+
+    async def run():
+        for model in ("step-3.7-flash", "other-model"):
+            client = OpenAICompatibleClient("key", model, "https://example.com/v1")
+            monkeypatch.setattr(client.client.chat, "completions", FakeCompletions())
+            await client.generate("test")
+
+    asyncio.run(run())
+
+    assert captured[0]["reasoning_effort"] == "low"
+    assert "extra_body" not in captured[0]
+    assert "reasoning_effort" not in captured[1]
+    assert "extra_body" not in captured[1]
+
+
+def test_step_37_gets_enough_output_budget_without_affecting_other_models(monkeypatch):
+    monkeypatch.setattr(
+        GameOrchestrator,
+        "_create_client",
+        lambda *_args: FakeClient(),
+    )
+
+    async def limits():
+        orchestrator = GameOrchestrator("step-limit", {
+            "players": ["AI-1", "AI-2"],
+            "model_configs": {
+                "AI-1": {"provider": "custom", "model": "step-3.7-flash"},
+                "AI-2": {"provider": "custom", "model": "other-model"},
+            },
+            "ai_max_output_tokens": 1800,
+        })
+        monkeypatch.setattr(orchestrator.game, "initialize", lambda *_args: None)
+        await orchestrator.initialize()
+        return {
+            player: agent.max_output_tokens
+            for player, agent in orchestrator.agents.items()
+        }
+
+    assert asyncio.run(limits()) == {"AI-1": 8192, "AI-2": 1800}
 
 
 class FakeClient:
@@ -115,6 +178,78 @@ def test_agent_uses_compact_state_and_configured_output_limit():
     assert "current_stances" in client.kwargs["prompt"]
     assert "2026-08-10T00:00:00" not in client.kwargs["prompt"]
     assert agent.last_decision_metrics["json_repaired"] is True
+
+
+def test_sheriff_summary_uses_intended_vote_when_target_is_omitted():
+    agent = AIAgent("AI-1", FakeClient())
+    actions = [{
+        "action_type": "speak",
+        "target_required": True,
+        "valid_targets": ["AI-2", "AI-3"],
+        "parameters": {
+            "content": {"type": "string"},
+            "claim_role": {"enum": ["none"]},
+            "intended_vote": {"enum": [None, "AI-2", "AI-3"]},
+        },
+    }]
+
+    action, ok, reason = agent._build_action({
+        "chosen_action": {
+            "action_type": "speak",
+            "target": None,
+            "parameters": {
+                "content": "归票AI-3。",
+                "claim_role": "none",
+                "intended_vote": "AI-3",
+            },
+        },
+        "reasoning": "AI-3发言矛盾。",
+    }, actions, minimal_state())
+
+    assert ok and reason == ""
+    assert action.target_id == "AI-3"
+
+
+def test_nested_reasoning_is_preserved_when_top_level_is_omitted():
+    agent = AIAgent("AI-1", FakeClient())
+    actions = [{
+        "action_type": "abstain",
+        "target_required": False,
+        "valid_targets": [],
+        "parameters": {"reasoning": {"type": "string"}},
+    }]
+
+    action, ok, reason = agent._build_action({
+        "chosen_action": {
+            "action_type": "abstain",
+            "target": None,
+            "parameters": {"reasoning": "信息不足，暂不跟票。"},
+        },
+    }, actions, minimal_state())
+
+    assert ok and reason == ""
+    assert action.parameters["reasoning"] == "信息不足，暂不跟票。"
+
+
+def test_pass_discards_irrelevant_target_from_compatible_model():
+    agent = AIAgent("AI-1", FakeClient())
+    actions = [{
+        "action_type": "pass",
+        "target_required": False,
+        "valid_targets": [],
+        "parameters": {"reasoning": {"type": "string"}},
+    }]
+
+    action, ok, reason = agent._build_action({
+        "chosen_action": {
+            "action_type": "pass",
+            "target": "AI-12",
+            "parameters": {"reasoning": "队友已经覆盖了当前判断。"},
+        },
+    }, actions, minimal_state())
+
+    assert ok and reason == ""
+    assert action.target_id is None
 
 
 def test_player_budget_and_round_circuit_breaker_skip_paid_calls():
@@ -387,7 +522,7 @@ def test_repeated_wolf_chat_becomes_pass_but_new_target_is_kept():
     changed, changed_ok, changed_reason = agent._build_action({
         "chosen_action": {
             "action_type": "wolf_speak",
-            "target": None,
+            "target": "AI-8",
             "parameters": {"content": "改刀AI-8，他刚刚暴露了女巫视角。"},
         },
         "reasoning": "提出新的刀口。",
@@ -397,6 +532,30 @@ def test_repeated_wolf_chat_becomes_pass_but_new_target_is_kept():
     assert repeated.action_type.value == "pass"
     assert changed_ok and changed_reason == ""
     assert changed.action_type.value == "wolf_speak"
+    assert changed.target_id is None
+
+
+def test_vote_and_sheriff_summary_prompts_require_legal_targets():
+    agent = AIAgent("AI-1", FakeClient())
+    state = minimal_state()
+    state["phase"] = "voting"
+
+    vote_prompt = agent._build_action_prompt(state, [{
+        "action_type": "vote",
+        "target_required": True,
+        "valid_targets": ["AI-2", "AI-3"],
+    }])
+
+    state["phase"] = "sheriff_summary"
+    summary_prompt = agent._build_action_prompt(state, [{
+        "action_type": "speak",
+        "target_required": True,
+        "valid_targets": ["AI-2", "AI-3"],
+    }])
+
+    assert "绝不能投自己" in vote_prompt
+    assert "target 必填且不能为 null" in summary_prompt
+    assert "intended_vote 应与 target 保持一致" in summary_prompt
 
 
 def test_normal_tiebreak_prompts_explain_pk_rules():

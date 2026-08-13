@@ -123,7 +123,7 @@ export default function GameHistory({ onViewGame }: Props) {
                       <p className="mt-1 text-xs text-ink-muted">创建于 {formatDate(game.created_at)}</p>
                       {(game.automated_series || game.series_game_number > 1) && (
                         <p className="mt-1 font-label text-[10px] text-[#c4b5fd]/60">
-                          {game.automated_series ? 'AI 赛事' : '系列赛'} · 第 {game.series_game_number} 局
+                          {game.prompt_experiment ? '提示词实验' : game.automated_series ? 'AI 赛事' : '系列赛'} · 第 {game.series_game_number} 局
                         </p>
                       )}
                       <div className="mt-2">{qualityBadge(game)}</div>
@@ -180,7 +180,9 @@ export default function GameHistory({ onViewGame }: Props) {
                       </span>
                     </td>
                     <td className="py-3 px-4 text-sm text-gray-300">
-                      {game.automated_series
+                      {game.prompt_experiment
+                        ? `提示词实验 · 第 ${game.series_game_number} 局`
+                        : game.automated_series
                         ? `AI 赛事 · 第 ${game.series_game_number} 局`
                         : game.series_game_number > 1 ? `第 ${game.series_game_number} 局` : '首局'}
                     </td>

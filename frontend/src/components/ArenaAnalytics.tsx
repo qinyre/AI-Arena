@@ -49,7 +49,7 @@ export default function ArenaAnalytics() {
             <p className="font-label text-[9px] uppercase tracking-[0.26em] text-[#c4b5fd]/60">Arena intelligence</p>
             <h2 className="mt-1 font-display text-2xl text-paper">模型与性格战绩</h2>
             <p className="mt-1 max-w-2xl text-xs leading-relaxed text-ink-muted">
-              胜率、调用量与降级率全部由已结束对局聚合；同一模型在不同席位会分别计入一次出场。
+              胜率、行为分、调用量与降级率全部由已结束对局聚合；同一模型在不同席位会分别计入一次出场。
               排名优先使用板型、阵营与角色细分样本等权后的分层胜率；历史结果不代表模型的绝对实力。
             </p>
           </div>
@@ -171,11 +171,13 @@ function PerformanceTable({
         </div>
       ) : (
         <div className="custom-scrollbar overflow-x-auto">
-          <table className="w-full min-w-[610px] border-collapse">
+          <table className="w-full min-w-[760px] border-collapse">
             <thead className="border-b border-white/10 font-label text-[9px] uppercase tracking-[0.13em] text-ink-muted">
               <tr>
                 <th className="pb-2 text-left font-normal">排名 / 样本</th>
                 <th className="pb-2 text-center font-normal">分层胜率</th>
+                <th className="pb-2 text-right font-normal">行为分</th>
+                <th className="pb-2 text-right font-normal">Token / 有效</th>
                 <th className="pb-2 text-right font-normal">调用</th>
                 <th className="pb-2 text-right font-normal">Tokens</th>
                 <th className="pb-2 text-right font-normal">降级率</th>
@@ -210,6 +212,12 @@ function PerformanceTable({
                       <span className="mt-1 block h-1 overflow-hidden bg-white/[0.06]">
                         <span className="block h-full bg-antique-gold" style={{ width: `${rankedWinRate}%` }} />
                       </span>
+                    </td>
+                    <td className="px-2 py-3 text-right font-display text-base text-sky-200/80">
+                      {row.behavior?.score?.toFixed(1) ?? '—'}
+                    </td>
+                    <td className="px-2 py-3 text-right font-label text-xs text-paper/65">
+                      {row.behavior?.tokens_per_effective_decision?.toLocaleString(undefined, { maximumFractionDigits: 0 }) ?? '—'}
                     </td>
                     <td className="px-2 py-3 text-right font-label text-xs text-paper/65">{row.calls.toLocaleString()}</td>
                     <td className="px-2 py-3 text-right font-label text-xs text-paper/65">{row.tokens.toLocaleString()}</td>

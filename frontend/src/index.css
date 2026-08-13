@@ -126,6 +126,8 @@ h3,
 
 .nav-tab {
   position: relative;
+  flex: none;
+  white-space: nowrap;
   border: 0;
   border-bottom: 2px solid transparent;
   padding: 0.8rem 1.25rem;
@@ -422,6 +424,15 @@ h3,
 :where(button, a, input, select, textarea, [tabindex]):focus-visible {
   outline: 2px solid #d7bd8b;
   outline-offset: 2px;
+}
+
+select {
+  color-scheme: dark;
+}
+
+select option {
+  color: var(--on-surface);
+  background: var(--container-high);
 }
 
 @layer components {

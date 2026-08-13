@@ -22,6 +22,12 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from app.core.orchestrator import GameOrchestrator
 from app.core.models import Role
+from app.core.behavior import (
+    build_behavior_report,
+    empty_behavior_counters,
+    merge_behavior_counters,
+    summarize_behavior,
+)
 from app.core.quality import build_quality_report
 from app.api.schemas import GameReviewContent
 from app.llm.registry import get_registry
@@ -86,14 +92,26 @@ class GameManager:
                     interrupted += 1
                     if record.get("series_total_games") and record.get("series_id"):
                         interrupted_series.add(record["series_id"])
-                elif record.get("status") == "completed" and not record.get("quality_report"):
+                elif record.get("status") == "completed" and (
+                    not record.get("quality_report") or not record.get("behavior_report")
+                ):
                     # ponytail: 历史报告只在首次升级启动时线性回填；达到数千局后再做迁移脚本。
-                    report = self._build_quality_for_record(
-                        record,
-                        self.get_events(record.get("game_id", "")) or [],
+                    events = self.get_events(record.get("game_id", "")) or []
+                    report = record.get("quality_report") or self._build_quality_for_record(
+                        record, events,
                     )
-                    if report:
+                    changed = False
+                    if report and not record.get("quality_report"):
                         record["quality_report"] = report
+                        changed = True
+                    if events and not record.get("behavior_report"):
+                        record["behavior_report"] = build_behavior_report(
+                            events=events,
+                            role_assignment=record.get("role_assignment", {}),
+                            quality_report=report,
+                        )
+                        changed = True
+                    if changed:
                         backfilled += 1
             for record in records:
                 if record.get("series_id") in interrupted_series:
@@ -124,6 +142,7 @@ class GameManager:
         series_base_seed: Optional[int] = None,
         series_max_total_tokens: Optional[int] = None,
         game_token_budget_override: Optional[int] = None,
+        prompt_experiment: Optional[Dict[str, Any]] = None,
     ) -> Dict:
         """
         创建并启动一局游戏。
@@ -269,6 +288,7 @@ class GameManager:
             "series_max_total_tokens": series_max_total_tokens,
             "series_status": "running" if series_total_games else None,
             "source_game_id": parent_game_id,
+            "prompt_experiment": prompt_experiment,
             "budget_tier": budget_tier,
             "budget_profile": budget_profile,
             "sheriff_enabled": enable_sheriff,
@@ -326,9 +346,115 @@ class GameManager:
 
         series_id = f"series-{uuid.uuid4().hex[:8]}"
         base_seed = base_seed if base_seed is not None else uuid.uuid4().int & 0x7FFFFFFF
+        plan = [
+            {
+                "player_configs": _rotate_player_configs(
+                    player_configs, game_index % seat_count,
+                ),
+                "seed": base_seed + game_index // seat_count,
+                "prompt_experiment": None,
+            }
+            for game_index in range(game_count)
+        ]
+        await self._start_series(
+            series_id=series_id,
+            plan=plan,
+            base_seed=base_seed,
+            board_id=board_id,
+            custom_board=custom_board,
+            enable_sheriff=enable_sheriff,
+            budget_tier=budget_tier,
+            max_rounds=max_rounds,
+            max_total_tokens=max_total_tokens,
+        )
+        return self.get_series(series_id)
+
+    async def create_prompt_experiment(
+        self,
+        player_configs: List[Dict],
+        variants: List[Dict],
+        pair_count: int,
+        base_seed: Optional[int] = None,
+        board_id: str = "5p",
+        custom_board: Optional[Dict] = None,
+        enable_sheriff: bool = False,
+        budget_tier: str = "economy",
+        max_rounds: int = 20,
+        max_total_tokens: Optional[int] = None,
+    ) -> Dict:
+        """创建同种子、同席位、提示词互换的镜像交叉实验。"""
+        seat_count = len(player_configs)
+        if not seat_count or not 1 <= pair_count <= 24 or pair_count % seat_count:
+            raise ValueError(
+                f"公平实验必须完成整轮席位轮换；{seat_count} 个席位时，"
+                f"配对数必须是 {seat_count} 的整数倍"
+            )
+        variants_by_id = {str(variant.get("id")): variant for variant in variants}
+        if set(variants_by_id) != {"A", "B"} or len(variants) != 2:
+            raise ValueError("提示词实验必须各提供一个 A 版和 B 版")
+        if len({str(variant.get("instructions", "")).strip() for variant in variants}) != 2:
+            raise ValueError("A/B 的策略增量必须不同")
+        if max_total_tokens is not None and max_total_tokens < 1:
+            raise ValueError("实验 Token 上限必须大于 0")
+
+        experiment_id = f"experiment-{uuid.uuid4().hex[:8]}"
+        base_seed = base_seed if base_seed is not None else uuid.uuid4().int & 0x7FFFFFFF
+        ordered_variants = [variants_by_id["A"], variants_by_id["B"]]
+        plan: List[Dict[str, Any]] = []
+        for pair_index in range(pair_count):
+            rotated = _rotate_player_configs(
+                player_configs, pair_index % seat_count,
+            )
+            for mirror in range(2):
+                configured = [
+                    {
+                        **config,
+                        "prompt_variant": ordered_variants[(seat_index + mirror) % 2],
+                    }
+                    for seat_index, config in enumerate(rotated)
+                ]
+                plan.append({
+                    "player_configs": configured,
+                    "seed": base_seed + pair_index // seat_count,
+                    "prompt_experiment": {
+                        "pair_index": pair_index + 1,
+                        "pair_count": pair_count,
+                        "seat_count": seat_count,
+                        "mirror": "AB" if mirror == 0 else "BA",
+                        "variants": ordered_variants,
+                    },
+                })
+
+        await self._start_series(
+            series_id=experiment_id,
+            plan=plan,
+            base_seed=base_seed,
+            board_id=board_id,
+            custom_board=custom_board,
+            enable_sheriff=enable_sheriff,
+            budget_tier=budget_tier,
+            max_rounds=max_rounds,
+            max_total_tokens=max_total_tokens,
+        )
+        return self.get_prompt_experiment(experiment_id)
+
+    async def _start_series(
+        self,
+        *,
+        series_id: str,
+        plan: List[Dict[str, Any]],
+        base_seed: int,
+        board_id: str,
+        custom_board: Optional[Dict],
+        enable_sheriff: bool,
+        budget_tier: str,
+        max_rounds: int,
+        max_total_tokens: Optional[int],
+    ) -> None:
+        first_spec = plan[0]
         first = await self.create_game(
-            player_configs=_rotate_player_configs(player_configs, 0),
-            seed=base_seed,
+            player_configs=first_spec["player_configs"],
+            seed=first_spec["seed"],
             board_id=board_id,
             custom_board=custom_board,
             enable_sheriff=enable_sheriff,
@@ -336,17 +462,17 @@ class GameManager:
             max_rounds=max_rounds,
             series_id_override=series_id,
             series_game_number_override=1,
-            series_total_games=game_count,
+            series_total_games=len(plan),
             series_base_seed=base_seed,
             series_max_total_tokens=max_total_tokens,
             game_token_budget_override=max_total_tokens,
+            prompt_experiment=first_spec.get("prompt_experiment"),
         )
         self._series_current[series_id] = first["game_id"]
         self._series_tasks[series_id] = asyncio.create_task(self._run_series(
             series_id=series_id,
-            player_configs=player_configs,
+            plan=plan,
             first_game_id=first["game_id"],
-            game_count=game_count,
             base_seed=base_seed,
             board_id=board_id,
             custom_board=custom_board,
@@ -355,15 +481,13 @@ class GameManager:
             max_rounds=max_rounds,
             max_total_tokens=max_total_tokens,
         ))
-        return self.get_series(series_id)
 
     async def _run_series(
         self,
         *,
         series_id: str,
-        player_configs: List[Dict],
+        plan: List[Dict[str, Any]],
         first_game_id: str,
-        game_count: int,
         base_seed: int,
         board_id: str,
         custom_board: Optional[Dict],
@@ -374,6 +498,7 @@ class GameManager:
     ) -> None:
         """等待当前局结束后才创建下一局，避免并发消耗额度。"""
         game_id = first_game_id
+        game_count = len(plan)
         try:
             for game_index in range(game_count):
                 if game_index:
@@ -391,12 +516,10 @@ class GameManager:
                             reason="已达到系列赛 Token 上限",
                         )
                         return
-                    seat_count = len(player_configs)
+                    spec = plan[game_index]
                     created = await self.create_game(
-                        player_configs=_rotate_player_configs(
-                            player_configs, game_index % seat_count
-                        ),
-                        seed=base_seed + game_index // seat_count,
+                        player_configs=spec["player_configs"],
+                        seed=spec["seed"],
                         board_id=board_id,
                         custom_board=custom_board,
                         enable_sheriff=enable_sheriff,
@@ -408,6 +531,7 @@ class GameManager:
                         series_base_seed=base_seed,
                         series_max_total_tokens=max_total_tokens,
                         game_token_budget_override=remaining,
+                        prompt_experiment=spec.get("prompt_experiment"),
                     )
                     game_id = created["game_id"]
                     self._series_current[series_id] = game_id
@@ -530,10 +654,51 @@ class GameManager:
                     "seed": game.get("seed"),
                     "tokens": sum(game.get("player_tokens", {}).values()),
                     "cost": game.get("total_cost", 0.0),
+                    "experiment_pair": (game.get("prompt_experiment") or {}).get("pair_index"),
+                    "experiment_mirror": (game.get("prompt_experiment") or {}).get("mirror"),
                 }
                 for game in games
             ],
         }
+
+    def get_prompt_experiment(self, experiment_id: str) -> Dict:
+        records = [
+            record for record in self._load_all()
+            if record.get("series_id") == experiment_id
+            and record.get("prompt_experiment")
+        ]
+        if not records:
+            raise LookupError(f"提示词实验 {experiment_id} 不存在")
+        records.sort(key=lambda item: int(item.get("series_game_number", 1)))
+        metadata = records[0]["prompt_experiment"]
+        pair_count = int(metadata.get("pair_count") or 0)
+        pairs: Dict[int, List[Dict[str, Any]]] = {}
+        for record in records:
+            pair_index = int((record.get("prompt_experiment") or {}).get("pair_index") or 0)
+            pairs.setdefault(pair_index, []).append(record)
+        complete_records = [
+            record
+            for pair_records in pairs.values()
+            if len(pair_records) == 2
+            and all(item.get("status") == "completed" for item in pair_records)
+            for record in pair_records
+        ]
+        snapshot = self.get_series(experiment_id)
+        snapshot.update({
+            "pair_count": pair_count,
+            "completed_pairs": len(complete_records) // 2,
+            "seat_count": int(metadata.get("seat_count") or 0),
+            "variants": metadata.get("variants", []),
+            "report": _build_prompt_experiment_report(
+                complete_records,
+                variants=metadata.get("variants", []),
+                completed_pairs=len(complete_records) // 2,
+                pair_count=pair_count,
+                seat_count=int(metadata.get("seat_count") or 0),
+                series_status=snapshot["status"],
+            ),
+        })
+        return snapshot
 
     async def stop_series(self, series_id: str) -> Dict:
         """阻止创建后续局，并尽力取消当前局。"""
@@ -642,6 +807,11 @@ class GameManager:
                 },
                 event_records,
             )
+            behavior_report = build_behavior_report(
+                events=event_records,
+                role_assignment=final_role_assignment,
+                quality_report=quality_report,
+            )
 
             # 更新持久化记录
             update = {
@@ -655,6 +825,7 @@ class GameManager:
                 "llm_metrics": llm_metrics,
                 "match_facts": match_facts,
                 "quality_report": quality_report,
+                "behavior_report": behavior_report,
                 "summary": result.get("summary"),  # 原本漏存，导致 get_result() 永远返回 null
                 # 终局玩家状态(复盘用)
                 "role_assignment": final_role_assignment,
@@ -778,9 +949,18 @@ class GameManager:
         if record is None:
             return None
         quality_report = record.get("quality_report")
+        behavior_report = record.get("behavior_report")
         if not quality_report and record.get("status") == "completed":
             events = self.get_events(game_id) or []
             quality_report = self._build_quality_for_record(record, events)
+        if not behavior_report and record.get("status") == "completed":
+            events = self.get_events(game_id) or []
+            if events:
+                behavior_report = build_behavior_report(
+                    events=events,
+                    role_assignment=record.get("role_assignment", {}),
+                    quality_report=quality_report,
+                )
         return {
             "game_id": game_id,
             "winner": record.get("winner") or "",
@@ -801,6 +981,7 @@ class GameManager:
             "summary": record.get("summary"),
             "ai_review": record.get("ai_review"),
             "quality_report": quality_report,
+            "behavior_report": behavior_report or {},
         }
 
     def _build_quality_for_record(
@@ -1001,6 +1182,7 @@ class GameManager:
                 "series_id": r.get("series_id") or r.get("game_id"),
                 "series_game_number": r.get("series_game_number", 1),
                 "automated_series": bool(r.get("series_total_games")),
+                "prompt_experiment": bool(r.get("prompt_experiment")),
                 "quality_status": (r.get("quality_report") or {}).get("status"),
                 "quality_score": (r.get("quality_report") or {}).get("score"),
                 "quality_issue_count": (
@@ -1247,6 +1429,7 @@ def _sanitize_player_configs(player_configs: List[Dict]) -> List[Dict]:
         "base_url",
         "key_env",
         "personality",
+        "prompt_variant",
     }
     return [
         {
@@ -1273,6 +1456,155 @@ def _rotate_player_configs(player_configs: List[Dict], offset: int) -> List[Dict
     ]
 
 
+def _build_prompt_experiment_report(
+    records: List[Dict[str, Any]],
+    *,
+    variants: List[Dict[str, Any]],
+    completed_pairs: int,
+    pair_count: int,
+    seat_count: int,
+    series_status: str,
+) -> Dict[str, Any]:
+    """Only complete mirror pairs enter the comparison, preventing half-pair bias."""
+    buckets: Dict[str, Dict[str, Any]] = {
+        str(variant.get("id")): {
+            "id": str(variant.get("id")),
+            "name": str(variant.get("name") or variant.get("id")),
+            "instructions": str(variant.get("instructions") or ""),
+            "appearances": 0,
+            "wins": 0,
+            "calls": 0,
+            "tokens": 0,
+            "fallbacks": 0,
+            "_games": set(),
+            "_segments": {},
+            "_behavior": empty_behavior_counters(),
+        }
+        for variant in variants
+    }
+    wolf_roles = {"werewolf", "white_wolf_king", "wolf_king", "wolf_beauty"}
+
+    for record in records:
+        roles = record.get("role_assignment", {})
+        winner = record.get("winner")
+        player_behavior = record.get("behavior_report", {}).get("players", {})
+        player_tokens = record.get("player_tokens", {})
+        by_player = record.get("llm_metrics", {}).get("by_player", {})
+        for config in record.get("replay_config", {}).get("players", []):
+            player_id = config.get("player_id")
+            variant = config.get("prompt_variant") or {}
+            bucket = buckets.get(str(variant.get("id")))
+            role = roles.get(player_id)
+            if not bucket or not player_id or not role:
+                continue
+            faction = "werewolf" if role in wolf_roles else "good"
+            won = winner == faction
+            metrics = by_player.get(player_id, {})
+            bucket["appearances"] += 1
+            bucket["wins"] += int(won)
+            bucket["calls"] += int(metrics.get("calls", 0))
+            bucket["tokens"] += max(
+                int(metrics.get("tokens", 0)), int(player_tokens.get(player_id, 0)),
+            )
+            bucket["fallbacks"] += int(metrics.get("fallbacks", 0))
+            bucket["_games"].add(record.get("game_id"))
+            merge_behavior_counters(
+                bucket["_behavior"], player_behavior.get(player_id),
+            )
+            segment_key = (record.get("board_id") or "unknown", faction, role)
+            segment = bucket["_segments"].setdefault(
+                segment_key, {"appearances": 0, "wins": 0},
+            )
+            segment["appearances"] += 1
+            segment["wins"] += int(won)
+
+    arms = []
+    for variant in variants:
+        bucket = buckets[str(variant.get("id"))]
+        segments = [
+            round(segment["wins"] / segment["appearances"] * 100, 1)
+            for segment in bucket["_segments"].values()
+            if segment["appearances"]
+        ]
+        appearances = bucket["appearances"]
+        balanced = round(sum(segments) / len(segments), 1) if segments else 0.0
+        behavior = summarize_behavior(
+            bucket["_behavior"],
+            tokens=bucket["tokens"],
+            balanced_win_rate=balanced if appearances else None,
+        )
+        arms.append({
+            **{
+                key: value for key, value in bucket.items()
+                if key not in {"_games", "_segments", "_behavior"}
+            },
+            "games": len(bucket["_games"]),
+            "win_rate": round(bucket["wins"] / appearances * 100, 1) if appearances else 0.0,
+            "balanced_win_rate": balanced,
+            "fallback_rate": round(
+                bucket["fallbacks"] / bucket["calls"] * 100, 1,
+            ) if bucket["calls"] else 0.0,
+            "behavior": behavior,
+        })
+
+    complete_rotation = completed_pairs >= seat_count > 0
+    scores = [arm["behavior"].get("score") for arm in arms]
+    delta = (
+        round(float(scores[1]) - float(scores[0]), 1)
+        if len(scores) == 2 and all(score is not None for score in scores)
+        else None
+    )
+    winner = None
+    if complete_rotation and delta is not None:
+        winner = "tie" if abs(delta) < 2 else (arms[1]["id"] if delta > 0 else arms[0]["id"])
+    if not complete_rotation:
+        report_status = "collecting" if series_status in {"running", "pending"} else "inconclusive"
+        verdict = f"至少完成 {seat_count} 个镜像配对后才形成整轮席位样本。"
+    elif winner == "tie":
+        report_status = "ready"
+        verdict = "两个版本的综合行为分差小于 2 分，当前视为持平。"
+    else:
+        report_status = "ready"
+        leader = next((arm for arm in arms if arm["id"] == winner), None)
+        verdict = f"{leader['name']} 当前领先；建议增加一轮席位样本验证稳定性。"
+
+    metric_keys = (
+        "score", "vote_accuracy", "skill_value_rate", "speech_repeat_rate",
+        "stance_reversal_rate", "identity_leak_rate", "wolf_coordination",
+        "effective_decision_rate", "tokens_per_effective_decision",
+    )
+    deltas = {}
+    if len(arms) == 2:
+        for key in metric_keys:
+            left = arms[0]["behavior"].get(key)
+            right = arms[1]["behavior"].get(key)
+            deltas[key] = (
+                round(float(right) - float(left), 1)
+                if left is not None and right is not None else None
+            )
+        deltas["balanced_win_rate"] = round(
+            arms[1]["balanced_win_rate"] - arms[0]["balanced_win_rate"], 1,
+        )
+
+    return {
+        "status": report_status,
+        "winner": winner,
+        "verdict": verdict,
+        "score_delta": delta,
+        "completed_pairs": completed_pairs,
+        "pair_count": pair_count,
+        "complete_rotation": complete_rotation,
+        "arms": arms,
+        "deltas": deltas,
+        "methodology": (
+            "仅纳入已完成的镜像配对；A/B 在同一模型、性格、身份、席位和种子上互换。"
+            "综合分权重为平衡胜率 25、投票 15、技能 15、连贯性 15、身份隔离 10、"
+            "狼队协作 15、决策效率 5；无样本项不计并按现有权重归一。"
+            "重复、立场反复与身份泄露为启发式文本指标。"
+        ),
+    }
+
+
 def _aggregate_performance_stats(
     records: List[Dict],
     faction: Optional[str] = None,
@@ -1293,6 +1625,7 @@ def _aggregate_performance_stats(
         metrics: Dict[str, Any],
         detail: Optional[Dict[str, Any]] = None,
         dimensions: Optional[Tuple[str, str, str]] = None,
+        behavior: Optional[Dict[str, Any]] = None,
     ) -> None:
         bucket = buckets.setdefault(key, {
             "id": key,
@@ -1304,6 +1637,8 @@ def _aggregate_performance_stats(
             "fallbacks": 0,
             "_games": set(),
             "_segments": {},
+            "_behavior": empty_behavior_counters(),
+            "_behavior_samples": 0,
             **(detail or {}),
         })
         bucket["appearances"] += 1
@@ -1312,6 +1647,8 @@ def _aggregate_performance_stats(
         bucket["tokens"] += int(metrics.get("tokens", 0))
         bucket["fallbacks"] += int(metrics.get("fallbacks", 0))
         bucket["_games"].add(game_id)
+        merge_behavior_counters(bucket["_behavior"], behavior)
+        bucket["_behavior_samples"] += int(bool(behavior))
         if dimensions:
             segment = bucket["_segments"].setdefault(dimensions, {
                 "board_id": dimensions[0],
@@ -1336,6 +1673,8 @@ def _aggregate_performance_stats(
             if item.get("player_id")
         }
         personalities = record.get("personality_assignment", {})
+        behavior_by_player = record.get("behavior_report", {}).get("players", {})
+        player_tokens = record.get("player_tokens", {})
 
         for player_id, config in configs.items():
             assigned_role = roles.get(player_id)
@@ -1347,7 +1686,10 @@ def _aggregate_performance_stats(
             if role and assigned_role != role:
                 continue
             won = winner in {"good", "werewolf"} and winner == player_faction
-            metrics = by_player.get(player_id, {})
+            metrics = dict(by_player.get(player_id, {}))
+            metrics["tokens"] = max(
+                int(metrics.get("tokens", 0)), int(player_tokens.get(player_id, 0)),
+            )
             provider = config.get("provider") or "custom"
             model = config.get("model", "unknown")
             model_key = ":".join((
@@ -1369,6 +1711,7 @@ def _aggregate_performance_stats(
                     player_faction,
                     assigned_role or "unknown",
                 ),
+                behavior_by_player.get(player_id),
             )
 
             personality = config.get("personality") or personalities.get(player_id)
@@ -1390,6 +1733,7 @@ def _aggregate_performance_stats(
                         player_faction,
                         assigned_role or "unknown",
                     ),
+                    behavior_by_player.get(player_id),
                 )
 
     def finalize(buckets: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -1409,18 +1753,26 @@ def _aggregate_performance_stats(
             segments.sort(key=lambda item: (
                 item["board_id"], item["faction"], item["role"]
             ))
+            balanced_win_rate = round(
+                sum(segment["win_rate"] for segment in segments) / len(segments), 1
+            ) if segments else 0
             rows.append({
                 **{
                     key: value for key, value in bucket.items()
-                    if key not in {"_games", "_segments"}
+                    if key not in {"_games", "_segments", "_behavior", "_behavior_samples"}
                 },
                 "games": len(bucket["_games"]),
                 "win_rate": round(bucket["wins"] / appearances * 100, 1) if appearances else 0,
-                "balanced_win_rate": round(
-                    sum(segment["win_rate"] for segment in segments) / len(segments), 1
-                ) if segments else 0,
+                "balanced_win_rate": balanced_win_rate,
                 "segments": segments,
                 "fallback_rate": round(bucket["fallbacks"] / calls * 100, 1) if calls else 0,
+                "behavior": summarize_behavior(
+                    bucket["_behavior"],
+                    tokens=bucket["tokens"],
+                    balanced_win_rate=(
+                        balanced_win_rate if bucket["_behavior_samples"] else None
+                    ),
+                ),
             })
         rows.sort(key=lambda item: (-item["appearances"], -item["win_rate"], item["label"]))
         return rows

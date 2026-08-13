@@ -4,6 +4,7 @@ import type {
   BudgetTier,
   ModelConnectionTestRequest,
   PlayerConfig,
+  PromptVariant,
   ProvidersResponse,
   RoleId,
 } from '../types/api';
@@ -28,7 +29,8 @@ import { AvatarPicker, LobeAvatar } from './LobeAvatar';
 interface Props {
   onGameCreated?: (gameId: string) => void;
   onSeriesCreated?: (seriesId: string) => void;
-  mode?: 'game' | 'series';
+  onExperimentCreated?: (experimentId: string) => void;
+  mode?: 'game' | 'series' | 'experiment';
 }
 
 // 特殊 provider 值：用户自定义端点（对应后端"用户直填"路径，绕过 yaml 白名单）
@@ -165,8 +167,11 @@ const QUICK_START_PRESETS = [
   },
 ];
 
-export default function CreateGame({ onGameCreated, onSeriesCreated, mode = 'game' }: Props) {
-  const isSeries = mode === 'series';
+export default function CreateGame({
+  onGameCreated, onSeriesCreated, onExperimentCreated, mode = 'game',
+}: Props) {
+  const isExperiment = mode === 'experiment';
+  const isSeries = mode !== 'game';
   const [providersData, setProvidersData] = useState<ProvidersResponse | null>(null);
   const [modelPresets] = useState(loadModelPresets);
   const [personalityPresets] = useState(loadAllPersonalityPresets);
@@ -186,6 +191,10 @@ export default function CreateGame({ onGameCreated, onSeriesCreated, mode = 'gam
   const [seed, setSeed] = useState<number | undefined>(isSeries ? 20260723 : undefined);
   const [seriesGameCount, setSeriesGameCount] = useState(5);
   const [maxTotalTokens, setMaxTotalTokens] = useState(5 * GAME_TOKEN_CAP_BY_TIER.economy);
+  const [promptVariants, setPromptVariants] = useState<[PromptVariant, PromptVariant]>([
+    { id: 'A', name: '基线版', instructions: '' },
+    { id: 'B', name: '候选版', instructions: '改变立场前，必须引用促使你改变判断的公开事件。' },
+  ]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [validationErrors, setValidationErrors] = useState<Record<number, string>>({});
@@ -199,8 +208,11 @@ export default function CreateGame({ onGameCreated, onSeriesCreated, mode = 'gam
   const [expandedPlayerIndex, setExpandedPlayerIndex] = useState<number | null>(0);
 
   useEffect(() => {
-    if (isSeries) setMaxTotalTokens(seriesGameCount * GAME_TOKEN_CAP_BY_TIER[budgetTier]);
-  }, [budgetTier, isSeries, seriesGameCount]);
+    if (isSeries) {
+      const gameMultiplier = isExperiment ? 2 : 1;
+      setMaxTotalTokens(seriesGameCount * gameMultiplier * GAME_TOKEN_CAP_BY_TIER[budgetTier]);
+    }
+  }, [budgetTier, isExperiment, isSeries, seriesGameCount]);
 
   useEffect(() => {
     if (!isSeries || !playerConfigs.length) return;
@@ -208,6 +220,14 @@ export default function CreateGame({ onGameCreated, onSeriesCreated, mode = 'gam
       current % playerConfigs.length === 0 ? current : playerConfigs.length
     ));
   }, [isSeries, playerConfigs.length]);
+
+  const updatePromptVariant = (
+    index: 0 | 1, field: 'name' | 'instructions', value: string,
+  ) => {
+    setPromptVariants((current) => current.map((variant, variantIndex) => (
+      variantIndex === index ? { ...variant, [field]: value } : variant
+    )) as [PromptVariant, PromptVariant]);
+  };
 
   // 启动时从后端拉取 provider 列表（单一数据源：后端 config/models.yaml）
   useEffect(() => {
@@ -505,7 +525,7 @@ export default function CreateGame({ onGameCreated, onSeriesCreated, mode = 'gam
       return;
     }
     if (isSeries && seriesGameCount % playerConfigs.length !== 0) {
-      setError(`公平赛事局数必须是当前 ${playerConfigs.length} 个席位的整数倍`);
+      setError(`公平调度数量必须是当前 ${playerConfigs.length} 个席位的整数倍`);
       return;
     }
     const existing = lineupTemplates.find((template) => template.name === name);
@@ -670,6 +690,13 @@ export default function CreateGame({ onGameCreated, onSeriesCreated, mode = 'gam
       setError('请修正表单中的错误');
       return;
     }
+    if (
+      isExperiment
+      && promptVariants[0].instructions.trim() === promptVariants[1].instructions.trim()
+    ) {
+      setError('A/B 的策略增量必须不同；基线可以留空');
+      return;
+    }
 
     setLoading(true);
     setError(null);
@@ -713,7 +740,16 @@ export default function CreateGame({ onGameCreated, onSeriesCreated, mode = 'gam
         max_rounds: maxRounds,
       };
 
-      if (isSeries) {
+      if (isExperiment) {
+        const response = await apiClient.createPromptExperiment({
+          ...gameConfig,
+          pair_count: seriesGameCount,
+          base_seed: seed ?? 20260723,
+          max_total_tokens: maxTotalTokens,
+          variants: promptVariants,
+        });
+        onExperimentCreated?.(response.series_id);
+      } else if (isSeries) {
         const response = await apiClient.createSeries({
           ...gameConfig,
           game_count: seriesGameCount,
@@ -793,11 +829,15 @@ export default function CreateGame({ onGameCreated, onSeriesCreated, mode = 'gam
       <div className="card">
         <div className="mb-6 border-b border-white/[0.08] pb-4">
           <p className="font-label text-[9px] tracking-[0.24em] text-antique-gold/65">
-            {isSeries ? 'OPEN A FAIR SERIES' : 'OPEN A NEW CASE'}
+            {isExperiment ? 'OPEN A PROMPT TRIAL' : isSeries ? 'OPEN A FAIR SERIES' : 'OPEN A NEW CASE'}
           </p>
-          <h2 className="mt-1 font-display text-2xl text-paper">{isSeries ? '创建 AI 赛事' : '创建新对局'}</h2>
+          <h2 className="mt-1 font-display text-2xl text-paper">
+            {isExperiment ? '创建提示词 A/B 实验' : isSeries ? '创建 AI 赛事' : '创建新对局'}
+          </h2>
           <p className="mt-1 text-xs text-ink-muted">
-            {isSeries
+            {isExperiment
+              ? '同一模型、性格、身份、席位和种子连续镜像两局，只交换 A/B 策略增量。'
+              : isSeries
               ? '使用同一阵容连续对局，固定种子并轮换席位，减少角色与座位带来的偶然偏差。'
               : '选择板型、模型与性格，让整套阵容依次入场。'}
           </p>
@@ -1046,20 +1086,66 @@ export default function CreateGame({ onGameCreated, onSeriesCreated, mode = 'gam
             <p className="mt-1 text-xs text-ink-muted">达到上限仍未分胜负时，本局判为平局。</p>
           </div>
 
+          {isExperiment && (
+            <fieldset className="border border-sky-300/20 bg-[linear-gradient(120deg,rgba(56,189,248,0.055),rgba(245,158,11,0.055))] p-4 sm:p-5">
+              <legend className="px-2 font-display text-base text-paper">A/B 策略增量</legend>
+              <p className="mb-4 max-w-3xl text-[11px] leading-relaxed text-ink-muted">
+                这里只追加决策策略，不替换角色规则、信息边界和 JSON 协议。基线 A 可以留空；
+                候选 B 写你真正想验证的一项改变，避免一次混入多个变量。
+              </p>
+              <div className="grid gap-3 lg:grid-cols-2">
+                {promptVariants.map((variant, index) => (
+                  <label
+                    key={variant.id}
+                    className={`block border p-3 ${variant.id === 'A' ? 'border-sky-300/25 bg-sky-300/[0.035]' : 'border-amber-300/25 bg-amber-300/[0.035]'}`}
+                  >
+                    <span className="flex items-center gap-2 font-label text-[10px] tracking-[0.14em] text-paper/75">
+                      <span className={`grid h-6 w-6 place-items-center border ${variant.id === 'A' ? 'border-sky-300/35 text-sky-200' : 'border-amber-300/35 text-amber-200'}`}>
+                        {variant.id}
+                      </span>
+                      版本名称
+                    </span>
+                    <input
+                      value={variant.name}
+                      onChange={(event) => updatePromptVariant(index as 0 | 1, 'name', event.target.value)}
+                      maxLength={30}
+                      required
+                      className="input mt-2 w-full"
+                    />
+                    <span className="mt-3 block font-label text-[9px] tracking-[0.12em] text-ink-muted">策略增量</span>
+                    <textarea
+                      value={variant.instructions}
+                      onChange={(event) => updatePromptVariant(index as 0 | 1, 'instructions', event.target.value)}
+                      maxLength={4000}
+                      rows={5}
+                      placeholder={variant.id === 'A' ? '留空即使用当前核心提示词作为基线' : '例如：改变投票目标前，引用触发变化的公开事件'}
+                      className="input mt-1.5 w-full resize-y leading-relaxed"
+                    />
+                    <span className="mt-1 block text-right font-label text-[9px] text-ink-muted">
+                      {variant.instructions.length} / 4000
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          )}
+
           {isSeries && (
             <fieldset className="relative overflow-hidden border border-antique-gold/25 bg-[linear-gradient(135deg,rgba(185,151,88,0.08),rgba(0,0,0,0.08))] p-4 sm:p-5">
               <div className="pointer-events-none absolute -right-12 -top-16 hidden h-36 w-36 rounded-full border border-antique-gold/10 sm:block" />
-              <legend className="px-2 font-display text-base text-antique-gold">赛事调度</legend>
+              <legend className="px-2 font-display text-base text-antique-gold">
+                {isExperiment ? '镜像实验调度' : '赛事调度'}
+              </legend>
               <div className="relative grid gap-4 md:grid-cols-3">
                 <label className="text-xs text-ink-muted" htmlFor="series-game-count">
-                  对局数量
+                  {isExperiment ? '镜像配对数' : '对局数量'}
                   <input
                     id="series-game-count"
                     type="number"
-                    min={2}
+                    min={isExperiment ? 1 : 2}
                     max={24}
                     value={seriesGameCount}
-                    onChange={(event) => setSeriesGameCount(Math.max(2, Math.min(24, Number(event.target.value) || 2)))}
+                    onChange={(event) => setSeriesGameCount(Math.max(isExperiment ? 1 : 2, Math.min(24, Number(event.target.value) || (isExperiment ? 1 : 2))))}
                     className="input mt-1 w-full"
                   />
                   <span className="mt-1.5 flex gap-1.5">
@@ -1074,7 +1160,7 @@ export default function CreateGame({ onGameCreated, onSeriesCreated, mode = 'gam
                             : 'border-white/10 text-ink-muted hover:border-white/25'
                         }`}
                       >
-                        {count} 局
+                        {count} {isExperiment ? '配对' : '局'}
                       </button>
                     ))}
                   </span>
@@ -1091,12 +1177,14 @@ export default function CreateGame({ onGameCreated, onSeriesCreated, mode = 'gam
                     required
                   />
                   <span className="mt-1.5 block text-[10px] leading-relaxed">
-                    同一完整席位轮换块共用种子，下一块递增，便于公平复验。
+                    {isExperiment
+                      ? '每个配对连续运行两局并互换 A/B；同一配对严格共用种子。'
+                      : '同一完整席位轮换块共用种子，下一块递增，便于公平复验。'}
                   </span>
                 </label>
 
                 <label className="text-xs text-ink-muted" htmlFor="series-token-cap">
-                  赛事 Token 硬上限
+                  {isExperiment ? '实验 Token 硬上限' : '赛事 Token 硬上限'}
                   <input
                     id="series-token-cap"
                     type="number"
@@ -1117,16 +1205,18 @@ export default function CreateGame({ onGameCreated, onSeriesCreated, mode = 'gam
                   seriesGameCount % playerConfigs.length === 0 ? 'text-emerald-200/70' : 'text-amber-200/75'
                 }`}>
                   {seriesGameCount % playerConfigs.length === 0
-                    ? `当前覆盖 ${seriesGameCount / playerConfigs.length} 个完整席位轮换块，每套配置经历相同数量的席位。`
-                    : `当前为 ${playerConfigs.length} 个席位，${seriesGameCount} 局只能完成部分轮换；若要严格平衡，建议设为 ${nextCompleteSeriesCount} 局。`}
+                    ? isExperiment
+                      ? `覆盖 ${seriesGameCount / playerConfigs.length} 个完整席位轮换块，共运行 ${seriesGameCount * 2} 局；每个配置在相同条件下各使用一次 A 和 B。`
+                      : `当前覆盖 ${seriesGameCount / playerConfigs.length} 个完整席位轮换块，每套配置经历相同数量的席位。`
+                    : `当前为 ${playerConfigs.length} 个席位，${seriesGameCount} ${isExperiment ? '个配对' : '局'}只能完成部分轮换；建议设为 ${nextCompleteSeriesCount}。`}
                 </p>
               )}
 
               <div className="relative mt-4 grid gap-px border border-white/[0.07] bg-white/[0.07] sm:grid-cols-3">
                 {[
-                  ['rotate_right', '轮换席位', '同一种子下让每套配置依次经过不同席位与身份'],
+                  ['rotate_right', isExperiment ? '镜像互换' : '轮换席位', isExperiment ? '同一配对的第二局逐席位交换 A/B' : '同一种子下让每套配置依次经过不同席位与身份'],
                   ['format_list_numbered', '严格串行', '上一局结束后才启动下一局'],
-                  ['speed', '节制预算', '赛事默认使用经济档，可自行调整'],
+                  ['speed', '节制预算', `${isExperiment ? '实验' : '赛事'}默认使用经济档，可自行调整`],
                 ].map(([icon, title, detail]) => (
                   <div key={title} className="flex gap-2.5 bg-stage-deep/90 p-3">
                     <span className="material-symbols-outlined text-[18px] text-antique-gold/70" aria-hidden="true">{icon}</span>
@@ -1450,8 +1540,10 @@ export default function CreateGame({ onGameCreated, onSeriesCreated, mode = 'gam
             className="btn-primary w-full py-3 text-lg"
           >
             {loading
-              ? (isSeries ? '正在编排赛事…' : '正在创建…')
-              : (isSeries ? `开始 ${seriesGameCount} 局公平赛事` : '创建对局')}
+              ? (isExperiment ? '正在建立镜像实验…' : isSeries ? '正在编排赛事…' : '正在创建…')
+              : (isExperiment
+                ? `开始 ${seriesGameCount} 个镜像配对 · ${seriesGameCount * 2} 局`
+                : isSeries ? `开始 ${seriesGameCount} 局公平赛事` : '创建对局')}
           </button>
         </form>
 
@@ -1459,7 +1551,9 @@ export default function CreateGame({ onGameCreated, onSeriesCreated, mode = 'gam
         <div className="mt-6 border-l-2 border-antique-gold/30 bg-white/[0.02] px-4 py-3">
           <p className="text-xs leading-relaxed text-ink-muted">
             <strong className="font-normal text-paper/70">配置说明：</strong>
-            {isSeries ? '赛事将严格串行执行并轮换座位；关闭页面不会中断后台赛程。' : '使用快速布置可一键创建预设配置。'}
+            {isExperiment
+              ? '实验只统计完整镜像配对，未完成的半组不会进入 A/B 报告；关闭页面不影响后台执行。'
+              : isSeries ? '赛事将严格串行执行并轮换座位；关闭页面不会中断后台赛程。' : '使用快速布置可一键创建预设配置。'}
             {' '}provider 列表来自后端 <code>config/models.yaml</code>，
             后端更新后前端自动同步。选「自定义端点」可填任意 OpenAI/Anthropic 格式的 API。
           </p>

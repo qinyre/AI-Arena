@@ -6,14 +6,19 @@ import Stats from './components/Stats';
 import Settings from './components/Settings';
 import ArenaAnalytics from './components/ArenaAnalytics';
 import SeriesArena from './components/SeriesArena';
+import PromptExperimentLab from './components/PromptExperimentLab';
 
-type Tab = 'create' | 'series' | 'view' | 'history' | 'analytics' | 'settings';
+type Tab = 'create' | 'series' | 'experiment' | 'view' | 'history' | 'analytics' | 'settings';
 const CURRENT_SERIES_KEY = 'ai-arena-current-series';
+const CURRENT_EXPERIMENT_KEY = 'ai-arena-current-prompt-experiment';
 
 function App() {
   const [currentGameId, setCurrentGameId] = useState<string | null>(null);
   const [currentSeriesId, setCurrentSeriesId] = useState<string | null>(() => (
     window.localStorage.getItem(CURRENT_SERIES_KEY)
+  ));
+  const [currentExperimentId, setCurrentExperimentId] = useState<string | null>(() => (
+    window.localStorage.getItem(CURRENT_EXPERIMENT_KEY)
   ));
   const [activeTab, setActiveTab] = useState<Tab>('create');
 
@@ -31,6 +36,12 @@ function App() {
     setCurrentSeriesId(seriesId);
     if (seriesId) window.localStorage.setItem(CURRENT_SERIES_KEY, seriesId);
     else window.localStorage.removeItem(CURRENT_SERIES_KEY);
+  };
+
+  const handleExperimentCreated = (experimentId: string | null) => {
+    setCurrentExperimentId(experimentId);
+    if (experimentId) window.localStorage.setItem(CURRENT_EXPERIMENT_KEY, experimentId);
+    else window.localStorage.removeItem(CURRENT_EXPERIMENT_KEY);
   };
 
   const tabClass = (tab: Tab) => (
@@ -69,6 +80,9 @@ function App() {
           <button type="button" onClick={() => setActiveTab('series')} className={tabClass('series')}>
             AI 赛事
           </button>
+          <button type="button" onClick={() => setActiveTab('experiment')} className={tabClass('experiment')}>
+            提示词实验
+          </button>
           <button
             type="button"
             onClick={() => setActiveTab('view')}
@@ -99,6 +113,13 @@ function App() {
           <SeriesArena
             seriesId={currentSeriesId}
             onSeriesCreated={handleSeriesCreated}
+            onViewGame={handleViewGame}
+          />
+        )}
+        {activeTab === 'experiment' && (
+          <PromptExperimentLab
+            experimentId={currentExperimentId}
+            onExperimentCreated={handleExperimentCreated}
             onViewGame={handleViewGame}
           />
         )}

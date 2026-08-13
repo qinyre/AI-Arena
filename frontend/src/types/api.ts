@@ -16,6 +16,13 @@ export interface PlayerConfig {
   key_env?: string;
   personality_id?: string;
   personality?: PersonalityProfile;
+  prompt_variant?: PromptVariant;
+}
+
+export interface PromptVariant {
+  id: 'A' | 'B';
+  name: string;
+  instructions: string;
 }
 
 export interface PersonalityProfile {
@@ -154,6 +161,7 @@ export type QualityCategory =
 
 export interface QualityFinding {
   id: string;
+  code?: string;
   category: QualityCategory;
   severity: 'error' | 'warning' | 'info';
   confidence: 'certain' | 'heuristic';
@@ -239,6 +247,13 @@ export interface CreateSeriesRequest extends Omit<CreateGameRequest, 'seed' | 'p
   max_total_tokens: number;
 }
 
+export interface CreatePromptExperimentRequest extends Omit<CreateGameRequest, 'seed' | 'parent_game_id'> {
+  pair_count: number;
+  base_seed: number;
+  max_total_tokens: number;
+  variants: [PromptVariant, PromptVariant];
+}
+
 export interface SeriesGameItem {
   game_id: string;
   game_number: number;
@@ -247,6 +262,53 @@ export interface SeriesGameItem {
   winner?: 'good' | 'werewolf' | 'draw';
   tokens?: number;
   cost?: number;
+  experiment_pair?: number;
+  experiment_mirror?: 'AB' | 'BA';
+}
+
+export interface BehaviorMetrics {
+  score?: number;
+  vote_accuracy?: number;
+  skill_value_rate?: number;
+  speech_repeat_rate?: number;
+  stance_reversal_rate?: number;
+  identity_leak_rate?: number;
+  wolf_coordination?: number;
+  wolf_chat_repeat_rate?: number;
+  effective_decision_rate?: number;
+  effective_decisions: number;
+  eligible_decisions: number;
+  tokens_per_effective_decision?: number;
+  samples: Record<string, number>;
+}
+
+export interface PromptExperimentArm {
+  id: 'A' | 'B';
+  name: string;
+  instructions: string;
+  appearances: number;
+  wins: number;
+  games: number;
+  calls: number;
+  tokens: number;
+  fallbacks: number;
+  fallback_rate: number;
+  win_rate: number;
+  balanced_win_rate: number;
+  behavior: BehaviorMetrics;
+}
+
+export interface PromptExperimentReport {
+  status: 'collecting' | 'ready' | 'inconclusive';
+  winner?: 'A' | 'B' | 'tie';
+  verdict: string;
+  score_delta?: number;
+  completed_pairs: number;
+  pair_count: number;
+  complete_rotation: boolean;
+  arms: PromptExperimentArm[];
+  deltas: Record<string, number | undefined>;
+  methodology: string;
 }
 
 export interface SeriesStatusResponse {
@@ -264,6 +326,14 @@ export interface SeriesStatusResponse {
   games: SeriesGameItem[];
   error?: string;
   reason?: string;
+}
+
+export interface PromptExperimentStatusResponse extends SeriesStatusResponse {
+  pair_count: number;
+  completed_pairs: number;
+  seat_count: number;
+  variants: PromptVariant[];
+  report: PromptExperimentReport;
 }
 
 export interface ReplayConfig {
@@ -339,6 +409,11 @@ export interface GameResultResponse {
   summary: any;
   ai_review?: GameReview;
   quality_report?: GameQualityReport;
+  behavior_report?: {
+    schema_version: number;
+    players: Record<string, Record<string, number>>;
+    totals: Record<string, number>;
+  };
 }
 
 export interface GameListItem {
@@ -352,6 +427,7 @@ export interface GameListItem {
   series_id?: string;
   series_game_number: number;
   automated_series?: boolean;
+  prompt_experiment?: boolean;
   quality_status?: GameQualityReport['status'];
   quality_score?: number;
   quality_issue_count?: number;
@@ -404,6 +480,7 @@ export interface PerformanceStat {
   tokens: number;
   fallbacks: number;
   fallback_rate: number;
+  behavior?: BehaviorMetrics;
 }
 
 // ---- 事件类型(按 event_type 判别的联合类型)----

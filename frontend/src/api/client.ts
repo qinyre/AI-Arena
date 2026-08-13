@@ -16,6 +16,8 @@ import type {
   GameReviewRequest,
   CreateSeriesRequest,
   SeriesStatusResponse,
+  CreatePromptExperimentRequest,
+  PromptExperimentStatusResponse,
   StatsFilters,
 } from '../types/api';
 
@@ -73,6 +75,25 @@ class APIClient {
 
   async stopSeries(seriesId: string): Promise<SeriesStatusResponse> {
     return this.request<SeriesStatusResponse>(`/api/games/series/${seriesId}/stop`, {
+      method: 'POST',
+    });
+  }
+
+  async createPromptExperiment(
+    request: CreatePromptExperimentRequest,
+  ): Promise<PromptExperimentStatusResponse> {
+    return this.request<PromptExperimentStatusResponse>('/api/games/experiments', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async getPromptExperiment(experimentId: string): Promise<PromptExperimentStatusResponse> {
+    return this.request<PromptExperimentStatusResponse>(`/api/games/experiments/${experimentId}`);
+  }
+
+  async stopPromptExperiment(experimentId: string): Promise<PromptExperimentStatusResponse> {
+    return this.request<PromptExperimentStatusResponse>(`/api/games/experiments/${experimentId}/stop`, {
       method: 'POST',
     });
   }

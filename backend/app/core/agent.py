@@ -22,6 +22,7 @@ class AIAgent:
         agent_id: str,
         model_client: ModelClient,
         personality: Optional[Dict] = None,
+        prompt_variant: Optional[Dict] = None,
         max_output_tokens: int = 1200,
         player_token_budget: int = 80_000,
         game_budget_check: Optional[Callable[[], Optional[str]]] = None,
@@ -41,6 +42,7 @@ class AIAgent:
         self.agent_id = agent_id
         self.model_client = model_client
         self.personality = personality
+        self.prompt_variant = prompt_variant
         self.max_output_tokens = max_output_tokens
         self.player_token_budget = player_token_budget
         self.game_budget_check = game_budget_check
@@ -182,14 +184,33 @@ class AIAgent:
             target_id = target_id.strip()
         if target_id in ("", "null", "none", "None", "N/A", "-"):
             target_id = None
+        if (
+            action_type == ActionType.SPEAK
+            and spec.get("target_required")
+            and target_id is None
+            and parameters.get("intended_vote") in spec.get("valid_targets", [])
+        ):
+            target_id = parameters["intended_vote"]
         if spec.get("target_required"):
             if target_id not in spec.get("valid_targets", []):
                 return None, False, f"target {target_id} 不在合法目标 {spec.get('valid_targets')} 中"
         else:
-            # 该动作不需要 target；LLM 若误填了实际玩家 id 才算错误，空值则忽略
-            if target_id is not None:
+            # pass/abstain/withdraw 的语义与目标无关；部分兼容端点会沿用
+            # 上一动作的 target，安全丢弃即可，避免有效决策整次降级。
+            if action_type in {
+                ActionType.PASS,
+                ActionType.ABSTAIN,
+                ActionType.WITHDRAW,
+                ActionType.WOLF_SPEAK,
+            }:
+                target_id = None
+            elif target_id is not None:
                 return None, False, f"该动作不需要 target，却传了 {target_id}"
-        parameters["reasoning"] = parsed.get("reasoning", "")
+        # 兼容部分 OpenAI-compatible 模型把理由放进 chosen_action.parameters。
+        # 顶层 reasoning 仍优先，缺失时保留嵌套值，避免有效弃票被误判为空理由。
+        parameters["reasoning"] = (
+            parsed.get("reasoning") or parameters.get("reasoning", "")
+        )
         if not isinstance(parameters["reasoning"], str) or len(parameters["reasoning"]) > 500:
             return None, False, "reasoning 缺失或超长"
         if action_type in (ActionType.SPEAK, ActionType.WOLF_SPEAK):
@@ -696,6 +717,7 @@ class AIAgent:
             )
         identity = "\n".join(identity_lines)
         personality = self._build_personality_prompt()
+        experiment_prompt = self._build_experiment_prompt()
         memory = self.get_recent_memory() or "暂无个人行动记录。"
         role_status = ""
         if role == "witch":
@@ -774,6 +796,7 @@ class AIAgent:
 
 # 你的性格
 {personality}
+{experiment_prompt}
 
 # 当前局势
 回合: {round_no} ｜ 阶段: {phase}
@@ -796,6 +819,18 @@ class AIAgent:
 
 请基于当前局势做出决策。
 """
+
+    def _build_experiment_prompt(self) -> str:
+        variant = self.prompt_variant or {}
+        instructions = str(variant.get("instructions") or "").strip()
+        if not instructions:
+            return ""
+        return (
+            "# 附加决策策略\n"
+            f"{instructions}\n"
+            "该增量只影响合法方案之间的判断与表达；不得覆盖公共硬规则、"
+            "身份信息边界、当前可用动作或 JSON 输出协议。"
+        )
 
     def _build_personality_prompt(self) -> str:
         if not self.personality:
@@ -1037,6 +1072,16 @@ class AIAgent:
         allowed_types = sorted({
             a.get("action_type", "") for a in available_actions if a.get("action_type")
         })
+        if "vote" in allowed_types:
+            guide += (
+                " vote 的 target 必须严格选自该动作的 valid_targets；该列表已排除你本人，"
+                "绝不能投自己。"
+            )
+        if phase == "sheriff_summary":
+            guide += (
+                " 本阶段 target 必填且不能为 null，必须从 valid_targets 选一人；"
+                "parameters.intended_vote 应与 target 保持一致。"
+            )
         if phase == "night" and "charm" in allowed_types:
             guide += (
                 " 现在是狼美人的【魅惑】行动。优先选择已公开或高度疑似的关键神职，"

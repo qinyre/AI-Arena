@@ -111,6 +111,7 @@ def build_quality_report(
         finding_seq += 1
         finding = {
             "id": f"{category}-{code}-{finding_seq}",
+            "code": code,
             "category": category,
             "severity": severity,
             "confidence": confidence,
@@ -329,7 +330,7 @@ def build_quality_report(
         events, deaths, death_skill_required, roles, alive, winner,
         final_round, win_rule, max_rounds, add,
     )
-    _check_coherence(events, add)
+    _check_coherence(events, roles, add)
     personality_metrics = _check_personality(
         events, personality_assignment or {}, add,
     )
@@ -604,6 +605,13 @@ def _check_flow(
             )
         ]
         if not resolution_indexes:
+            # 本项目采用竞技屠边的“狼刀在先”：狼刀完成屠边即锁定狼胜，
+            # 同轮尚未结算的猎人枪不能反转结果，因此不应报告技能漏结算。
+            if (
+                reason == "werewolf_kill_completed_edge"
+                and death_round == final_round
+            ):
+                continue
             add(
                 "flow", "error", "missing-death-skill", "死亡技能没有结算",
                 f"{player} 出局后应获得开枪或放弃开枪的行动机会。",
@@ -617,7 +625,9 @@ def _check_flow(
             )
 
 
-def _check_coherence(events: List[Dict[str, Any]], add) -> None:
+def _check_coherence(
+    events: List[Dict[str, Any]], roles: Dict[str, str], add,
+) -> None:
     wolf_messages: Dict[int, List[Tuple[int, str]]] = {}
     speeches: Dict[str, List[Tuple[int, str]]] = {}
     claims: Dict[str, Tuple[str, int]] = {}
@@ -662,6 +672,15 @@ def _check_coherence(events: List[Dict[str, Any]], add) -> None:
         player = str(data.get("speaker") or "")
         content = str(data.get("content") or "")
         normalized = _normalize_text(content)
+        if roles.get(player) in WOLF_ROLES and _contains_wolf_identity_leak(
+            content, str(data.get("claim_role") or "none"),
+        ):
+            add(
+                "privacy", "warning", "identity-leak", "公开发言疑似泄露狼方身份",
+                f"{player} 的公开陈词出现第一人称狼方身份或夜间刀口表述，建议核对原文。",
+                event_index=index, round_no=round_no, player_id=player,
+                confidence="heuristic",
+            )
         prior_speeches = speeches.setdefault(player, [])
         if len(normalized) >= 30 and any(
             SequenceMatcher(None, normalized, text, autojunk=False).ratio() >= 0.94
@@ -703,6 +722,28 @@ def _check_coherence(events: List[Dict[str, Any]], add) -> None:
                 confidence="heuristic",
             )
         stances[player] = {"suspects": suspects, "trusted": trusted}
+
+
+def _contains_wolf_identity_leak(content: str, claim_role: str) -> bool:
+    if claim_role in WOLF_ROLES:
+        return True
+    compact = re.sub(r"\s+", "", content)
+    patterns = (
+        r"(?:我是|我就是|身为|作为)(?:一名)?(?:狼人(?!杀)|狼王|白狼王|狼美人)",
+        r"(?:我们|咱们|我方)(?:狼队|狼人阵营)",
+        r"(?:我的|我方)(?:狼队友|狼同伴)",
+        r"(?:(?:今晚|昨晚)(?:我们|咱们|我方|我)|(?:我们|咱们|我方|我)(?:今晚|昨晚))(?:准备)?(?:刀了|刀的是|刀口是)",
+    )
+    for pattern in patterns:
+        for match in re.finditer(pattern, compact):
+            prefix = compact[max(0, match.start() - 8):match.start()]
+            quoted_or_denied = (
+                "如果", "假如", "要是", "并非", "不是",
+                "指控", "污蔑", "反咬", "冤枉", "声称", "怀疑",
+            )
+            if not any(word in prefix for word in quoted_or_denied):
+                return True
+    return False
 
 
 def _check_personality(

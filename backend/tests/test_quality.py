@@ -174,3 +174,44 @@ def test_quality_report_detects_linked_rule_privacy_flow_and_model_failures():
     assert all(
         finding.get("event_index", 0) >= 0 for finding in report["findings"]
     )
+
+
+def test_quality_report_accepts_edge_win_before_hunter_shot():
+    roles = {
+        "AI-1": "werewolf",
+        "AI-2": "villager",
+        "AI-3": "villager",
+        "AI-4": "villager",
+        "AI-5": "hunter",
+    }
+    events = [
+        event(
+            "game_start",
+            {"players": list(roles), "role_assignment": roles},
+            "private",
+            ["admin"],
+        ),
+        event(
+            "player_death",
+            {"player": "AI-5", "cause": "werewolf_kill", "round": 2},
+        ),
+        event(
+            "game_end",
+            {
+                "winner": "werewolf",
+                "reason": "werewolf_kill_completed_edge",
+                "final_round": 2,
+            },
+        ),
+    ]
+
+    report = build_quality_report(
+        events=events,
+        role_assignment=roles,
+        winner="werewolf",
+        final_round=2,
+        win_rule="edge",
+    )
+
+    codes = {finding["id"].rsplit("-", 1)[0] for finding in report["findings"]}
+    assert "missing-death-skill" not in codes

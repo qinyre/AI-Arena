@@ -82,11 +82,17 @@ class GameOrchestrator:
                 {"provider": default_provider, "model": default_model}
             )
             client = self._create_client(model_config, registry)
+            output_limit = (
+                max(self.max_output_tokens, 8192)
+                if str(model_config.get("model", "")).casefold() == "step-3.7-flash"
+                else self.max_output_tokens
+            )
             self.agents[player_id] = AIAgent(
                 player_id,
                 client,
                 personality=model_config.get("personality"),
-                max_output_tokens=self.max_output_tokens,
+                prompt_variant=model_config.get("prompt_variant"),
+                max_output_tokens=output_limit,
                 player_token_budget=self.player_token_budget,
                 budget_reserve=self._reserve_model_tokens,
                 budget_settle=self._settle_model_tokens,

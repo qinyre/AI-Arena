@@ -23,6 +23,15 @@ class PersonalityConfig(BaseModel):
     verbosity: int = Field(ge=1, le=5)
 
 
+class PromptVariantConfig(BaseModel):
+    """A/B 实验的策略增量；公共规则与动作协议仍由核心提示词控制。"""
+    model_config = ConfigDict(extra="forbid")
+
+    id: Literal["A", "B"]
+    name: str = Field(min_length=1, max_length=30, pattern=r"^[^\r\n]+$")
+    instructions: str = Field(default="", max_length=4000)
+
+
 class PlayerConfig(BaseModel):
     """单个玩家的模型配置（provider 名 或 自定义端点二选一）。"""
     player_id: str
@@ -37,6 +46,7 @@ class PlayerConfig(BaseModel):
     api_key: Optional[str] = None
     key_env: Optional[str] = None
     personality: Optional[PersonalityConfig] = None
+    prompt_variant: Optional[PromptVariantConfig] = None
 
 
 RoleName = Literal[
@@ -96,6 +106,34 @@ class CreateSeriesRequest(CreateGameRequest):
             raise ValueError(
                 f"公平系列赛必须完成整轮席位轮换；{seat_count} 个席位时，"
                 f"局数必须是 {seat_count} 的整数倍"
+            )
+        return self
+
+
+class CreatePromptExperimentRequest(CreateGameRequest):
+    """POST /api/games/experiments：同种子镜像交叉的提示词 A/B 实验。"""
+    pair_count: int = Field(ge=1, le=24)
+    base_seed: Optional[int] = None
+    max_total_tokens: Optional[int] = Field(default=None, ge=1)
+    variants: List[PromptVariantConfig] = Field(min_length=2, max_length=2)
+
+    @model_validator(mode="after")
+    def validate_prompt_experiment(self):
+        if self.seed is not None and self.base_seed is not None:
+            raise ValueError("seed 与 base_seed 只能填写一个")
+        if self.parent_game_id is not None:
+            raise ValueError("提示词实验不能指定复赛来源")
+        if {variant.id for variant in self.variants} != {"A", "B"}:
+            raise ValueError("提示词实验必须各提供一个 A 版和 B 版")
+        if len({variant.name for variant in self.variants}) != 2:
+            raise ValueError("A/B 版本名称不能相同")
+        if len({variant.instructions.strip() for variant in self.variants}) != 2:
+            raise ValueError("A/B 的策略增量必须不同")
+        seat_count = len(self.player_configs)
+        if seat_count and self.pair_count % seat_count:
+            raise ValueError(
+                f"公平实验必须完成整轮席位轮换；{seat_count} 个席位时，"
+                f"配对数必须是 {seat_count} 的整数倍"
             )
         return self
 
@@ -163,6 +201,14 @@ class SeriesStatusResponse(BaseModel):
     games: List[Dict[str, Any]] = Field(default_factory=list)
 
 
+class PromptExperimentStatusResponse(SeriesStatusResponse):
+    pair_count: int
+    completed_pairs: int
+    seat_count: int
+    variants: List[PromptVariantConfig]
+    report: Dict[str, Any] = Field(default_factory=dict)
+
+
 class GameStatusResponse(BaseModel):
     """GET /api/games/{id}/status 响应。
 
@@ -228,6 +274,7 @@ class GameReview(GameReviewContent):
 
 class QualityFinding(BaseModel):
     id: str
+    code: Optional[str] = None
     category: Literal["rules", "privacy", "flow", "coherence", "personality", "reliability"]
     severity: Literal["error", "warning", "info"]
     confidence: Literal["certain", "heuristic"]
@@ -288,6 +335,7 @@ class GameResultResponse(BaseModel):
     summary: Any = None
     ai_review: Optional[GameReview] = None
     quality_report: Optional[GameQualityReport] = None
+    behavior_report: Dict[str, Any] = Field(default_factory=dict)
 
 
 class GameListItem(BaseModel):
@@ -301,6 +349,7 @@ class GameListItem(BaseModel):
     series_id: Optional[str] = None
     series_game_number: int = 1
     automated_series: bool = False
+    prompt_experiment: bool = False
     quality_status: Optional[Literal["passed", "warning", "failed"]] = None
     quality_score: Optional[int] = Field(default=None, ge=0, le=100)
     quality_issue_count: Optional[int] = Field(default=None, ge=0)

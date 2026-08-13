@@ -18,6 +18,8 @@ from app.api.schemas import (
     CreateGameResponse,
     CreateSeriesRequest,
     SeriesStatusResponse,
+    CreatePromptExperimentRequest,
+    PromptExperimentStatusResponse,
     GameStatusResponse,
     GameResultResponse,
     ListGamesResponse,
@@ -78,6 +80,47 @@ async def create_series(request: CreateSeriesRequest):
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/experiments", response_model=PromptExperimentStatusResponse)
+async def create_prompt_experiment(request: CreatePromptExperimentRequest):
+    """创建提示词 A/B 镜像交叉实验。"""
+    try:
+        return await game_manager.create_prompt_experiment(
+            player_configs=[config.model_dump() for config in request.player_configs],
+            variants=[variant.model_dump() for variant in request.variants],
+            pair_count=request.pair_count,
+            base_seed=(request.base_seed if request.base_seed is not None else request.seed),
+            board_id=request.board_id,
+            custom_board=(
+                request.custom_board.model_dump() if request.custom_board else None
+            ),
+            enable_sheriff=request.enable_sheriff,
+            budget_tier=request.budget_tier,
+            max_rounds=request.max_rounds,
+            max_total_tokens=request.max_total_tokens,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/experiments/{experiment_id}", response_model=PromptExperimentStatusResponse)
+async def get_prompt_experiment(experiment_id: str):
+    try:
+        return game_manager.get_prompt_experiment(experiment_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/experiments/{experiment_id}/stop", response_model=PromptExperimentStatusResponse)
+async def stop_prompt_experiment(experiment_id: str):
+    try:
+        await game_manager.stop_series(experiment_id)
+        return game_manager.get_prompt_experiment(experiment_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/series/{series_id}", response_model=SeriesStatusResponse)

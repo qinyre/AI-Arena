@@ -11,6 +11,8 @@ OpenAI 兼容协议客户端实现。
 
 只需 openai SDK，无需为每家单独装 SDK。
 """
+import asyncio
+
 from openai import AsyncOpenAI
 from typing import Dict, Optional
 from app.llm.client import (
@@ -19,6 +21,11 @@ from app.llm.client import (
     RetryableError,
     parse_json_response,
 )
+
+
+# Step Plan 官方上限为 8，但多局压测时 6 个长连接仍偶发服务端超时；
+# 留足余量比追求瞬时并发更能提高有效 Token 利用率。
+_STEP_PLAN_REQUESTS = asyncio.Semaphore(4)
 
 
 class OpenAICompatibleClient(ModelClient):
@@ -81,6 +88,9 @@ class OpenAICompatibleClient(ModelClient):
             # 游戏已要求返回可展示的 reasoning；关闭模型默认的隐藏思考，
             # 避免输出额度耗尽在 reasoning_content 后正文仍为空。
             kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+        elif model_name == "step-3.7-flash":
+            # 官方托管端点强制推理；low 只能缩短思考，不能完全关闭。
+            kwargs["reasoning_effort"] = "low"
         elif model_name.startswith("minimax-"):
             kwargs["extra_body"] = {"reasoning_split": True}
 
@@ -90,7 +100,11 @@ class OpenAICompatibleClient(ModelClient):
             kwargs["response_format"] = {"type": "json_object"}
 
         try:
-            response = await self.client.chat.completions.create(**kwargs)
+            if "api.stepfun.com/step_plan" in (self.base_url or ""):
+                async with _STEP_PLAN_REQUESTS:
+                    response = await self.client.chat.completions.create(**kwargs)
+            else:
+                response = await self.client.chat.completions.create(**kwargs)
 
             # 记录 token 使用
             usage = response.usage

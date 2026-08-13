@@ -1,4 +1,4 @@
-# AI Arena · 面具剧场
+# AI Arena
 
 多智能体狼人杀对战平台——多个 LLM 在一局狼人杀里互相对抗，你可以围观每个玩家的推理与决策。
 
@@ -26,8 +26,12 @@ AI Arena 是一个开源的多智能体 LLM 博弈实验平台。多个大语言
 - **10 家 LLM 接入**:DeepSeek / OpenAI / Anthropic / Gemini / 通义千问 / Kimi / 小米 MiMo / MiniMax / 智谱 GLM / 硅基流动,也可填任意自定义端点
 - **确定性规则引擎**:AI 只能从合法动作中选择,后端严格校验,杜绝「村民幻觉自己是预言家」「狼人投两次票」等越权行为
 - **信息严格隔离**:狼人看不到预言家的查验结果,村民看不到夜晚行动;投票阶段的内心独白不会泄露给对手
-- **剧场环绕式观战界面**:玩家分左右两列环绕中央舞台,竖线时间线 + 彩色事件圆点,内联展开任意 AI 的推理面板
+- **剧场环绕式观战界面**:玩家分左右两列环绕中央舞台,竖线时间线 + 彩色事件圆点,内联展开任意 AI 的推理面板;支持暂停/恢复、局末逐步回放、按事件类型筛选、转折点跳转
 - **盲投机制**:投票并发进行,投票期间互不可见;投票结束才统一公布「谁投谁」明细
+- **系列赛 & 提示词实验**:多局公平轮换的系列赛(同阵容连打多盘);提示词 A/B 镜像交叉实验,同一局面用不同 prompt 跑,横向对比 AI 表现
+- **AI 复盘 & 对局质检**:局末可生成 AI 终局复盘(转折点/关键决策);确定性质检(不调用模型)覆盖规则合法性、信息隔离、流程终局、行为连贯、性格表达、模型可靠性 6 类,问题可一键定位到时间线事件
+- **性格机制**:6 套内置性格预设,影响 AI 的发言口吻与决策倾向,创建对局时为各座位配置
+- **预算 & 成本控制**:economy / standard / premium 三档预算,按局与玩家设 token 上限和熔断,超限自动停止
 - **完整可复现**:每局记录角色分配、事件流、模型版本、随机种子、token 成本,JSON 持久化
 - **稳定性内建**:LLM 调用带指数退避重试(网络抖动/限流自动重试),语义校验失败自动修正,降级率趋近于零
 
@@ -77,8 +81,8 @@ AI Arena 是一个开源的多智能体 LLM 博弈实验平台。多个大语言
 ### 1. 克隆与安装
 
 ```bash
-git clone https://github.com/qinyre/NewIdea.git
-cd NewIdea
+git clone https://github.com/qinyre/AI-Arena.git
+cd AI-Arena
 
 # 后端
 cd backend
@@ -156,39 +160,20 @@ npm run dev
 backend/
 ├── app/
 │   ├── api/          # FastAPI 路由 + Pydantic schemas + game_manager
-│   ├── core/         # 游戏引擎: werewolf(规则) / orchestrator(编排) / agent(AI) / models
+│   ├── core/         # 游戏引擎: werewolf(规则) / orchestrator(编排) / agent(AI) / quality(质检) / models
 │   └── llm/          # ModelClient 抽象 + OpenAI/Claude 实现 + registry
 ├── config/models.yaml   # provider & 模型清单(单一数据源)
+├── scripts/          # 批量模拟 / 冒烟 / 行为评测(simulate_boards / smoke_boards / evaluate_ai_scenarios)
 └── data/             # 运行时对局数据(.gitignore 忽略)
 
 frontend/
 ├── src/
-│   ├── components/   # CreateGame / GameView / GameHistory / Stats
+│   ├── components/   # CreateGame / GameView / GameHistory / Stats / SeriesArena / PromptExperimentLab / ArenaAnalytics
 │   │   └── game/     # 剧场环绕观战组件(PlayerTable/EventFeed/Timeline/...)
 │   ├── hooks/useGameStream.ts   # 单数据源:首屏快照 + SSE 增量事件
 │   └── types/api.ts  # 前后端数据契约(严格一一对应)
 └── tailwind.config.js  # Nocturne Stage 配色 token
 ```
-
----
-
-## API
-
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| `POST` | `/api/games` | 创建并启动一局(后台异步运行) |
-| `GET` | `/api/games` | 列出所有对局 |
-| `GET` | `/api/games/stats` | 全局统计(局数/成本) |
-| `GET` | `/api/games/{id}/status` | 对局状态(阶段/轮次/存活/角色/事件) |
-| `GET` | `/api/games/{id}/events?after=N` | 从事件游标 N 开始获取增量事件 |
-| `GET` | `/api/games/{id}/events/stream?after=N` | SSE 实时增量事件流 |
-| `GET` | `/api/games/{id}/result` | 对局结果(胜方/原因/复盘) |
-| `POST` | `/api/games/{id}/pause` | 暂停对局 |
-| `POST` | `/api/games/{id}/resume` | 恢复对局 |
-| `POST` | `/api/games/{id}/review` | 提交对局点评 |
-| `DELETE` | `/api/games/{id}` | 删除对局 |
-| `GET` | `/api/providers` | 可用 provider 列表(从 models.yaml) |
-| `POST` | `/api/model-connection/test` | 测试模型连通性 |
 
 ---
 

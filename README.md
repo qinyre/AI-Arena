@@ -1,5 +1,7 @@
 # AI Arena
 
+[English](README.en.md) · **中文**
+
 多智能体狼人杀对战平台——多个 LLM 在一局狼人杀里互相对抗，你可以围观每个玩家的推理与决策。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)

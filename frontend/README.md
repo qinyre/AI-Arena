@@ -47,10 +47,10 @@ npm run build
 - 可选随机种子与警长玩法
 
 ### 实时观战
-- 游戏状态实时更新（每2秒）
+- 首屏快照 + SSE 增量同步事件流
 - 显示当前轮次和阶段
 - 存活/死亡玩家列表
-- 自动刷新直到游戏完成
+- 断线自动重连，对局完成后停止
 
 ### 游戏结果
 - 胜利方和原因
@@ -163,7 +163,7 @@ import { useGameStream } from './hooks/useGameStream';
 function MyComponent() {
   const { status, result, loading, error } = useGameStream(gameId);
   
-  // 自动轮询，游戏完成后停止
+  // 首屏快照 + SSE 增量同步，对局完成后停止
 }
 ```
 
@@ -229,7 +229,7 @@ npm run preview
 - ✅ 对局回放与 AI 复盘
 
 ### v1.0 (计划中)
-- [ ] WebSocket实时推送
+- [x] SSE 实时增量推送（首屏快照 + 断线重连）
 - [ ] 用户登录
 - [ ] 房间管理
 - [ ] 多语言支持

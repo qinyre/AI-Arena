@@ -1,554 +1,267 @@
-# 事件时间线 UI 视觉效果演示
+# 观战界面视觉参考
 
-## 🎨 配色方案速查表
-
-### 事件类型配色矩阵
-
-```
-事件类型        图标  主色调      渐变起点         渐变终点          应用场景
-─────────────────────────────────────────────────────────────────────
-游戏开始        🎮   绿色系      green-500       emerald-600      积极、开始
-狼人击杀        🔪   红色系      red-500         rose-600         危险、攻击  
-预言家查验      🔮   紫色系      purple-500      violet-600       神秘、洞察
-玩家发言        💬   蓝色系      blue-500        cyan-600         交流、信息
-投票            🗳️   黄色系      yellow-500      amber-600        决策、选择
-投票结果        📊   绿蓝系      green-500       teal-600         结果、统计
-玩家死亡        💀   灰色系      gray-500        slate-600        严肃、结束
-阶段切换        ⏰   靛蓝系      indigo-500      blue-600         时间、节奏
-游戏结束        🏁   紫粉系      purple-500      pink-600         庆祝、完成
-```
+本文档用**真实代码片段**说明观战界面各元素的视觉实现，所有片段均取自 `frontend/src/components/game/` 与 `src/index.css` 的当前代码。设计令牌释义见 [DESIGN_SPEC.md](./DESIGN_SPEC.md)。
 
 ---
 
-## 🖼️ 实际渲染效果示例
+## 1. 时间线：圆点 + 事件卡片
 
-### 示例 1: 狼人击杀事件
+每个事件由 `TimelineEvent.tsx` 渲染为「左侧彩色圆点 + 右侧卡片」。圆点配色与卡片变体由 `getEventStyle()` 决定。
 
-```
-时间线          卡片内容
-────────────────────────────────────────────────────────
-              
-   🔪          ╔═══════════════════════════════════════╗
-   ●           ║  狼人击杀                 12:34:56   ║
-   │           ║                           [查看推理]  ║
-   │           ║  ─────────────────────────────────   ║
-   │           ║  目标: [Player3]                     ║
-   │           ║                                       ║
-   │           ║  ┌─ AI 推理过程 ────────────────┐   ║
-   │           ║  │ ● ● ●  AI 推理过程 reason... │   ║
-   │           ║  ├────────────────────────────────┤   ║
-   │           ║  │ 1 │ 分析 Player3 前序行为:   │   ║
-   │           ║  │ 2 │ - 第1轮投票表现保守      │   ║
-   │           ║  │ 3 │ - 发言避开核心争议       │   ║
-   │           ║  │ 4 │                          │   ║
-   │           ║  │ 5 │ 威胁度评估: ★★★☆☆       │   ║
-   │           ║  │ 6 │ 决策: 优先击杀           │   ║
-   │           ║  └────────────────────────────────┘   ║
-   │           ║                                       ║
-   │           ║  [🔒 私密] 可见: Werewolf1, ...      ║
-   │           ╚═══════════════════════════════════════╝
-   │           
-   ↓           (红色渐变 + 光晕效果)
+**配色定义**（`game/TimelineEvent.tsx`，节选）：
+
+```ts
+if (isWerewolfKill(e)) {
+  return {
+    dotBorder: 'border-[#eb2445]',
+    dotCore: 'bg-[#eb2445] shadow-[0_0_5px_rgba(235,36,69,0.9)]',
+    cardClass: 'wolf-action',
+    headColor: 'text-[#ffb3b3]',
+    symbol: 'swords',
+    label: '狼人行动',
+  };
+}
+if (isSeerInvestigate(e)) {
+  return {
+    dotBorder: 'border-[#e9c400]',
+    dotCore: 'bg-[#e9c400] shadow-[0_0_5px_rgba(233,196,0,0.9)]',
+    cardClass: 'seer-action',
+    headColor: 'text-[#ffe16d]',
+    symbol: 'visibility',
+    label: '预言家行动',
+  };
+}
 ```
 
-**CSS 实现:**
-```jsx
-// 节点
-<div className="bg-gradient-to-br from-red-500 to-rose-600 
-                shadow-red-500/10 shadow-lg 
-                rounded-full p-2 text-sm">
-  🔪
-</div>
+**渲染结构**（`game/TimelineEvent.tsx`）：
 
-// 卡片
-<div className="border-red-500/30 
-                bg-gradient-to-br from-red-950/40 to-rose-950/20
-                rounded-xl p-4 shadow-md hover:shadow-xl
-                transition-all duration-300">
-  {/* 内容 */}
-</div>
-
-// AI 推理区域
-<div className="border border-amber-500/20 
-                bg-gradient-to-br from-amber-950/30 to-yellow-950/20
-                backdrop-blur-sm rounded-lg overflow-hidden">
-  {/* 编辑器风格内容 */}
-</div>
-```
-
----
-
-### 示例 2: 预言家查验事件
-
-```
-   🔮          ╔═══════════════════════════════════════╗
-   ●           ║  预言家查验               23:15:42   ║
-   │           ║                           [查看推理]  ║
-   │           ║  ─────────────────────────────────   ║
-   │           ║                                       ║
-   │           ║  [Player2] → [好人]                  ║
-   │           ║     ↓           ↓                    ║
-   │           ║  (紫色)      (绿色)                  ║
-   │           ║                                       ║
-   │           ║  ┌─ AI 推理过程 ────────────────┐   ║
-   │           ║  │ ● ● ●  reasoning.txt         │   ║
-   │           ║  ├────────────────────────────────┤   ║
-   │           ║  │ 1 │ 基于已知信息:            │   ║
-   │           ║  │ 2 │ - 已知狼人: 0人          │   ║
-   │           ║  │ 3 │ - 可疑玩家: Player2      │   ║
-   │           ║  │ 4 │                          │   ║
-   │           ║  │ 5 │ 查验策略:                │   ║
-   │           ║  │ 6 │ 优先验证高可疑度目标     │   ║
-   │           ║  │ 7 │                          │   ║
-   │           ║  │ 8 │ 结果: Player2 为好人     │   ║
-   │           ║  │ 9 │ 更新信息库...            │   ║
-   │           ║  └────────────────────────────────┘   ║
-   │           ╚═══════════════════════════════════════╝
-   ↓           
-              (紫色渐变 + 神秘光晕)
-```
-
-**特殊元素:**
-```jsx
-// 查验结果标签
-<span className="px-3 py-1 rounded-lg 
-                 bg-purple-500/10 text-purple-300 
-                 font-medium border border-purple-500/20">
-  Player2
-</span>
-
-<span className="text-gray-500">→</span>
-
-<span className="px-3 py-1 rounded-lg 
-                 bg-green-500/10 text-green-300 
-                 font-medium border border-green-500/20">
-  好人
-</span>
-```
-
----
-
-### 示例 3: 玩家发言事件
-
-```
-   💬          ╔═══════════════════════════════════════╗
-   ●           ║  Player1 发言             10:23:15   ║
-   │           ║  ─────────────────────────────────   ║
-   │           ║                                       ║
-   │           ║  │ 我认为 Player3 的投票很可疑，    ║
-   │           ║  │ 他一直在避开核心讨论，而且        ║
-   │           ║  │ 发言模式与狼人特征高度吻合。      ║
-   │           ║  │ 建议大家重点关注。                ║
-   │           ║    (蓝色左侧竖线强调)                ║
-   │           ║                                       ║
-   │           ║  [🎭 跳身份: 预言家]                 ║
-   │           ╚═══════════════════════════════════════╝
-   ↓           
-              (蓝色渐变 + 对话氛围)
-```
-
-**气泡样式实现:**
-```jsx
-// 发言内容容器
-<div className="relative pl-4 border-l-2 border-blue-500/30">
-  <div className="text-sm text-gray-200 leading-relaxed">
-    {data.content}
+```tsx
+<div className={cn(
+  'relative pl-9 animate-fade-in-up',
+  tier === 'climax' && 'director-climax',
+  tier === 'notable' && 'director-notable',
+)} data-director-tier={tier}>
+  {/* 左侧圆点 */}
+  <div className={cn(
+    'absolute left-[11px] top-3.5 w-3 h-3 rounded-full bg-[#102034] border z-10 flex items-center justify-center',
+    style.dotBorder,
+  )}>
+    <div className={cn('w-1 h-1 rounded-full', style.dotCore)} />
   </div>
-</div>
 
-// 身份跳认标签
-<div className="inline-flex items-center gap-1.5 
-                px-2.5 py-1 rounded-full 
-                bg-purple-500/10 text-purple-300 
-                text-xs font-medium border border-purple-500/20">
-  <span>🎭</span>
-  <span>跳身份: {data.claim_role}</span>
-</div>
-```
-
----
-
-## 🎭 交互状态演示
-
-### 卡片悬停效果动画
-
-```
-静止状态:
-┌─────────────────────────────┐
-│   正常大小 (scale: 1)        │  shadow-md
-│   边框透明度 30%             │  border-opacity: 30%
-└─────────────────────────────┘
-
-     ↓ hover (300ms 过渡)
-
-悬停状态:
-┌────────────────────────────────┐
-│   放大 1% (scale: 1.01)        │  shadow-xl
-│   边框透明度 50%                │  border-opacity: 50%
-│   + 顶部白色光效 (5% 不透明度)  │  光晕增强
-└────────────────────────────────┘
-```
-
-**CSS 代码:**
-```jsx
-<div className={`
-  transition-all duration-300
-  ${isHovered 
-    ? 'shadow-xl scale-[1.01] border-opacity-50' 
-    : 'shadow-md'
-  }
-`}>
-  {/* 内容 */}
-  
-  {/* 悬停光效 */}
-  {isHovered && (
-    <div className="pointer-events-none absolute inset-0 
-                    bg-gradient-to-br from-white/5 to-transparent" />
-  )}
-</div>
-```
-
----
-
-### AI 推理展开/收起动画
-
-```
-收起状态:
-┌─────────────────────────────┐
-│  事件内容                    │
-│                              │
-│           [查看推理 ▼]       │
-└─────────────────────────────┘
-
-     ↓ 点击 (200ms 动画)
-
-展开状态:
-┌─────────────────────────────┐
-│  事件内容                    │
-│                              │
-│  ╔═══════════════════════╗  │  ← 从高度 0 展开
-│  ║ AI 推理过程            ║  │     不透明度 0→1
-│  ║ 1 │ ...               ║  │
-│  ╚═══════════════════════╝  │
-│                              │
-│           [收起推理 ▲]       │  ← 图标旋转 180°
-└─────────────────────────────┘
-```
-
-**动画实现:**
-```jsx
-// 按钮图标旋转
-<svg className={`
-  w-3 h-3 transition-transform duration-200
-  ${isExpanded ? 'rotate-180' : ''}
-`}>
-  <path d="M19 9l-7 7-7-7" />  {/* 下箭头 */}
-</svg>
-
-// 内容区展开 (使用 max-height 技巧)
-<div className={`
-  overflow-hidden transition-all duration-200
-  ${isExpanded ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}
-`}>
-  <AIReasoningBlock />
-</div>
-```
-
----
-
-## 📐 尺寸与间距规范
-
-### 时间线布局尺寸
-
-```
-├─ 节点图标: 32x32px (p-2 + text-sm)
-├─ 节点左边距: 0 (absolute left-0)
-├─ 卡片左边距: 32px (pl-8)
-├─ 连接线宽度: 1px
-├─ 连接线位置: left-[15px] (节点中心)
-├─ 卡片间距: 16px (space-y-4)
-└─ 容器右内边距: 8px (pr-2, 为滚动条留空间)
-```
-
-### 卡片内部间距
-
-```
-卡片容器 (p-4):
-├─ 顶部: 16px
-├─ 右侧: 16px
-├─ 底部: 16px
-└─ 左侧: 16px
-
-内容区域:
-├─ 事件头部与内容间距: 12px (mb-3)
-├─ 标签间距: 8px (gap-2)
-├─ 推理区域上边距: 16px (mt-4)
-└─ 可见性标签上边距: 12px (mt-3)
-```
-
-### AI 推理区域尺寸
-
-```
-编辑器容器:
-├─ 标题栏高度: 36px (py-2)
-├─ 行号列宽度: 48px (w-12)
-├─ 内容左内边距: 56px (pl-14, 留出行号空间)
-├─ 字体大小: 14px (text-sm)
-├─ 行高: 24px (leading-6)
-└─ 圆点尺寸: 12px (h-3 w-3)
-```
-
----
-
-## 🌈 完整配色代码表
-
-### Tailwind CSS 类名速查
-
-```javascript
-// 节点图标背景
-const iconBgClasses = {
-  green: 'bg-gradient-to-br from-green-500 to-emerald-600',
-  red: 'bg-gradient-to-br from-red-500 to-rose-600',
-  purple: 'bg-gradient-to-br from-purple-500 to-violet-600',
-  blue: 'bg-gradient-to-br from-blue-500 to-cyan-600',
-  yellow: 'bg-gradient-to-br from-yellow-500 to-amber-600',
-  teal: 'bg-gradient-to-br from-green-500 to-teal-600',
-  gray: 'bg-gradient-to-br from-gray-500 to-slate-600',
-  indigo: 'bg-gradient-to-br from-indigo-500 to-blue-600',
-  pink: 'bg-gradient-to-br from-purple-500 to-pink-600',
-}
-
-// 卡片边框
-const borderClasses = {
-  green: 'border-green-500/30',
-  red: 'border-red-500/30',
-  purple: 'border-purple-500/30',
-  blue: 'border-blue-500/30',
-  yellow: 'border-yellow-500/30',
-  // ...
-}
-
-// 卡片背景渐变
-const bgGradientClasses = {
-  green: 'bg-gradient-to-br from-green-950/40 to-emerald-950/20',
-  red: 'bg-gradient-to-br from-red-950/40 to-rose-950/20',
-  purple: 'bg-gradient-to-br from-purple-950/40 to-violet-950/20',
-  // ...
-}
-
-// 阴影光晕
-const glowClasses = {
-  green: 'shadow-green-500/10',
-  red: 'shadow-red-500/10',
-  purple: 'shadow-purple-500/10',
-  // ...
-}
-```
-
----
-
-## 🎬 动画时间曲线
-
-### 标准过渡
-
-```css
-/* 通用平滑过渡 */
-transition: all 300ms cubic-bezier(0.4, 0, 0.2, 1);
-
-/* Tailwind 类名 */
-transition-all duration-300
-```
-
-### 快速响应
-
-```css
-/* 按钮交互 */
-transition: all 200ms ease-in-out;
-
-/* Tailwind 类名 */
-transition-all duration-200
-```
-
-### 加载动画
-
-```css
-/* 旋转动画 */
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-animation: spin 1s linear infinite;
-
-/* Tailwind 类名 */
-animate-spin
-```
-
----
-
-## 🔍 细节优化点
-
-### 1. 文字渐变效果（未使用，但可选）
-
-```jsx
-<h3 className="text-xl font-bold bg-gradient-to-r 
-               from-blue-400 to-purple-400 
-               bg-clip-text text-transparent">
-  事件时间线
-</h3>
-```
-
-### 2. 毛玻璃效果
-
-```jsx
-<div className="backdrop-blur-sm bg-white/5">
-  {/* 内容 */}
-</div>
-```
-
-### 3. 脉冲动画（游戏运行中）
-
-```jsx
-<span className="animate-pulse">
-  运行中...
-</span>
-```
-
-### 4. 渐变边框技巧
-
-```jsx
-// 使用伪元素实现渐变边框
-<div className="relative p-[1px] rounded-xl 
-                bg-gradient-to-br from-blue-500 to-purple-500">
-  <div className="bg-gray-900 rounded-xl p-4">
-    {/* 内容 */}
+  {/* 关键事件用强调卡，常规动作用紧凑行 */}
+  <div className={cn(
+    'flex flex-col gap-1.5',
+    prominent
+      ? 'event-card rounded-lg px-3 py-2.5 my-2'
+      : 'py-2 pr-2 border-b border-[#47464b]/20',
+    prominent && style.cardClass,
+  )}>
+    {/* 头部：图标 + label + 时间 */}
+    {/* ... EventBody ... */}
   </div>
 </div>
 ```
 
----
-
-## 📱 响应式断点示例
-
-### 桌面端 (> 1024px)
-
-```jsx
-<div className="pl-8">                  {/* 完整左边距 */}
-  <div className="p-4">                 {/* 标准内边距 */}
-    <span className="text-base">       {/* 标准字体 */}
-```
-
-### 平板端 (640px - 1024px)
-
-```jsx
-<div className="pl-8 md:pl-6">         {/* 减小左边距 */}
-  <div className="p-4 md:p-3">         {/* 减小内边距 */}
-    <span className="text-base md:text-sm"> {/* 缩小字体 */}
-```
-
-### 移动端 (< 640px)
-
-```jsx
-<div className="pl-8 sm:pl-0">         {/* 移除时间线 */}
-  <div className="p-4 sm:p-3">         {/* 最小内边距 */}
-    <span className="text-base sm:text-sm"> {/* 小字体 */}
-```
-
----
-
-## ✨ 特殊效果库
-
-### 推荐的增强效果（可选）
-
-1. **Framer Motion** - 高级动画
-```bash
-npm install framer-motion
-```
-
-```jsx
-import { motion } from 'framer-motion'
-
-<motion.div
-  initial={{ opacity: 0, y: 20 }}
-  animate={{ opacity: 1, y: 0 }}
-  transition={{ duration: 0.3 }}
->
-  {/* 事件卡片 */}
-</motion.div>
-```
-
-2. **React Spring** - 物理动画
-```bash
-npm install @react-spring/web
-```
-
-```jsx
-import { useSpring, animated } from '@react-spring/web'
-
-const springs = useSpring({
-  from: { opacity: 0 },
-  to: { opacity: 1 },
-})
-
-<animated.div style={springs}>
-  {/* 内容 */}
-</animated.div>
-```
-
----
-
-## 🎯 设计验收标准
-
-### 视觉检查清单
-
-- [ ] **节点图标**: 圆形、渐变背景、彩色光晕
-- [ ] **连接线**: 1px 宽、灰色、渐变透明
-- [ ] **卡片边框**: 彩色、30% 透明度、圆角 12px
-- [ ] **卡片背景**: 双色渐变、暗色调、微妙
-- [ ] **阴影**: 分层、彩色光晕、动态增强
-- [ ] **AI 推理**: 编辑器风格、行号、等宽字体、琥珀色
-- [ ] **标签**: 圆角胶囊、半透明背景、彩色边框
-- [ ] **字体**: 标题 semibold、内容 normal、代码 mono
-- [ ] **间距**: 一致的 4px 倍数系统
-- [ ] **动画**: 300ms 过渡、自然缓动曲线
-
-### 交互检查清单
-
-- [ ] **hover 卡片**: 放大 1%、阴影增强、光效显现
-- [ ] **hover 节点**: 同步放大 10%
-- [ ] **hover 按钮**: 颜色变化、边框高亮
-- [ ] **点击展开**: 图标旋转、内容展开、平滑动画
-- [ ] **滚动**: 自定义滚动条、平滑滚动
-- [ ] **加载**: 双环旋转动画
-
----
-
-## 📐 打印样式（可选）
-
-如果需要支持打印:
+**卡片变体样式**（`src/index.css`）：
 
 ```css
-@media print {
-  .custom-scrollbar {
-    max-height: none;
-    overflow: visible;
-  }
-  
-  .event-card {
-    break-inside: avoid;
-    box-shadow: none !important;
-    border: 1px solid #ccc !important;
-  }
-  
-  .ai-reasoning-block {
-    border: 1px solid #999;
-    background: #f5f5f5 !important;
-  }
+.event-card { background: rgba(18, 24, 28, 0.88); border: 1px solid rgba(230,223,210,0.1); }
+.event-card.wolf-action  { border-color: rgba(184,70,61,0.42); }
+.event-card.seer-action  { border-color: rgba(185,151,88,0.42); }
+.event-card.death-action { border-color: rgba(184,70,61,0.34); background: rgba(42,18,18,0.68); }
+
+/* 导演分级强调 */
+.director-notable .event-card { box-shadow: inset 2px 0 0 rgba(185,151,88,0.28); }
+.director-climax  .event-card { box-shadow: inset 3px 0 0 rgba(184,70,61,0.54), 0 12px 30px rgba(0,0,0,0.18); }
+```
+
+---
+
+## 2. AI 推理面板（决策手记）
+
+动作下方的「决策手记」由 `AIReasoningPanel.tsx` 渲染，金色左侧描边 + 深底。
+
+```tsx
+<div className="ai-reasoning-panel mt-1.5 px-2.5 py-1.5">
+  <div className="mb-0.5 flex items-center gap-1.5 font-label text-[10px] tracking-[0.12em] text-ink-muted">
+    <span className="text-antique-gold/80">决策手记</span>
+    <span>· {playerId}</span>
+    {kind && <span>{KIND_TAG[kind]}</span>}
+  </div>
+  <p className="font-body text-[12px] leading-[1.6] text-paper/75">{reasoning}</p>
+</div>
+```
+
+```css
+.ai-reasoning-panel { border-left: 1px solid rgba(185,151,88,0.5); background: rgba(9,13,16,0.56); }
+```
+
+`kind` 取值 `'speech' | 'kill' | 'investigate' | 'vote'`，对应标签 `发言判断 / 袭击判断 / 查验判断 / 投票判断`。
+
+> 注：示例里的 `antique-gold` / `ink-muted` / `paper` 在当前 Tailwind 配置中未定义（无效类），样式实际由 `.ai-reasoning-panel` 的金色描边与深底承载。新写样式请用 `nocturne.gold` / `nocturne.on-surface-variant` 等已定义令牌。
+
+---
+
+## 3. 发言气泡（公开立场）
+
+玩家发言由 `SpeechBubble.tsx` 渲染：头像 + 身份徽章 + 跳身份标签（伪装高亮）+ 发言正文 + 公开立场 chip。
+
+```tsx
+{/* 跳身份：与真实身份不符时标「伪装」 */}
+{claim && (
+  <span className={cn(
+    'border px-1.5 py-0.5 font-label text-[10px]',
+    isLying
+      ? 'border-crimson/35 bg-crimson/10 text-[#d9877f]'
+      : 'border-white/10 bg-white/[0.03] text-ink-muted',
+  )}>
+    {isLying ? `伪装 · ${claim}` : claim}
+  </span>
+)}
+
+{/* 发言正文：金色左边竖条 */}
+<div className="border-l-2 border-antique-gold/35 bg-white/[0.035] px-3 py-2 font-body text-[13px] leading-[1.6] text-paper/90">
+  {content}
+</div>
+
+{/* 公开立场 chip：怀疑=绯红 / 信任=翠绿 / 计划票=金 / 身份读取=天蓝 */}
+<span className="border border-crimson/25 bg-crimson/[0.06] px-1.5 py-0.5 text-red-200/80">怀疑 · {player}</span>
+<span className="border border-emerald-400/20 bg-emerald-400/[0.05] px-1.5 py-0.5 text-emerald-200/75">信任 · {player}</span>
+```
+
+`isLying` 判定：`claim_role !== 'none' && claim_role !== realRole && realRole !== 'villager'`（村民跳神不算伪装）。
+
+---
+
+## 4. 投票结果（票数条 + 谁投谁）
+
+`VoteResult.tsx`：竖向票数条形（出局者绯红）+ 「谁投谁」chip 明细 + 平票/白痴翻牌结果。
+
+```tsx
+{/* 票数条 */}
+<div className={cn(
+  'h-full rounded transition-all flex items-center justify-end pr-2',
+  isOut
+    ? 'bg-gradient-to-r from-[#eb2445]/60 to-[#eb2445]/80'
+    : 'bg-gradient-to-r from-[#64748b]/50 to-[#64748b]/70',
+)} style={{ width: `${(n / maxVotes) * 100}%` }}>
+  <span className="font-label text-label-sm text-white font-bold">{n}</span>
+</div>
+
+{/* 谁投谁 chip：弃票灰，正常投票带金色箭头 */}
+<span className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded font-label border bg-[#1b2b3f]/60 border-[#47464b]/30">
+  <LobeAvatar playerId={voter} className="h-3.5 w-3.5 rounded-full text-[8px] font-bold text-white" />
+  <span className="text-[#d3e4fe]">{voter}</span>
+  <span className="material-symbols-outlined text-[12px] text-[#e9c400]/70">arrow_forward</span>
+  <span className="text-[#d3e4fe]">{target}</span>
+</span>
+```
+
+票数明细优先取 `vote_result.vote_detail`（含弃票），回退到 `player_vote` 事件数组。
+
+---
+
+## 5. 玩家卡状态（注意力高亮）
+
+`gameDirector.ts` 的 `playerAttention()` 返回每位玩家的状态，`PlayerTable.tsx` 据此加修饰类。CSS（`src/index.css`）：
+
+```css
+.player-card { border-left: 2px solid rgba(111,124,131,0.5); background: rgba(18,24,28,0.82); }
+.player-card.active-wolf { border-left-color: rgba(184,70,61,0.9); }   /* 狼人阵营 */
+.player-card.active-seer { border-left-color: rgba(185,151,88,0.9); }   /* 预言家 */
+
+.player-card.is-speaking {                       /* 正在发言：金边 + 内金条 */
+  border-color: rgba(185,151,88,0.62);
+  box-shadow: inset 3px 0 0 rgba(185,151,88,0.82);
+}
+.player-card.is-targeted {                       /* 被刀：绯红径向光 */
+  background: radial-gradient(circle at 86% 50%, rgba(184,70,61,0.18), transparent 42%), rgba(18,24,28,0.92);
+  box-shadow: inset -2px 0 0 rgba(184,70,61,0.8);
+}
+.player-card.dead { filter: grayscale(0.9); opacity: 0.48; }            /* 已死亡 */
+.player-card.is-fallen { animation: player-fall 650ms cubic-bezier(0.22,1,0.36,1) both; } /* 倒下 */
+
+@keyframes player-fall {
+  0%   { opacity: 1; transform: scale(1); filter: grayscale(0); }
+  35%  { transform: scale(1.025); }
+  100% { opacity: 0.48; transform: scale(0.97); filter: grayscale(0.9); }
 }
 ```
 
+发言/守护状态额外套一层脉冲环：`.player-card.is-speaking::after { animation: player-attention-pulse 1.35s ... }`。
+
 ---
 
-**视觉演示完成!** 🎨
+## 6. 时间线竖线与卷宗底纹
 
-参考这些示例来理解和验证 UI 效果。
+中栏 `EventFeed` 容器用 `.chronicle-panel`（卷宗纸纹），竖线 `.timeline-line` 为金→绯红渐变。
+
+```css
+.chronicle-panel {
+  background:
+    linear-gradient(rgba(13,18,22,0.95), rgba(13,18,22,0.95)),
+    repeating-linear-gradient(0deg, transparent 0 23px, rgba(230,223,210,0.03) 24px);
+}
+
+.timeline-line {
+  position: absolute; top: 0; bottom: 0; left: 24px; width: 1px;
+  background: linear-gradient(to bottom,
+    rgba(230,223,210,0.04), rgba(185,151,88,0.42), rgba(184,70,61,0.34), rgba(230,223,210,0.04));
+}
+```
+
+`phase_change` 事件不渲染为时间线条目，而是由 `EventFeed` 渲染为竖线上的阶段分隔条（夜晚 / 白天 / 投票 / 警长竞选 等，见 `EventFeed.tsx` `phaseMeta()`）。
+
+---
+
+## 7. 投票连线（VoteFlowOverlay）
+
+投票阶段，`VoteFlowOverlay.tsx` 在三栏舞台上方叠加一层 SVG，按「谁投谁」画贝塞尔连线，定位锚点取自玩家卡的真实 DOM 位置。
+
+```css
+.vote-flow-overlay { filter: drop-shadow(0 0 5px rgba(185,151,88,0.24)); }
+.vote-flow-path   { fill: none; stroke: rgba(201,166,91,0.74); stroke-width: 1.35; vector-effect: non-scaling-stroke; }
+.vote-flow-target { fill: rgba(184,70,61,0.2); stroke: rgba(201,166,91,0.82); stroke-width: 1.4; }
+```
+
+---
+
+## 8. 职业行动过场（ActionCinematics）
+
+关键夜晚行动触发全屏过场（`ActionCinematics.tsx` + `cinematics.ts`）：角色插画为主体，UI 只承担字幕与节奏。容器用一组 `cinematic-*` 类搭建「审判庭」氛围（径向光晕、网格、巨型角色字、刻痕 tally、纸纹、暗角）。
+
+```css
+.cinematic-tribunal-field {
+  background:
+    radial-gradient(circle at 72% 50%, var(--cinematic-wash), transparent 28rem),
+    linear-gradient(115deg, #090b0d 0%, #0d1114 45%, #080a0c 100%);
+}
+.cinematic-tribunal-glyph {                       /* 巨型角色字水印 */
+  color: var(--cinematic-color); font-size: min(40vw, 37rem); opacity: 0.1;
+  text-shadow: 0 0 5rem color-mix(in srgb, var(--cinematic-color) 22%, transparent);
+}
+.cinematic-vignette { box-shadow: inset 0 0 16vw 4vw rgba(0,0,0,0.82); }
+```
+
+`--cinematic-color` / `--cinematic-wash` 由 JS 按 `CinematicKind`（`wolf` / `seer` / `guard` / `witch-heal` / `hunter-shot` / `sheriff` / `victory-good` 等，见 `cinematics.ts`）注入。过场可跳过，受导演开关与 `prefers-reduced-motion` 控制。
+
+---
+
+## 9. 无障碍细节
+
+```css
+/* 统一金色聚焦框 */
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid #d7bd8b; outline-offset: 2px;
+}
+
+/* 尊重减少动效偏好：关闭所有装饰动画 */
+@media (prefers-reduced-motion: reduce) {
+  .cursor-blink, .animate-fade-in-up,
+  .player-card.is-speaking::after, .player-card.is-protected::after,
+  .player-card.is-fallen, .timeline-quality-focus { animation: none; }
+}
+```
+
+实时恢复提示条带 `role="status" aria-live="polite"`，错误提示带 `role="alert"`（见 `GameView.tsx`）。

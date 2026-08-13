@@ -154,7 +154,7 @@ logging.basicConfig(level=logging.DEBUG)
 
 ### 固定角色分配（调试）
 
-修改 `app/core/werewolf.py` 的 `initialize` 方法，注释掉 `random.shuffle(roles)`
+修改 `app/core/werewolf.py` 的 `initialize` 方法，注释掉 `self.rng.shuffle(roles)`
 
 ### 查看AI的内部推理
 
@@ -172,7 +172,6 @@ print(f"    推理: {action.parameters.get('reasoning', '')}")
 
 ## 下一步
 
-- [ ] 实现WebSocket服务器
 - [ ] 添加数据库持久化
 - [ ] 优化AI推理质量
 

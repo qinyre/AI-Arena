@@ -1,489 +1,139 @@
-# 事件时间线 UI 升级指南
+# 观战界面：组件结构与扩展指南
 
-## 🎯 升级概览
-
-### 升级前 vs 升级后
-
-| 维度 | 原版本 | 新版本 | 提升 |
-|------|--------|--------|------|
-| **视觉设计** | 纯色边框 + 简单背景 | 渐变 + 光效 + 阴影 | ⭐⭐⭐⭐⭐ |
-| **AI 推理展示** | 灰色框 + 黄色文字 | 代码编辑器风格 | ⭐⭐⭐⭐⭐ |
-| **交互反馈** | 基础 hover | 多层次动画 + 缩放 | ⭐⭐⭐⭐ |
-| **信息层次** | 扁平 | 清晰的视觉分组 | ⭐⭐⭐⭐⭐ |
-| **专业感** | 中等 | 高端 SaaS 级别 | ⭐⭐⭐⭐⭐ |
+本文档说明 `frontend/src/components/game/` 的组件职责、数据流，以及如何新增事件类型 / 角色 / 组件。视觉令牌见 [DESIGN_SPEC.md](./DESIGN_SPEC.md)，代码片段见 [VISUAL_EXAMPLES.md](./VISUAL_EXAMPLES.md)。
 
 ---
 
-## 📸 视觉对比
+## 1. 组件树
 
-### 1. 整体时间线
+观战页以 `GameView.tsx` 为根，编排下列 `game/` 子组件：
 
-**原版本:**
 ```
-[图标] ┌───────────────────────┐
-       │ 事件内容              │
-       │ 简单布局              │
-       └───────────────────────┘
-```
+GameView.tsx                      观战主页面：剧场环绕布局 + 状态编排
+├── GameHeader.tsx                顶栏：阶段 / 轮次 / 状态徽章 / 暂停 / 剧场控制槽
+├── TheatreControls.tsx           剧场控制：导演开关 / 音效开关 / 音量
+├── ActionCinematics.tsx          全屏职业行动过场（狼刀/查验/守护/开枪/警长…）
+├── ReplayControls.tsx            复盘控件：游标 / 倍速 / 事件筛选 / 转折点跳转
+├── VoteFlowOverlay.tsx           投票「谁投谁」连线（SVG，锚点取自玩家卡 DOM）
+├── PlayerTable.tsx               玩家栏（左/右/移动端各一份）：身份徽章 + 注意力状态
+│   └── PersonalityDetails        展开的性格详情
+├── EventFeed.tsx                 中央时间线主舞台：竖线 + 阶段分隔 + 事件流
+│   └── TimelineEvent.tsx         单个事件：圆点 + 卡片 + EventBody + 推理面板
+│       ├── SpeechBubble.tsx       发言气泡（含跳身份/伪装/公开立场）
+│       ├── VoteResult.tsx         投票结果（票数条 + 谁投谁）
+│       └── AIReasoningPanel.tsx   「决策手记」推理面板
+├── ResultPanel.tsx               局末复盘：胜方/原因/成本/转折点 + AI 复盘
+│   └── GameReviewPanel.tsx        AI 复盘生成与展示
+└── QualityReportPanel.tsx        质检报告：可定位到时间线对应事件
 
-**新版本:**
-```
-  ●━━━┓  (渐变圆形节点 + 光晕)
-      ┃
-      ╔═══════════════════════════╗  (渐变卡片 + 阴影)
-      ║  事件内容                  ║
-      ║  [AI 推理 - 编辑器风格]    ║
-      ╚═══════════════════════════╝
-      ┃ (连接线渐变透明)
-  ●━━━┛
-```
-
-### 2. AI 推理区域对比
-
-**原版本:**
-```
-╔═══════════════════════╗
-║ 💭 推理: 基于...       ║  (灰色背景 + 黄色文字)
-╚═══════════════════════╝
-```
-
-**新版本:**
-```
-╔═══════════════════════════════════╗
-║ ● ● ●  AI 推理过程    reasoning.txt ║  (模拟编辑器标题栏)
-╠═══════════════════════════════════╣
-║ 1 │ 基于前序投票行为...           ║  (行号 + 等宽字体)
-║ 2 │ 综合考虑玩家发言模式...       ║
-║ 3 │                               ║
-║ 4 │ 结论: 查验价值高              ║
-╚═══════════════════════════════════╝
-     (琥珀色渐变 + 光效)
+数据 / 逻辑（非组件）：
+├── hooks/useGameStream.ts        单一数据源：首屏快照 + SSE 增量 + derived 聚合
+├── game/gameDirector.ts          导演模型：事件分级 / 注意力 / 事件筛选 / 音效映射
+├── game/cinematics.ts            过场动作构建（CinematicKind → CinematicAction）
+├── game/roleConfig.ts            角色配置（图标/符号/label/色/阵营）+ 死因/自称 label
+├── game/useArenaAudio.ts         音效 hook
+└── types/api.ts                  前后端数据契约：GameEvent 联合 + 类型守卫
 ```
 
 ---
 
-## 🚀 快速升级步骤
+## 2. 数据流
 
-### 方案 A: 直接替换（推荐）
-
-```bash
-# 1. 备份原文件
-cd D:\Program\NewIdea\frontend\src\components
-cp EventTimeline.tsx EventTimeline.backup.tsx
-
-# 2. 替换为新版本
-cp EventTimeline.enhanced.tsx EventTimeline.tsx
-
-# 3. 重启开发服务器
-npm run dev
+```
+useGameStream(gameId)
+   │  首屏：GET /status + GET /events  → 快照
+   │  实时：EventSource /events/stream → 增量事件（断线指数退避重连 + REST 补齐）
+   ▼
+{ status, result, events, players, rounds, currentSpeaker, loading, error, connectionState, refetch }
+   │
+   ▼
+GameView：按 replayCursor 切出 displayEvents，派生 displayPlayers / displayRounds /
+         displaySpeaker / displayStatus / attention / voteDetail
+   │
+   ├── PlayerTable    ← displayPlayers + attention + displaySpeaker
+   ├── EventFeed      ← displayEvents + displayRounds + displayStatus + eventFilter
+   │     └── 每个 event → gameDirector.directorTier(event) → 视觉分级
+   ├── ActionCinematics ← displayEvents（构建过场）+ roleAssignment
+   └── ResultPanel    ← result + status（局末）
 ```
 
-### 方案 B: 并行测试
+关键约定：
 
-```bash
-# 1. 在 GameView.tsx 中切换导入
-# 原版本:
-import EventTimeline from './EventTimeline';
-
-# 新版本:
-import EventTimeline from './EventTimeline.enhanced';
-
-# 2. 测试完成后再替换
-```
+- **单一数据源**：所有组件不自己发请求，统一从 `useGameStream` 取数据。
+- **上帝视角**：`status.role_assignment` 开局即下发全部身份，前端直接展示。
+- **复盘与实况同源**：`GameView` 用 `replayCursor` 把同一份 `events` 切片，实况与回放共用一套渲染管线。
 
 ---
 
-## 🔧 必需依赖检查
+## 3. 导演模型（gameDirector.ts）
 
-### 当前依赖状态
+为事件计算三件事，驱动视觉与音效：
 
-```bash
-# 检查 Tailwind CSS 版本
-npm list tailwindcss
+- **分级** `directorTier(event): 'routine' | 'notable' | 'climax'` — 由 `CLIMAX_EVENTS` / `NOTABLE_EVENTS` 集合判定，映射到时间线条目的强调样式（见 [DESIGN_SPEC.md §9](./DESIGN_SPEC.md)）。
+- **注意力** `playerAttention(events): Record<player, PlayerAttention>` — 推断每位玩家当前状态（`speaking` / `watching` / `voting` / `targeted` / `protected` / `fallen`），驱动玩家卡修饰类。
+- **音效** `ArenaSound` 与过场语音路径 `VOICE_BY_CINEMATIC`，由 `useArenaAudio` 播放，受导演开关控制。
 
-# 应该 >= 3.0.0
-```
-
-### CSS 更新确认
-
-确保 `src/index.css` 中已添加自定义滚动条样式:
-
-```css
-/* 自定义滚动条 - 现代化风格 */
-.custom-scrollbar {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(75, 85, 99, 0.5) transparent;
-}
-
-.custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
-}
-
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(75, 85, 99, 0.5);
-  border-radius: 3px;
-}
-
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(75, 85, 99, 0.7);
-}
-```
-
-✅ 已自动添加，无需手动操作。
+事件筛选 `EventFilter = 'all' | 'speech' | 'vote' | 'night' | 'death' | 'system'`，由 `eventMatchesFilter()` 实现，供 `ReplayControls` 使用。
 
 ---
 
-## 🎨 核心改进详解
-
-### 1. 视觉层次优化
-
-**改进点:**
-- ✅ 添加垂直时间线（视觉连接）
-- ✅ 渐变背景（增加深度）
-- ✅ 彩色光晕（强化事件类型识别）
-- ✅ 悬停放大效果（交互反馈）
-
-**实现代码:**
-```jsx
-// 时间线节点
-<div className={`
-  ${config.iconBg}           // 双色渐变背景
-  ${config.glowColor}        // 彩色阴影光晕
-  shadow-lg rounded-full p-2
-  transition-transform
-  ${isHovered ? 'scale-110' : 'scale-100'}
-`}>
-  {config.icon}
-</div>
-
-// 事件卡片
-<div className={`
-  ${config.borderColor}      // 半透明彩色边框
-  ${config.bgGradient}       // 渐变背景
-  ${isHovered ? 'shadow-xl scale-[1.01]' : 'shadow-md'}
-`}>
-```
-
-### 2. AI 推理展示革新
-
-**设计理念:**
-将 AI 的思考过程类比为"查看源代码"，使用程序员熟悉的 IDE 界面风格。
-
-**关键特性:**
-- ✅ macOS 风格窗口标题栏（红/黄/绿三点）
-- ✅ 行号显示（增强专业感）
-- ✅ 等宽字体（font-mono）
-- ✅ 琥珀色配色（区别于普通内容）
-- ✅ 毛玻璃背景（backdrop-blur）
-
-**效果预览:**
-```
-╔═════════════════════════════════╗
-║ ● ● ●  AI 推理过程  reasoning.txt ║  ← 窗口标题栏
-╠═════════════════════════════════╣
-║ 1 │ 分析依据:                   ║  ← 行号 + 内容
-║ 2 │ - Player3 前两轮投票保守   ║
-║ 3 │ - 发言时避开核心争议       ║
-║ 4 │                             ║
-║ 5 │ 结论: 可疑度 ★★★★☆         ║
-╚═════════════════════════════════╝
-```
-
-### 3. 交互动画升级
-
-**悬停效果:**
-```javascript
-// 卡片
-scale: 1 → 1.01
-shadow: md → xl
-border-opacity: 30% → 50%
-
-// 节点同步
-scale: 1 → 1.1
-
-// 时间: 300ms cubic-bezier(0.4, 0, 0.2, 1)
-```
-
-**展开动画:**
-```javascript
-// 按钮图标
-<svg className={isExpanded ? 'rotate-180' : ''}>
-  ↓
-</svg>
-
-// 内容区
-overflow: hidden
-transition: all 200ms ease-in-out
-```
-
-### 4. 颜色系统升级
-
-**原版本:** 单一主题色 + 固定不透明度
-```css
-border-red-700 bg-red-900/30
-```
-
-**新版本:** 渐变 + 光效 + 动态不透明度
-```css
-border-red-500/30                              // 边框
-bg-gradient-to-br from-red-950/40 to-rose-950/20  // 背景渐变
-shadow-red-500/10                              // 光晕
-hover:border-red-500/50                        // 悬停增强
-```
-
----
-
-## 📊 性能影响评估
-
-### 渲染性能
-
-| 指标 | 原版本 | 新版本 | 变化 |
-|------|--------|--------|------|
-| 首次渲染 | ~50ms | ~55ms | +10% |
-| 重渲染 | ~20ms | ~22ms | +10% |
-| 内存占用 | 2MB | 2.3MB | +15% |
-| 动画 FPS | 60fps | 60fps | 无变化 |
-
-**结论:** 性能影响可忽略，用户体验提升显著。
-
-### 优化建议
-
-如果事件数量 > 100 条，建议启用虚拟化:
-
-```bash
-npm install @tanstack/react-virtual
-```
-
-```jsx
-import { useVirtualizer } from '@tanstack/react-virtual'
-
-const rowVirtualizer = useVirtualizer({
-  count: events.length,
-  getScrollElement: () => parentRef.current,
-  estimateSize: () => 120,
-})
-```
-
----
-
-## 🎯 用户体验提升点
-
-### 1. 信息查找速度
-- **原版本**: 需要逐行阅读才能定位关键事件
-- **新版本**: 彩色节点 + 图标快速识别事件类型
-- **提升**: 信息定位速度 ⬆️ 40%
-
-### 2. AI 推理理解
-- **原版本**: 推理内容混在普通文字中，不突出
-- **新版本**: 独立的编辑器风格区域，清晰分隔
-- **提升**: 推理内容阅读体验 ⬆️ 80%
-
-### 3. 视觉疲劳
-- **原版本**: 扁平单调，长时间观看易疲劳
-- **新版本**: 渐变 + 适当留白，舒适性高
-- **提升**: 可持续观看时间 ⬆️ 50%
-
-### 4. 专业度感知
-- **原版本**: 基础功能型界面
-- **新版本**: 高端产品级 UI
-- **提升**: 用户信任度 ⬆️ 60%
-
----
-
-## 🐛 常见问题排查
-
-### Q1: 升级后样式不生效
-
-**症状**: 卡片没有渐变效果，颜色显示异常
-
-**解决方案:**
-```bash
-# 1. 清除 Tailwind 缓存
-rm -rf node_modules/.cache
-
-# 2. 重新构建
-npm run dev
-```
-
-### Q2: 滚动条样式没有变化
-
-**原因**: CSS 文件未正确更新
-
-**解决方案:**
-```bash
-# 1. 检查 index.css 是否包含 .custom-scrollbar
-cat src/index.css | grep custom-scrollbar
-
-# 2. 如果没有，手动添加（见上文 CSS 更新确认）
-
-# 3. 强制刷新浏览器 (Ctrl+Shift+R)
-```
-
-### Q3: TypeScript 类型错误
-
-**症状**: `GameEvent` 类型报错
-
-**解决方案:**
-```bash
-# 确认 types/api.ts 已正确导入
-# EventTimeline.enhanced.tsx 第3行:
-import type { GameEvent } from '../types/api';
-```
-
-### Q4: 动画卡顿
-
-**原因**: GPU 加速未启用
-
-**解决方案:**
-```css
-/* 在卡片容器添加 */
-.event-card {
-  transform: translateZ(0);
-  will-change: transform;
-}
-```
-
----
-
-## 📈 A/B 测试建议
-
-如果你想量化升级效果，可以进行 A/B 测试:
-
-### 测试指标
-
-1. **任务完成时间**
-   - 任务: "找到第一次狼人击杀事件"
-   - 对比: 原版 vs 新版
-
-2. **信息理解准确度**
-   - 任务: "解释 Player3 在第 2 轮的 AI 推理逻辑"
-   - 对比: 理解正确率
-
-3. **主观满意度**
-   - 问卷: 1-5 分评分
-   - 维度: 美观度、专业度、易用性
-
-### 预期结果
-
-基于设计原则，预期:
-- 任务完成时间: ⬇️ 30%
-- 信息理解准确度: ⬆️ 40%
-- 主观满意度: ⬆️ 1.5 分 (5分制)
-
----
-
-## 🎓 设计原则学习
-
-### 从这次升级中可以学到的设计原则
-
-1. **视觉层次 > 装饰**
-   - 不是添加更多元素，而是让现有元素层次分明
-
-2. **隐喻的力量**
-   - AI 推理 = 代码查看，用户立即理解
-
-3. **微妙胜于浮夸**
-   - 30% 透明度的边框 > 100% 不透明的粗边框
-
-4. **动画是交互反馈**
-   - 每个动画都应有明确的信息传递目的
-
-5. **一致性建立专业感**
-   - 所有事件类型遵循统一的配色逻辑
-
----
-
-## 🔮 未来扩展方向
-
-### 短期 (1-2 周)
-
-1. **添加搜索过滤**
-   ```jsx
-   <input placeholder="搜索事件..." />
-   // 按事件类型、玩家名筛选
+## 4. 扩展：新增一个事件类型
+
+事件由后端 `app/core/werewolf.py` 产生并写入事件流；前端只需让它「能被看见」。以新增 `my_new_action` 为例：
+
+1. **类型契约**（`types/api.ts`）：在 `GameEvent` 联合（约 727 行起）加对应类型；如需窄化，仿照现有守卫加一个：
+   ```ts
+   export function isMyNewAction(e: GameEvent): e is MyNewActionEvent {
+     return e.event_type === 'my_new_action';
+   }
    ```
+2. **时间线配色**（`game/TimelineEvent.tsx` → `getEventStyle`）：加一个分支返回 `{ dotBorder, dotCore, cardClass, headColor, symbol, label }`。未命中的事件会落到 `FALLBACK_EVENT_STYLE`（中性灰，label「系统事件」）。
+3. **事件正文**（`game/TimelineEvent.tsx` → `EventBody`）：如需自定义渲染，加一个分支；否则默认显示 label + 时间。
+4. **视觉分级**（`game/gameDirector.ts`）：若该事件需要强调，把 `event_type` 加入 `NOTABLE_EVENTS` 或 `CLIMAX_EVENTS`。
+5. **（可选）复盘筛选**：若希望它被某个 `EventFilter` 命中，更新 `eventMatchesFilter()`。
+6. **（可选）过场 / 音效**：在 `cinematics.ts` `buildCinematics` 加映射、在 `gameDirector.ts` `VOICE_BY_CINEMATIC` 加语音路径。
 
-2. **时间轴缩放**
-   ```jsx
-   <button>压缩视图</button>
-   // 折叠非关键事件
+> 前端不校验动作合法性——那是后端 `werewolf.py` 的职责。前端只负责呈现已发生的事件。
+
+---
+
+## 5. 扩展：新增一个角色
+
+角色配置是前端单一数据源 `game/roleConfig.ts` 的 `ROLE_MAP`。新增角色：
+
+1. **前端配置**（`game/roleConfig.ts` → `ROLE_MAP`）加一项，对齐字段：
+   ```ts
+   my_role: {
+     icon: '某',                 // 玩家卡单字
+     symbol: 'material_symbol',  // Material Symbols 图标名
+     label: '某角色',
+     color: '#RRGGBB',
+     badgeClass: 'bg-[#RRGGBB]/12 text-[#RRGGBB] border border-[#RRGGBB]/30',
+     cardClass: '',              // 狼人阵营填 'active-wolf'，其余留空
+     ringClass: 'ring-[#RRGGBB]/55',
+     team: 'werewolf' | 'good',
+   },
    ```
-
-3. **导出功能**
-   ```jsx
-   <button>导出为 PDF</button>
-   // 生成完整报告
-   ```
-
-### 中期 (1 个月)
-
-1. **AI 推理可视化**
-   - 决策树图表
-   - 概率分布条形图
-
-2. **事件关联高亮**
-   - hover 一个投票，高亮相关发言
-
-3. **主题切换**
-   - 浅色主题
-   - 高对比度主题
-
-### 长期 (3 个月+)
-
-1. **实时流式更新**
-   - WebSocket 连接
-   - 新事件淡入动画
-
-2. **协作标注**
-   - 用户可以添加备注
-   - 分享带标注的时间线
-
-3. **AI 推理对比**
-   - 并排显示不同 AI 的推理过程
+   未在表中的角色会回退到 `villager` 配置（`getRoleConfig` 默认值）。
+2. **后端角色枚举**（`app/core/werewolf.py` → `Role`）：新增角色需先在后端定义并加入板型，前端 `roleConfig` 只是镜像后端的角色字符串。
+3. **（可选）死因 / 过场**：若引入新死因，在 `roleConfig.ts` `deathCauseLabel()` 加文案；若需要专属过场，在 `cinematics.ts` 加 `CinematicKind` 与映射。
 
 ---
 
-## 📚 参考资料
+## 6. 扩展：新增一个观战组件
 
-### 设计灵感来源
-
-- [Linear 设计系统](https://linear.app/method)
-- [Vercel 设计指南](https://vercel.com/design)
-- [Stripe Press](https://press.stripe.com)
-- [GitHub Timeline](https://github.com)
-
-### 技术文档
-
-- [Tailwind CSS 渐变](https://tailwindcss.com/docs/gradient-color-stops)
-- [CSS 阴影最佳实践](https://www.joshwcomeau.com/css/designing-shadows/)
-- [Web 动画性能](https://web.dev/animations/)
+1. 在 `game/` 下新建组件，**只接收 props、不发请求**（数据来自 `useGameStream` 经 `GameView` 下发）。
+2. 在 `GameView.tsx` 顶部 import，按布局位置插入：
+   - 顶栏控件 → 作为 `GameHeader` 的 `controls` 槽或紧随其下
+   - 舞台内 → 三栏 `grid` 之内
+   - 页面级区块 → 三栏 `grid` 之外（如复盘区，自然出现在页面下方）
+3. 样式优先复用 [DESIGN_SPEC.md](./DESIGN_SPEC.md) 的令牌与面板类（`.glass-panel` / `.arena-rail` / `.chronicle-panel` / `.event-card` / `.custom-scrollbar`），圆角用 Tailwind `rounded-sm/lg`。
 
 ---
 
-## ✅ 升级验收清单
+## 7. 约定速记
 
-完成以下检查确认升级成功:
-
-- [ ] 时间线左侧出现渐变彩色节点
-- [ ] 卡片边框有微妙的彩色光晕
-- [ ] hover 卡片时有缩放 + 阴影增强效果
-- [ ] AI 推理区域显示为代码编辑器风格
-- [ ] 推理区域有行号和等宽字体
-- [ ] 展开/收起推理时有平滑动画
-- [ ] 滚动条为细窄的自定义样式
-- [ ] 不同事件类型有不同的配色方案
-- [ ] 移动端也能正常显示（如适用）
-- [ ] 无 TypeScript 错误
-- [ ] 无 Console 警告
-
----
-
-**升级完成!** 🎉
-
-如有问题，请参考:
-- `DESIGN_SPEC.md` - 完整设计规范
-- `EventTimeline.enhanced.tsx` - 源代码实现
+- **不要直接发请求**：数据走 `useGameStream`；写操作走 `apiClient`（`api/client.ts`）。
+- **不要新增未定义的 Tailwind 颜色类**：`antique-gold` / `ink-muted` / `paper` / `crimson` 等未在配置中定义，属无效类。用 `nocturne.*` 令牌或十六进制值。
+- **动作合法性由后端校验**：前端只呈现，不判规则。
+- **动效要尊重 `prefers-reduced-motion`**：新动画在 `src/index.css` 的 reduce 媒体查询里关闭。

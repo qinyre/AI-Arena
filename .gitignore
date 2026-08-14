@@ -28,9 +28,8 @@ backend/data/events/
 .DS_Store
 Thumbs.db
 
-# ===== 临时设计参考（AI 生成的原型稿，不纳入版本管理） =====
+# ===== 本地临时产物（AI 原型稿、工具缓存，不纳入版本管理） =====
 借鉴/
-docs/
 .claude/
 .zcode/
 .playwright-mcp/

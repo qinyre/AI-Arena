@@ -28,15 +28,10 @@ async def lifespan(app: FastAPI):
     if interrupted:
         print(f"⚠️ 已将 {interrupted} 局不可恢复的旧对局标记为错误")
 
-    # TODO: Initialize database
-    # TODO: Start event bus
-
     yield
 
     # Shutdown
     print("👋 AI Arena Backend Shutting Down...")
-
-    # TODO: Cleanup resources
 
 
 # Create FastAPI app
@@ -164,11 +159,6 @@ async def test_model_connection(request: ModelConnectionTestRequest):
         "usage": result.get("usage", {}),
     }
 
-
-# TODO: Include routers
-# from app.api import game, websocket
-# app.include_router(game.router, prefix="/api/games", tags=["games"])
-# app.include_router(websocket.router, prefix="/ws", tags=["websocket"])
 
 # 游戏管理 API(对应前端 client.ts 的全部调用)
 from app.api.routes import router as games_router

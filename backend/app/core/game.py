@@ -102,12 +102,3 @@ class BaseGame(ABC):
             是否结束
         """
         pass
-
-    def get_current_player(self) -> Optional[str]:
-        """
-        获取当前行动的玩家ID
-
-        Returns:
-            玩家ID或None
-        """
-        pass

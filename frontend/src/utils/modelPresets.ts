@@ -16,7 +16,9 @@ export function requiresApiKey(
 ) {
   if (apiFormat !== 'anthropic') return false;
   try {
-    return !['localhost', '127.0.0.1', '::1'].includes(new URL(baseUrl || '').hostname);
+    // IPv6 地址的 hostname 带方括号（如 "[::1]"），先剥掉再比较 loopback。
+    const hostname = new URL(baseUrl || '').hostname.replace(/^\[|\]$/g, '');
+    return !['localhost', '127.0.0.1', '::1'].includes(hostname);
   } catch {
     return true;
   }

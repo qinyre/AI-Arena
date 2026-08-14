@@ -71,9 +71,11 @@ def test_restart_reconciles_stale_games(monkeypatch, tmp_path):
     manager = GameManager()
 
     assert asyncio.run(manager.reconcile_interrupted_games()) == 2
-    records = json.loads(storage.read_text(encoding="utf-8"))
-    assert [record["status"] for record in records] == ["error", "error", "completed"]
-    assert records[0]["reason"] == "后端进程已重启，对局无法恢复"
+    records = {r["game_id"]: r for r in manager._load_all()}
+    assert records["running"]["status"] == "error"
+    assert records["paused"]["status"] == "error"
+    assert records["done"]["status"] == "completed"
+    assert records["running"]["reason"] == "后端进程已重启，对局无法恢复"
 
 
 def test_custom_board_uses_existing_roles_and_instance_rules():
@@ -998,7 +1000,7 @@ def test_rematch_persists_redacted_config_and_tracks_series(tmp_path, monkeypatc
             budget_tier="economy",
         )
         await asyncio.sleep(0)
-        persisted = (tmp_path / "games.json").read_text(encoding="utf-8")
+        persisted = json.dumps(manager._load_all(), ensure_ascii=False)
         assert "secret-" not in persisted
         assert first["series_game_number"] == 1
         assert manager._orchestrators[first["game_id"]].max_output_tokens == 700

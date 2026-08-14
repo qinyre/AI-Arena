@@ -31,8 +31,9 @@ from app.core.behavior import (
 from app.core.quality import build_quality_report
 from app.api.schemas import GameReviewContent
 from app.llm.registry import get_registry
+from app.storage import SQLiteGameStore
 
-# 持久化文件路径: backend/data/games.json
+# 旧版 games.json 路径: 作为一次性迁移源,并定位 data 目录(事件文件与 SQLite 都在此)。
 _STORAGE_PATH = Path(__file__).resolve().parents[2] / "data" / "games.json"
 
 # 引擎 phase → 前端期望 phase 的映射
@@ -66,62 +67,72 @@ class GameManager:
         self._orchestrators: Dict[str, GameOrchestrator] = {}
         # game_id → asyncio.Task
         self._tasks: Dict[str, asyncio.Task] = {}
-        # 公平系列赛仅保留轻量监督状态；每局事实仍落在 games.json。
+        # 公平系列赛仅保留轻量监督状态；每局事实仍落在 SQLite。
         self._series_tasks: Dict[str, asyncio.Task] = {}
         self._series_current: Dict[str, str] = {}
         self._series_stop_requested: set[str] = set()
-        # 写保护锁(JSON 文件并发写)
-        self._lock = asyncio.Lock()
-        # 确保存储目录存在
-        _STORAGE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        # SQLite 持久化(替代单文件 games.json 的全量读写)。
+        # DB 路径由 _STORAGE_PATH 推导,测试 monkeypatch _STORAGE_PATH 即可隔离。
+        db_path = _STORAGE_PATH.with_suffix(".db")
+        first_run = not db_path.exists()
+        self._store = SQLiteGameStore(db_path)
+        # 一次性迁移: 仅在首次初始化(DB 文件尚不存在)且旧 games.json 存在时导入,
+        # 避免「对局被删光后重启又把旧 JSON 复活」的边缘情况。
+        if first_run and _STORAGE_PATH.exists():
+            migrated = self._store.migrate_from_json(_STORAGE_PATH)
+            if migrated:
+                print(f"🔄 已从 games.json 迁移 {migrated} 条记录到 SQLite")
 
     async def reconcile_interrupted_games(self) -> int:
         """将上个后端进程遗留的非终局记录标为错误。"""
-        async with self._lock:
-            records = self._load_all()
-            interrupted = 0
-            backfilled = 0
-            interrupted_series = set()
-            for record in records:
-                if record.get("status") in {"initialized", "running", "paused"}:
-                    record.update(
-                        status="error",
-                        completed_at=_now_iso(),
-                        reason="后端进程已重启，对局无法恢复",
+        records = self._load_all()
+        interrupted = 0
+        backfilled = 0
+        interrupted_series = set()
+        changed: Dict[str, Dict] = {}
+        for record in records:
+            if record.get("status") in {"initialized", "running", "paused"}:
+                record.update(
+                    status="error",
+                    completed_at=_now_iso(),
+                    reason="后端进程已重启，对局无法恢复",
+                )
+                interrupted += 1
+                changed[record["game_id"]] = record
+                if record.get("series_total_games") and record.get("series_id"):
+                    interrupted_series.add(record["series_id"])
+            elif record.get("status") == "completed" and (
+                not record.get("quality_report") or not record.get("behavior_report")
+            ):
+                # ponytail: 历史报告只在首次升级启动时线性回填；达到数千局后再做迁移脚本。
+                events = self.get_events(record.get("game_id", "")) or []
+                report = record.get("quality_report") or self._build_quality_for_record(
+                    record, events,
+                )
+                modified = False
+                if report and not record.get("quality_report"):
+                    record["quality_report"] = report
+                    modified = True
+                if events and not record.get("behavior_report"):
+                    record["behavior_report"] = build_behavior_report(
+                        events=events,
+                        role_assignment=record.get("role_assignment", {}),
+                        quality_report=report,
                     )
-                    interrupted += 1
-                    if record.get("series_total_games") and record.get("series_id"):
-                        interrupted_series.add(record["series_id"])
-                elif record.get("status") == "completed" and (
-                    not record.get("quality_report") or not record.get("behavior_report")
-                ):
-                    # ponytail: 历史报告只在首次升级启动时线性回填；达到数千局后再做迁移脚本。
-                    events = self.get_events(record.get("game_id", "")) or []
-                    report = record.get("quality_report") or self._build_quality_for_record(
-                        record, events,
-                    )
-                    changed = False
-                    if report and not record.get("quality_report"):
-                        record["quality_report"] = report
-                        changed = True
-                    if events and not record.get("behavior_report"):
-                        record["behavior_report"] = build_behavior_report(
-                            events=events,
-                            role_assignment=record.get("role_assignment", {}),
-                            quality_report=report,
-                        )
-                        changed = True
-                    if changed:
-                        backfilled += 1
-            for record in records:
-                if record.get("series_id") in interrupted_series:
-                    record.update(
-                        series_status="error",
-                        series_stop_reason="后端进程已重启，系列赛无法自动恢复",
-                    )
-            if interrupted or backfilled:
-                self._write_all(records)
-            return interrupted
+                    modified = True
+                if modified:
+                    backfilled += 1
+                    changed[record["game_id"]] = record
+        for record in records:
+            if record.get("series_id") in interrupted_series:
+                record.update(
+                    series_status="error",
+                    series_stop_reason="后端进程已重启，系列赛无法自动恢复",
+                )
+                changed[record["game_id"]] = record
+        if changed:
+            await asyncio.to_thread(self._store.save_many, list(changed.values()))
+        return interrupted
 
     # ------------------------------------------------------------------
     # 创建游戏
@@ -734,14 +745,16 @@ class GameManager:
         return self.get_series(series_id)
 
     async def _mark_series(self, series_id: str, *, status: str, reason: str = ""):
-        async with self._lock:
-            records = self._load_all()
-            for record in records:
-                if record.get("series_id") == series_id:
-                    record["series_status"] = status
-                    if reason:
-                        record["series_stop_reason"] = reason
-            self._write_all(records)
+        records = self._load_all()
+        changed = []
+        for record in records:
+            if record.get("series_id") == series_id:
+                record["series_status"] = status
+                if reason:
+                    record["series_stop_reason"] = reason
+                changed.append(record)
+        if changed:
+            await asyncio.to_thread(self._store.save_many, changed)
 
     def _series_usage(self, series_id: str) -> Tuple[int, float]:
         tokens = 0
@@ -1362,55 +1375,31 @@ class GameManager:
         }
 
     # ------------------------------------------------------------------
-    # JSON 持久化(简单实现,数据量小)
+    # 持久化(SQLite;写操作经 asyncio.to_thread 移出事件循环)
     # ------------------------------------------------------------------
     def _load_all(self) -> List[Dict]:
-        """读取全部记录。文件不存在返回空列表。"""
-        if not _STORAGE_PATH.exists():
-            return []
-        try:
-            with open(_STORAGE_PATH, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, OSError):
-            return []
+        """读取全部记录(按插入顺序)。"""
+        return self._store.load_all()
 
     def _load_record(self, game_id: str) -> Optional[Dict]:
-        for r in self._load_all():
-            if r.get("game_id") == game_id:
-                return r
-        return None
+        """按主键读取单条记录。"""
+        return self._store.load_record(game_id)
 
     async def _save_record(self, record: Dict):
         """新增一条记录。"""
-        async with self._lock:
-            records = self._load_all()
-            records.append(record)
-            self._write_all(records)
+        await asyncio.to_thread(self._store.save_record, record)
 
     async def _update_status(self, game_id: str, **fields):
         """更新某条记录的部分字段。"""
-        async with self._lock:
-            records = self._load_all()
-            for r in records:
-                if r.get("game_id") == game_id:
-                    r.update(fields)
-                    break
-            self._write_all(records)
+        await asyncio.to_thread(self._store.update_record, game_id, fields)
 
     async def _delete_record(self, game_id: str) -> bool:
-        async with self._lock:
-            records = self._load_all()
-            before = len(records)
-            records = [r for r in records if r.get("game_id") != game_id]
-            self._write_all(records)
-            return len(records) < before
+        """删除单条记录。"""
+        return await asyncio.to_thread(self._store.delete_record, game_id)
 
     def _write_all(self, records: List[Dict]):
-        """同步写文件(在 _lock 保护下调用)。"""
-        tmp = _STORAGE_PATH.with_suffix(".tmp")
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(records, f, ensure_ascii=False, indent=2)
-        tmp.replace(_STORAGE_PATH)
+        """用给定记录整体替换存储(兼容旧接口;测试与历史路径使用)。"""
+        self._store.replace_all(records)
 
 
 def _now_iso() -> str:

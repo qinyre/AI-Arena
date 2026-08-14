@@ -146,7 +146,7 @@ Backend    Python 3.11 + FastAPI
                        ▼
            ModelClient      OpenAI-compatible + Anthropic dual protocol
 
-Persistence   backend/data/*.json (event streams + indexes)
+Persistence   backend/data/games.db (SQLite game records) + backend/data/game-*_events.json (event streams)
 ```
 
 ### Key design
@@ -166,7 +166,7 @@ backend/
 │   └── llm/          # ModelClient abstraction + OpenAI/Claude impls + registry
 ├── config/models.yaml   # provider & model list (single source of truth)
 ├── scripts/          # batch sim / smoke test / behavior eval (simulate_boards / smoke_boards / evaluate_ai_scenarios)
-└── data/             # runtime game data (gitignored)
+└── data/             # runtime game data: games.db (SQLite records) + game-*_events.json (event streams), gitignored
 
 frontend/
 ├── src/

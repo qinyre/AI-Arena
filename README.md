@@ -146,7 +146,7 @@ npm run dev
                     ▼
         ModelClient  OpenAI 兼容 + Anthropic 双协议
 
-数据持久化   backend/data/*.json（事件流 + 索引）
+数据持久化   backend/data/games.db（SQLite 对局记录） + backend/data/game-*_events.json（事件流）
 ```
 
 ### 关键设计
@@ -166,7 +166,7 @@ backend/
 │   └── llm/          # ModelClient 抽象 + OpenAI/Claude 实现 + registry
 ├── config/models.yaml   # provider & 模型清单(单一数据源)
 ├── scripts/          # 批量模拟 / 冒烟 / 行为评测(simulate_boards / smoke_boards / evaluate_ai_scenarios)
-└── data/             # 运行时对局数据(.gitignore 忽略)
+└── data/             # 运行时对局数据: games.db(SQLite 记录) + game-*_events.json(事件流),.gitignore 忽略
 
 frontend/
 ├── src/
